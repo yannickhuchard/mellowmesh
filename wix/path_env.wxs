@@ -1,0 +1,25 @@
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="PathEnvVar" Guid="9912edca-bcc2-5c10-b20c-1875a98a5abc" KeyPath="yes">
+        <Environment Id="PATH" 
+                     Name="PATH" 
+                     Value="[INSTALLDIR]" 
+                     Permanent="no" 
+                     Part="last" 
+                     Action="set" 
+                     System="yes" />
+      </Component>
+
+      <Component Id="ProtocolHandler" Guid="8c12edca-acc2-4c10-a20c-1875a98a5def" KeyPath="no">
+        <RegistryKey Root="HKLM" Key="Software\Classes\mellowmesh">
+          <RegistryValue Value="URL:mellowmesh Protocol" Type="string" KeyPath="yes" />
+          <RegistryValue Name="URL Protocol" Value="" Type="string" />
+          <RegistryKey Key="shell\open\command">
+            <RegistryValue Value="&quot;[INSTALLDIR]mellowmesh.exe&quot; &quot;%1&quot;" Type="string" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

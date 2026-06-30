@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mellowmesh-core",
+    "crates/mellowmesh-store",
+    "crates/mellowmesh-client",
+    "crates/mellowmesh-daemon",
+    "crates/mellowmesh-cli",
+    "crates/mellowmesh-bench",
+    "crates/mellowmesh-connectors",
+    "crates/mellowmesh-wasm"
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Yannick Huchard"]
+repository = "https://github.com/mellowmesh/mellowmesh"
+homepage = "https://github.com/mellowmesh/mellowmesh"
+readme = "README.md"

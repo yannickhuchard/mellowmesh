@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>MellowMesh // Brand Presentation Deck</title>
+    <!-- GSAP Animation Library -->
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        /* Brand Colors */
+        --bg-color: #0b0f19;                  /* Obsidian Dark */
+        --card-bg: rgba(22, 28, 45, 0.65);    /* Dark Translucent Slate */
+        --card-border: rgba(255, 255, 255, 0.08); /* Glassmorphism border */
+        
+        --primary: #6366f1;                   /* Primary Indigo */
+        --primary-glow: rgba(99, 102, 241, 0.2);
+        --accent-cyan: #06b6d4;               /* Secondary Cyan */
+        --accent-pink: #ec4899;               /* Accent Pink (Pain / Silo) */
+        --accent-amber: #f59e0b;              /* Accent Amber (Warning / Process) */
+        --accent-emerald: #10b981;            /* Accent Emerald (Success / Core) */
+        
+        --text-color: #f3f4f6;                /* Off-white */
+        --text-muted: #9ca3af;                /* Muted Gray */
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html, body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        /* Outfit and JetBrains Mono are pre-bundled in the Hyperframes compiler. */
+        font-family: 'Outfit', sans-serif;
+      }
+
+      /* Background Grid and Atmosphere */
+      .bg-container {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .bg-grid {
+        position: absolute;
+        inset: 0;
+        background-size: 80px 80px;
+        background-image: 
+          linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      }
+
+      .bg-glow-1 {
+        position: absolute;
+        top: -15%;
+        left: -15%;
+        width: 70%;
+        height: 70%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+      }
+
+      .bg-glow-2 {
+        position: absolute;
+        bottom: -20%;
+        right: -10%;
+        width: 75%;
+        height: 75%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(6, 182, 212, 0.10) 0%, transparent 70%);
+      }
+
+      .bg-vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at center, transparent 40%, rgba(5, 7, 12, 0.75) 100%);
+      }
+
+      /* Slide Scene Container (No z-index here, managed by tracks) */
+      .scene-container {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+
+      /* Timed Slide Section */
+      .slide-section {
+        position: absolute;
+        inset: 0;
+        padding: 120px 160px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        box-sizing: border-box;
+      }
+
+      /* Typography */
+      h1, h2, h3, h4 {
+        font-family: 'Outfit', sans-serif;
+        color: #ffffff;
+      }
+
+      p {
+        font-family: 'Outfit', sans-serif;
+      }
+
+      code, pre, .terminal-window {
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      /* Badges & Pills */
+      .badge {
+        display: inline-block;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(6, 182, 212, 0.15));
+        border: 1.5px solid var(--card-border);
+        padding: 10px 24px;
+        border-radius: 30px;
+        font-size: 16px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        color: #a5b4fc;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      }
+
+      /* Glassmorphism Cards */
+      .glass-card {
+        background-color: var(--card-bg);
+        border: 1.5px solid var(--card-border);
+        backdrop-filter: blur(20px);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        transition: border-color 0.4s, box-shadow 0.4s;
+      }
+
+      /* Card glows based on brand colors */
+      .glass-card.red { border-color: rgba(236, 72, 153, 0.15); }
+      .glass-card.emerald { border-color: rgba(16, 185, 129, 0.15); }
+      .glass-card.cyan { border-color: rgba(6, 182, 212, 0.15); }
+      .glass-card.indigo { border-color: rgba(99, 102, 241, 0.15); }
+
+      /* Tabular Numbers */
+      .stats-value {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Custom CTA button */
+      .cta-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 20px 40px rgba(99, 102, 241, 0.5);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Root Composition Wrapper (Must be first element inside body) -->
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="64"
+      style="position: relative; width: 1920px; height: 1080px; overflow: hidden;"
+    >
+      <!-- Background Layer (Constant, placed inside root) -->
+      <div class="bg-container">
+        <div class="bg-grid"></div>
+        <div class="bg-glow-1"></div>
+        <div class="bg-glow-2"></div>
+        <div class="bg-vignette"></div>
+      </div>
+
+      <!-- Slideshow JSON Island Manifest -->
+      <script type="application/hyperframes-slideshow+json">
+        {
+          "slides": [
+            {
+              "sceneId": "main",
+              "startTime": 0,
+              "endTime": 8,
+              "notes": "Start with a strong visual and the core value proposition. Focus on 'coordination fabric'."
+            },
+            {
+              "sceneId": "main",
+              "startTime": 8,
+              "endTime": 16,
+              "notes": "Explain the friction: why current developer tools and agents fail to work together. Stagger each card on keypress.",
+              "fragments": [10.0, 12.0, 14.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 16,
+              "endTime": 24,
+              "notes": "Introduce the solution: the permanent coordination fabric. Explain local-first, wildcard pub/sub, and governance.",
+              "fragments": [18.0, 20.0, 22.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 24,
+              "endTime": 32,
+              "notes": "Explain network scaling across Local, Intranet LAN, and Global WAN networks.",
+              "fragments": [26.0, 28.0, 30.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 32,
+              "endTime": 40,
+              "notes": "Walk through Use Case 1: Software engineering cross-team coding, testing, and deployment.",
+              "fragments": [34.0, 36.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 40,
+              "endTime": 48,
+              "notes": "Walk through Use Case 2: DevOps incident alert, automated debugging, and human approval.",
+              "fragments": [42.0, 44.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 48,
+              "endTime": 56,
+              "notes": "Walk through a live collaboration loop on the Mesh. Click to animate connections.",
+              "fragments": [50.0, 52.0]
+            },
+            {
+              "sceneId": "main",
+              "startTime": 56,
+              "endTime": 64,
+              "notes": "Close with developer commands and a call to action. Prompt the user to run mellowmesh init."
+            }
+          ]
+        }
+      </script>
+
+      <!-- Slide 1: Hero & Vision (0.0s - 8.0s) -->
+      <section id="hero-section" class="clip slide-section" data-start="0" data-duration="8" data-track-index="1" style="align-items: center; text-align: center; z-index: 10;">
+        <div id="hero-content" style="display: flex; flex-direction: column; align-items: center;">
+          <img class="logo-graphic" src="assets/logo.png" alt="MellowMesh Logo" style="width: 180px; height: 180px; border-radius: 44px; box-shadow: 0 0 50px rgba(99, 102, 241, 0.4), 0 0 100px rgba(6, 182, 212, 0.2); margin-bottom: 30px;" />
+          <div class="badge" style="margin-bottom: 20px;">Distributed & Local Coordination</div>
+          <h1 style="font-size: 84px; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 15px; line-height: 1.1; color: #ffffff;">Your applications are connected. Why are your AI agents running in isolation?</h1>
+          <p style="font-size: 34px; font-weight: 300; color: #06b6d4; margin-bottom: 30px; letter-spacing: -0.02em;">MellowMesh: The Shared Nervous System for AI Agents.</p>
+          <p style="font-size: 26px; font-weight: 300; color: #9ca3af; max-width: 960px; line-height: 1.5; margin: 0;">Instead of running separate, blind AI assistants, MellowMesh links your agents, developer tools, and humans into a single collaborative workspace. They share memory, coordinate tasks, and solve complex problems together—safely and locally.</p>
+        </div>
+      </section>
+
+      <!-- Slide 2: The Chaos / Pain (8.0s - 16.0s) -->
+      <section id="pain-section" class="clip slide-section" data-start="8" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="pain-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">The Problem: Isolated Brilliance</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #ec4899; margin: 15px 0 50px 0;">Why today's AI agents struggle to work as a team:</p>
+          
+          <div style="display: grid; grid-template-columns: 1.25fr 1fr; gap: 30px; height: 500px; align-items: stretch;">
+            <!-- Tall Card -->
+            <div class="glass-card red" id="slide-2-card-1" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(236, 72, 153, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 56px; margin-bottom: 24px;">🧠</div>
+              <h3 style="font-size: 38px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Siloed Memory</h3>
+              <p style="font-size: 24px; color: #9ca3af; line-height: 1.6; margin: 0;">AI Amnesia. Agents work in isolation with no shared memory. One agent has no idea what the other just did, leading to duplicated work and broken handoffs.</p>
+            </div>
+            
+            <!-- Subgrid (2 rows) -->
+            <div style="display: flex; flex-direction: column; gap: 30px; justify-content: space-between; height: 100%;">
+              <!-- Wide Card 1 -->
+              <div class="glass-card red" id="slide-2-card-2" style="flex: 1; display: flex; align-items: center; gap: 32px; padding: 36px 40px; border-radius: 20px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -20%; right: -10%; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, rgba(236, 72, 153, 0.1) 0%, transparent 70%);" data-layout-allow-overflow></div>
+                <div style="font-size: 48px; flex-shrink: 0;">💬</div>
+                <div>
+                  <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 8px;">Transient Channels</h3>
+                  <p style="font-size: 22px; color: #9ca3af; line-height: 1.5; margin: 0;">Lost in the Noise. Instructions get buried in Slack threads. Critical task states and parameters vanish into the scroll, leaving agents confused about what's next.</p>
+                </div>
+              </div>
+              
+              <!-- Wide Card 2 -->
+              <div class="glass-card red" id="slide-2-card-3" style="flex: 1; display: flex; align-items: center; gap: 32px; padding: 36px 40px; border-radius: 20px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -20%; right: -10%; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, rgba(236, 72, 153, 0.1) 0%, transparent 70%);" data-layout-allow-overflow></div>
+                <div style="font-size: 48px; flex-shrink: 0;">🛡️</div>
+                <div>
+                  <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 8px;">Blind Execution</h3>
+                  <p style="font-size: 22px; color: #9ca3af; line-height: 1.5; margin: 0;">Unsupervised Access. Agents run terminal commands and edit files directly in the dark. Without safety rails or human oversight, a single AI error can break production.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 3: The Solution (16.0s - 24.0s) -->
+      <section id="solution-section" class="clip slide-section" data-start="16" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="solution-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">The Solution: MellowMesh</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #10b981; margin: 15px 0 50px 0;">A secure, local-first nervous system for intelligent workflows:</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1.25fr; gap: 30px; height: 500px; align-items: stretch;">
+            <!-- Subgrid (2 rows) -->
+            <div style="display: flex; flex-direction: column; gap: 30px; justify-content: space-between; height: 100%;">
+              <!-- Wide Card 1 -->
+              <div class="glass-card emerald" id="slide-3-card-1" style="flex: 1; display: flex; align-items: center; gap: 32px; padding: 36px 40px; border-radius: 20px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -20%; right: -10%; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%);" data-layout-allow-overflow></div>
+                <div style="font-size: 48px; flex-shrink: 0;">🌐</div>
+                <div>
+                  <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 8px;">Local-First, Network-Scale</h3>
+                  <p style="font-size: 22px; color: #9ca3af; line-height: 1.5; margin: 0;">Distributed Ready. MellowMesh runs locally for speed and privacy, but scales peer-to-peer. Connect agents across local projects, enterprise networks, or the global internet.</p>
+                </div>
+              </div>
+              
+              <!-- Wide Card 2 -->
+              <div class="glass-card cyan" id="slide-3-card-2" style="flex: 1; display: flex; align-items: center; gap: 32px; padding: 36px 40px; border-radius: 20px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -20%; right: -10%; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, rgba(6, 182, 212, 0.1) 0%, transparent 70%);" data-layout-allow-overflow></div>
+                <div style="font-size: 48px; flex-shrink: 0;">⚡</div>
+                <div>
+                  <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 8px;">Real-Time Smart Routing</h3>
+                  <p style="font-size: 22px; color: #9ca3af; line-height: 1.5; margin: 0;">The Collaboration Fabric. Instantly route tasks between local developer terminals, enterprise tools (like Slack or Teams), and remote cloud agents over secure event networks.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tall Card -->
+            <div class="glass-card indigo" id="slide-3-card-3" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 56px; margin-bottom: 24px;">⚖️</div>
+              <h3 style="font-size: 38px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Absolute Human Control</h3>
+              <p style="font-size: 24px; color: #9ca3af; line-height: 1.6; margin: 0;">Safety-First Governance. AI agents propose actions—like code edits or terminal commands—but cannot execute them alone. You review the changes and approve them with one click.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 4: Network Scale (24.0s - 32.0s) -->
+      <section id="network-section" class="clip slide-section" data-start="24" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="network-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">Distributed Network Scale</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #06b6d4; margin: 15px 0 50px 0;">Seamless coordination across machines, offices, and clouds:</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; height: 500px; align-items: stretch;">
+            <!-- Card 1 -->
+            <div class="glass-card emerald" id="slide-4-card-1" style="display: flex; flex-direction: column; justify-content: center; padding: 40px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 56px; margin-bottom: 24px;">💻</div>
+              <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Local Loop</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">Binds securely to localhost. Your code context, API keys, and database stay completely private on your development machine.</p>
+            </div>
+            
+            <!-- Card 2 -->
+            <div class="glass-card cyan" id="slide-4-card-2" style="display: flex; flex-direction: column; justify-content: center; padding: 40px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 56px; margin-bottom: 24px;">🏢</div>
+              <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Enterprise Intranet</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">Auto-discovers other nodes on your office network. Connect developer machines, local models, and team dashboards securely.</p>
+            </div>
+            
+            <!-- Card 3 -->
+            <div class="glass-card indigo" id="slide-4-card-3" style="display: flex; flex-direction: column; justify-content: center; padding: 40px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 56px; margin-bottom: 24px;">☁️</div>
+              <h3 style="font-size: 32px; font-weight: 600; color: #ffffff; margin-bottom: 16px;">Global WAN</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">Relays messages peer-to-peer or via secure cloud relays. Connect remote developers, cloud runtimes, and external webhooks over the internet.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 5: Use Case 1 (32.0s - 40.0s) -->
+      <section id="uc1-section" class="clip slide-section" data-start="32" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="uc1-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">Use Case: Hybrid Software Teams</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #10b981; margin: 15px 0 50px 0;">Bridging local coding with distributed verification & release:</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; height: 500px; align-items: stretch;">
+            <!-- Column 1 -->
+            <div class="glass-card indigo" id="slide-5-card-1" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 48px; margin-bottom: 20px;">👨‍💻</div>
+              <h3 style="font-size: 36px; font-weight: 600; color: #ffffff; margin-bottom: 12px;">1. Local Iteration</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">A developer makes a change in their local IDE. MellowMesh detects the file edit and immediately broadcasts a test request event to the network.</p>
+            </div>
+            
+            <!-- Column 2 -->
+            <div class="glass-card cyan" id="slide-5-card-2" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 48px; margin-bottom: 20px;">🛡️</div>
+              <h3 style="font-size: 36px; font-weight: 600; color: #ffffff; margin-bottom: 12px;">2. Cloud Verification & Deploy</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">A remote test agent claims the request, spins up containers, and runs tests. It posts a diff to Slack. The developer reviews the results, clicks approve, and MellowMesh deploys the changes.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 6: Use Case 2 (40.0s - 48.0s) -->
+      <section id="uc2-section" class="clip slide-section" data-start="40" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="uc2-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">Use Case: Automated Incident Response</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #ec4899; margin: 15px 0 50px 0;">Orchestrating monitoring and self-healing across the mesh:</p>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; height: 500px; align-items: stretch;">
+            <!-- Column 1 -->
+            <div class="glass-card red" id="slide-6-card-1" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(236, 72, 153, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 48px; margin-bottom: 20px;">🚨</div>
+              <h3 style="font-size: 36px; font-weight: 600; color: #ffffff; margin-bottom: 12px;">1. The Alert</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">A remote server encounters an error. An incident event is published to `incidents.alert`. MellowMesh routes it instantly to a local Monitoring Agent.</p>
+            </div>
+            
+            <!-- Column 2 -->
+            <div class="glass-card emerald" id="slide-6-card-2" style="display: flex; flex-direction: column; justify-content: center; padding: 48px; border-radius: 20px; position: relative; overflow: hidden;">
+              <div style="position: absolute; top: -30%; right: -30%; width: 250px; height: 250px; border-radius: 50%; background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);" data-layout-allow-overflow></div>
+              <div style="font-size: 48px; margin-bottom: 20px;">🔧</div>
+              <h3 style="font-size: 36px; font-weight: 600; color: #ffffff; margin-bottom: 12px;">2. Automated Repair</h3>
+              <p style="font-size: 22px; color: #9ca3af; line-height: 1.6; margin: 0;">The local Debug Agent pulls logs, writes a fix, and creates a pull request. The developer receives a notification, inspects the proposed patch, and approves the fix with one click.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 7: Interactive Flowchart (48.0s - 56.0s) -->
+      <section id="flowchart-section" class="clip slide-section" data-start="48" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="flowchart-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">How It Works: The Team in Action</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #06b6d4; margin: 15px 0 60px 0;">Watch a single request spark a secure, automated collaboration:</p>
+          
+          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; height: 350px;">
+            <!-- Node 1 -->
+            <div class="glass-card amber" id="slide-4-node-1" style="flex: 1; min-width: 230px; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 20px; border-radius: 16px;">
+              <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(245, 158, 11, 0.1); border: 2px solid var(--accent-amber); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);">👤</div>
+              <h4 style="font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">Your Goal</h4>
+              <p style="font-size: 18px; color: #9ca3af; margin: 0; line-height: 1.3;">Ask for a feature<br>(e.g., 'deploy login')</p>
+            </div>
+            
+            <!-- Connection 1 -->
+            <div class="flowchart-line" id="slide-4-line-1" style="width: 50px; height: 4px; background: linear-gradient(to right, var(--accent-amber), var(--primary)); transform-origin: left center; border-radius: 2px;"></div>
+            
+            <!-- Node 2 -->
+            <div class="glass-card indigo" id="slide-4-node-2" style="flex: 1; min-width: 230px; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 20px; border-radius: 16px;">
+              <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(99, 102, 241, 0.1); border: 2px solid var(--primary); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);">🧠</div>
+              <h4 style="font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">The Planner</h4>
+              <p style="font-size: 18px; color: #9ca3af; margin: 0; line-height: 1.3;">Breaks task down<br>and schedules work</p>
+            </div>
+            
+            <!-- Connection 2 -->
+            <div class="flowchart-line" id="slide-4-line-2" style="width: 50px; height: 4px; background: linear-gradient(to right, var(--primary), var(--accent-cyan)); transform-origin: left center; border-radius: 2px;"></div>
+            
+            <!-- Node 3 -->
+            <div class="glass-card cyan" id="slide-4-node-3" style="flex: 1; min-width: 230px; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 20px; border-radius: 16px;">
+              <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(6, 182, 212, 0.1); border: 2px solid var(--accent-cyan); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);">💻</div>
+              <h4 style="font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">The Coder</h4>
+              <p style="font-size: 18px; color: #9ca3af; margin: 0; line-height: 1.3;">Writes the code<br>and proposes edits</p>
+            </div>
+            
+            <!-- Connection 3 -->
+            <div class="flowchart-line" id="slide-4-line-3" style="width: 50px; height: 4px; background: linear-gradient(to right, var(--accent-cyan), var(--accent-pink)); transform-origin: left center; border-radius: 2px;"></div>
+            
+            <!-- Node 4 -->
+            <div class="glass-card pink" id="slide-4-node-4" style="flex: 1; min-width: 230px; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 20px; border-radius: 16px;">
+              <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(236, 72, 153, 0.1); border: 2px solid var(--accent-pink); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(236, 72, 153, 0.3);">🛡️</div>
+              <h4 style="font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">Safety Gate</h4>
+              <p style="font-size: 18px; color: #9ca3af; margin: 0; line-height: 1.3;">You review code diff<br>and click 'Approve'</p>
+            </div>
+            
+            <!-- Connection 4 -->
+            <div class="flowchart-line" id="slide-4-line-4" style="width: 50px; height: 4px; background: linear-gradient(to right, var(--accent-pink), var(--accent-emerald)); transform-origin: left center; border-radius: 2px;"></div>
+            
+            <!-- Node 5 -->
+            <div class="glass-card emerald" id="slide-4-node-5" style="flex: 1; min-width: 230px; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 30px 20px; border-radius: 16px;">
+              <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(16, 185, 129, 0.1); border: 2px solid var(--accent-emerald); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 16px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);">✓</div>
+              <h4 style="font-size: 24px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">Goal Achieved</h4>
+              <p style="font-size: 18px; color: #9ca3af; margin: 0; line-height: 1.3;">System deploys<br>verified code safely</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 8: CTA / CLI (56.0s - 64.0s) -->
+      <section id="cta-section" class="clip slide-section" data-start="56" data-duration="8" data-track-index="1" style="z-index: 10;">
+        <div id="cta-content" style="width: 100%; display: flex; flex-direction: column;">
+          <h2 style="font-size: 72px; font-weight: 800; letter-spacing: -0.03em; color: #ffffff; margin: 0;">Bring Order to the AI Chaos</h2>
+          <p style="font-size: 32px; font-weight: 300; color: #a5b4fc; margin: 15px 0 50px 0;">Deploy your local coordination mesh in less than a minute.</p>
+          
+          <div style="display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 60px; align-items: center; height: 420px;">
+            <!-- Terminal Window -->
+            <div class="terminal-window" id="cta-terminal" style="background-color: #05070c; border: 2px solid rgba(255,255,255,0.08); border-radius: 16px; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6); overflow: hidden; display: flex; flex-direction: column; height: 100%;">
+              <div style="background-color: #0b0f19; padding: 16px 24px; border-bottom: 2px solid rgba(255,255,255,0.08); display: flex; align-items: center; gap: 10px;">
+                <span style="width: 14px; height: 14px; border-radius: 50%; background-color: var(--accent-pink);"></span>
+                <span style="width: 14px; height: 14px; border-radius: 50%; background-color: var(--accent-amber);"></span>
+                <span style="width: 14px; height: 14px; border-radius: 50%; background-color: var(--accent-emerald);"></span>
+                <span style="font-size: 16px; color: var(--text-muted); margin-left: 10px; font-weight: 600;">powershell — mellowmesh init</span>
+              </div>
+              <div style="padding: 36px; font-size: 22px; line-height: 1.6; color: #a5b4fc; flex-grow: 1;">
+                <div style="margin-bottom: 16px;">
+                  <span style="color: #9ca3af;"># 1. Initialize MellowMesh in your project</span><br>
+                  <span style="color: var(--accent-cyan);">PS D:\&gt;</span> <span id="terminal-cmd-1" style="color: #ffffff;">npx mellowmesh init</span>
+                </div>
+                <div style="margin-bottom: 24px;">
+                  <span style="color: #9ca3af;"># 2. Start the local daemon & connect tools</span><br>
+                  <span style="color: var(--accent-cyan);">PS D:\&gt;</span> <span id="terminal-cmd-2" style="color: #ffffff;">mellowmesh start</span>
+                </div>
+                <div id="terminal-output-1" style="color: var(--accent-emerald); font-weight: 600; opacity: 0; margin-top: 10px;">
+                  ✓ Daemon active on 127.0.0.1:40000
+                </div>
+                <div id="terminal-output-2" style="color: var(--accent-emerald); font-weight: 600; opacity: 0;">
+                  ✓ Secure coordination fabric initialized
+                </div>
+              </div>
+            </div>
+            
+            <!-- Right Column -->
+            <div id="cta-right" style="display: flex; flex-direction: column; gap: 40px; justify-content: center; height: 100%;">
+              <button class="cta-btn" style="background: linear-gradient(135deg, var(--primary), var(--accent-cyan)); border: none; padding: 24px 54px; border-radius: 36px; color: white; font-size: 28px; font-weight: 600; cursor: pointer; box-shadow: 0 15px 35px rgba(99, 102, 241, 0.4); display: flex; align-items: center; gap: 16px; text-transform: uppercase; letter-spacing: 2px; align-self: flex-start; transition: transform 0.2s, box-shadow 0.2s;">
+                Start Coordinating <span style="font-size: 32px;">→</span>
+              </button>
+              
+              <!-- Stats -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; border-top: 2px solid rgba(255,255,255,0.06); padding-top: 30px;">
+                <div>
+                  <div style="font-size: 16px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">Daemon Status</div>
+                  <div style="font-size: 24px; font-weight: 600; color: var(--accent-emerald); display: flex; align-items: center; gap: 10px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background-color: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald);"></span>
+                    Active & Secured
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size: 16px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">Latency</div>
+                  <div class="stats-value" style="font-size: 24px; font-weight: 600; color: #ffffff;">&lt; 1.0 ms</div>
+                </div>
+                <div>
+                  <div style="font-size: 16px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">Mesh Scope</div>
+                  <div style="font-size: 24px; font-weight: 600; color: #ffffff;">Local / LAN / WAN</div>
+                </div>
+                <div>
+                  <div style="font-size: 16px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">Port</div>
+                  <div class="stats-value" style="font-size: 24px; font-weight: 600; color: #ffffff;">40000</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- GSAP Timelines Registration -->
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // Register the main root timeline
+      const mainTl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = mainTl;
+
+      // ==================== SLIDE 1 (hero): 0.0s - 8.0s ====================
+      mainTl.set("#hero-content", { display: "flex" }, 0.00);
+      mainTl.from("#hero-content", { y: 40, opacity: 0, duration: 1.2, ease: "power4.out" }, 0.2);
+      mainTl.from("#hero-content .logo-graphic", { scale: 0.7, duration: 1.2, ease: "back.out(1.4)" }, 0.2);
+      mainTl.from("#hero-content .badge", { scale: 0.9, opacity: 0, duration: 0.8, ease: "power2.out" }, 0.5);
+      mainTl.from("#hero-content h1", { y: 20, opacity: 0, duration: 1.0, ease: "power3.out" }, 0.7);
+      mainTl.from("#hero-content p:nth-of-type(1)", { y: 15, opacity: 0, duration: 1.0, ease: "power2.out" }, 0.9);
+      mainTl.from("#hero-content p:nth-of-type(2)", { y: 15, opacity: 0, duration: 1.0, ease: "power2.out" }, 1.1);
+      // Exit transition
+      mainTl.to("#hero-content", { opacity: 0, scale: 0.95, duration: 0.6, ease: "power2.in" }, 7.4);
+      mainTl.set("#hero-content", { opacity: 0, display: "none" }, 8.00);
+
+      // ==================== SLIDE 2 (pain): 8.0s - 16.0s ====================
+      mainTl.set("#pain-content", { display: "flex" }, 8.00);
+      mainTl.from("#pain-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 8.2);
+      mainTl.from("#pain-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 8.4);
+      // Fragment reveals (absolute timeline coordinates matching JSON island)
+      mainTl.from("#slide-2-card-1", { y: 40, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 10.0);
+      mainTl.from("#slide-2-card-2", { x: 30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 12.0);
+      mainTl.from("#slide-2-card-3", { x: 30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 14.0);
+      // Exit transition
+      mainTl.to("#pain-content", { opacity: 0, y: -40, duration: 0.6, ease: "power2.in" }, 15.4);
+      mainTl.set("#pain-content", { opacity: 0, display: "none" }, 16.00);
+
+      // ==================== SLIDE 3 (solution): 16.0s - 24.0s ====================
+      mainTl.set("#solution-content", { display: "flex" }, 16.00);
+      mainTl.from("#solution-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 16.2);
+      mainTl.from("#solution-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 16.4);
+      // Fragment reveals (absolute timeline coordinates matching JSON island)
+      mainTl.from("#slide-3-card-1", { x: -30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 18.0);
+      mainTl.from("#slide-3-card-2", { x: -30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 20.0);
+      mainTl.from("#slide-3-card-3", { y: 40, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 22.0);
+      // Exit transition
+      mainTl.to("#solution-content", { opacity: 0, scale: 0.95, duration: 0.6, ease: "power2.in" }, 23.4);
+      mainTl.set("#solution-content", { opacity: 0, display: "none" }, 24.00);
+
+      // ==================== SLIDE 4 (network scale): 24.0s - 32.0s ====================
+      mainTl.set("#network-content", { display: "flex" }, 24.00);
+      mainTl.from("#network-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 24.2);
+      mainTl.from("#network-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 24.4);
+      // Fragment reveals (absolute timeline coordinates matching JSON island)
+      mainTl.from("#slide-4-card-1", { y: 40, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 26.0);
+      mainTl.from("#slide-4-card-2", { y: 40, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 28.0);
+      mainTl.from("#slide-4-card-3", { y: 40, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 30.0);
+      // Exit transition
+      mainTl.to("#network-content", { opacity: 0, scale: 0.95, duration: 0.6, ease: "power2.in" }, 31.4);
+      mainTl.set("#network-content", { opacity: 0, display: "none" }, 32.00);
+
+      // ==================== SLIDE 5 (use case 1): 32.0s - 40.0s ====================
+      mainTl.set("#uc1-content", { display: "flex" }, 32.00);
+      mainTl.from("#uc1-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 32.2);
+      mainTl.from("#uc1-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 32.4);
+      // Fragment reveals (absolute timeline coordinates matching JSON island)
+      mainTl.from("#slide-5-card-1", { x: -30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 34.0);
+      mainTl.from("#slide-5-card-2", { x: 30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 36.0);
+      // Exit transition
+      mainTl.to("#uc1-content", { opacity: 0, scale: 0.95, duration: 0.6, ease: "power2.in" }, 39.4);
+      mainTl.set("#uc1-content", { opacity: 0, display: "none" }, 40.00);
+
+      // ==================== SLIDE 6 (use case 2): 40.0s - 48.0s ====================
+      mainTl.set("#uc2-content", { display: "flex" }, 40.00);
+      mainTl.from("#uc2-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 40.2);
+      mainTl.from("#uc2-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 40.4);
+      // Fragment reveals (absolute timeline coordinates matching JSON island)
+      mainTl.from("#slide-6-card-1", { x: -30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 42.0);
+      mainTl.from("#slide-6-card-2", { x: 30, opacity: 0, duration: 0.7, ease: "back.out(1.2)" }, 44.0);
+      // Exit transition
+      mainTl.to("#uc2-content", { opacity: 0, scale: 0.95, duration: 0.6, ease: "power2.in" }, 47.4);
+      mainTl.set("#uc2-content", { opacity: 0, display: "none" }, 48.00);
+
+      // ==================== SLIDE 7 (flowchart): 48.0s - 56.0s ====================
+      mainTl.set("#flowchart-content", { display: "flex" }, 48.00);
+      mainTl.from("#flowchart-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 48.2);
+      mainTl.from("#flowchart-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 48.4);
+      // Left elements reveal initially
+      mainTl.from("#slide-4-node-1", { scale: 0.8, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 48.6);
+      mainTl.from("#slide-4-line-1", { scaleX: 0, opacity: 0, duration: 0.4, ease: "power1.inOut" }, 49.1);
+      mainTl.from("#slide-4-node-2", { scale: 0.8, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 49.5);
+      // Fragment 1 (at 50.0s) reveals next segment
+      mainTl.from("#slide-4-line-2", { scaleX: 0, opacity: 0, duration: 0.4, ease: "power1.inOut" }, 50.2);
+      mainTl.from("#slide-4-node-3", { scale: 0.8, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 50.6);
+      mainTl.from("#slide-4-line-3", { scaleX: 0, opacity: 0, duration: 0.4, ease: "power1.inOut" }, 51.1);
+      mainTl.from("#slide-4-node-4", { scale: 0.8, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 51.5);
+      // Fragment 2 (at 52.0s) reveals success resolution
+      mainTl.from("#slide-4-line-4", { scaleX: 0, opacity: 0, duration: 0.4, ease: "power1.inOut" }, 52.2);
+      mainTl.from("#slide-4-node-5", { scale: 0.8, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 52.6);
+      // Exit transition
+      mainTl.to("#flowchart-content", { opacity: 0, x: -40, duration: 0.6, ease: "power2.in" }, 55.4);
+      mainTl.set("#flowchart-content", { opacity: 0, display: "none" }, 56.00);
+
+      // ==================== SLIDE 8 (cta): 56.0s - 64.0s ====================
+      mainTl.set("#cta-content", { display: "flex" }, 56.00);
+      mainTl.from("#cta-content h2", { y: 30, opacity: 0, duration: 0.8, ease: "power4.out" }, 56.2);
+      mainTl.from("#cta-content p:nth-of-type(1)", { y: 20, opacity: 0, duration: 0.8, ease: "power2.out" }, 56.4);
+      mainTl.from("#cta-terminal", { x: -40, opacity: 0, duration: 0.8, ease: "power3.out" }, 56.6);
+      mainTl.from("#cta-right", { x: 40, opacity: 0, duration: 0.8, ease: "power3.out" }, 56.8);
+      mainTl.from("#cta-right .cta-btn", { scale: 0.9, opacity: 0, duration: 0.6, ease: "back.out(1.5)" }, 57.2);
+      // Terminal typing / outputs reveals
+      mainTl.from("#terminal-cmd-1", { opacity: 0.1, duration: 0.5 }, 57.6);
+      mainTl.from("#terminal-cmd-2", { opacity: 0.1, duration: 0.5 }, 58.6);
+      mainTl.to("#terminal-output-1", { opacity: 1, duration: 0.4, ease: "power2.out" }, 59.4);
+      mainTl.to("#terminal-output-2", { opacity: 1, duration: 0.4, ease: "power2.out" }, 59.8);
+      // Exit transition
+      mainTl.to("#cta-content", { opacity: 0, duration: 0.8, ease: "power1.inOut" }, 63.0);
+      mainTl.set("#cta-content", { opacity: 0, display: "none" }, 64.00);
+
+      // Ambient glows slow loops (breathing effect)
+      gsap.to(".bg-glow-1", { scale: 1.15, x: 50, y: 50, duration: 10, yoyo: true, repeat: 5, ease: "sine.inOut" });
+      gsap.to(".bg-glow-2", { scale: 0.9, x: -60, y: -40, duration: 12, yoyo: true, repeat: 4, ease: "sine.inOut" });
+    </script>
+  </body>
+</html>

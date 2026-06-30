@@ -1,0 +1,2135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MellowMesh // Core Fabric Dashboard</title>
+    <!-- Google Fonts Outfit & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(22, 28, 45, 0.65);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-glow: rgba(99, 102, 241, 0.15);
+            --accent-cyan: #06b6d4;
+            --accent-pink: #ec4899;
+            --accent-amber: #f59e0b;
+            --accent-emerald: #10b981;
+            --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --shadow-premium: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.05) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(236, 72, 153, 0.05) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--card-border);
+            background: rgba(11, 15, 25, 0.8);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-symbol {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+            animation: pulse-glow 3s infinite alternate;
+        }
+
+        .logo-symbol::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            transform: rotate(45deg);
+            animation: logo-shimmer 4s infinite linear;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            background: linear-gradient(to right, #ffffff, #a5b4fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            border: 1px solid var(--card-border);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-emerald);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-emerald);
+        }
+
+        .status-indicator.connecting {
+            background-color: var(--accent-amber);
+            box-shadow: 0 0 8px var(--accent-amber);
+            animation: pulse-indicator 1s infinite alternate;
+        }
+
+        .status-indicator.disconnected {
+            background-color: var(--accent-pink);
+            box-shadow: 0 0 8px var(--accent-pink);
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 1.5rem;
+            padding: 1.5rem 2rem;
+            flex-grow: 1;
+            max-width: 1600px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        aside {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 1.5rem;
+        }
+
+        .tabs-header {
+            display: flex;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 0.5rem;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-family: var(--font-sans);
+            font-size: 1rem;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-color);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            background: var(--primary-glow);
+            box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.2);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fade-in 0.3s ease forwards;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Card styles */
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-premium);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        h2 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.75rem;
+        }
+
+        /* Form elements */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            color: var(--text-color);
+            font-family: var(--font-sans);
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+            background: rgba(0, 0, 0, 0.4);
+        }
+
+        .btn {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem;
+            font-family: var(--font-sans);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: none;
+        }
+
+        .btn-sm {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            width: auto;
+        }
+
+        /* Message board */
+        .forum-stream {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-height: 700px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .message-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1rem;
+            position: relative;
+            animation: slide-up 0.3s ease forwards;
+        }
+
+        .message-card.highlight {
+            border-left: 3px solid var(--primary);
+        }
+
+        .message-card.mock-discord {
+            border-left: 3px solid #5865f2;
+        }
+
+        .message-card.mock-telegram {
+            border-left: 3px solid #0088cc;
+        }
+
+        .message-card.mock-teams {
+            border-left: 3px solid #6264a7;
+        }
+
+        .msg-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .msg-sender {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .msg-topic {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .msg-body {
+            font-size: 0.9rem;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        .msg-time {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: right;
+            margin-top: 0.4rem;
+        }
+
+        /* Tasks list */
+        .tasks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            max-height: 700px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .task-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .task-card.open {
+            border-top: 3px solid var(--accent-cyan);
+        }
+
+        .task-card.claimed {
+            border-top: 3px solid var(--accent-amber);
+            background: rgba(245, 158, 11, 0.02);
+        }
+
+        .task-card.completed {
+            border-top: 3px solid var(--accent-emerald);
+            background: rgba(16, 185, 129, 0.02);
+            opacity: 0.8;
+        }
+
+        .task-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .task-id {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .task-priority {
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .task-priority.high {
+            background: rgba(236, 72, 153, 0.15);
+            color: var(--accent-pink);
+        }
+
+        .task-priority.medium {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+        }
+
+        .task-priority.low {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--primary);
+        }
+
+        .task-title {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .task-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .task-caps {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .task-cap {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.1rem 0.3rem;
+            border-radius: 4px;
+            color: var(--text-muted);
+        }
+
+        .task-assignment {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 0.5rem;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Decisions list */
+        .decisions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-height: 700px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .decision-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border-left: 3px solid var(--accent-amber);
+        }
+
+        .decision-card.approved {
+            border-left: 3px solid var(--accent-emerald);
+            background: rgba(16, 185, 129, 0.02);
+        }
+
+        .decision-question {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .decision-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .decision-options {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .decision-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .decision-option:hover {
+            background: rgba(255, 255, 255, 0.02);
+            border-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .decision-option input {
+            width: auto;
+            margin-top: 0.2rem;
+        }
+
+        .option-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .option-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .option-pros-cons {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .option-pros { color: var(--accent-emerald); }
+        .option-cons { color: var(--accent-pink); }
+
+        .decision-result {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent-emerald);
+            background: rgba(16, 185, 129, 0.1);
+            padding: 0.5rem;
+            border-radius: 6px;
+            display: inline-block;
+        }
+
+        /* Identity mapping panel */
+        .mappings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 250px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            padding-right: 0.25rem;
+        }
+
+        .mapping-item {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .mapping-item span:first-child {
+            font-family: var(--font-mono);
+            color: var(--accent-pink);
+        }
+
+        .mapping-item span:last-child {
+            font-family: var(--font-mono);
+            color: var(--accent-cyan);
+        }
+
+        /* Summaries list */
+        .summaries-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-height: 700px;
+            overflow-y: auto;
+        }
+
+        .summary-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .summary-topic {
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-text {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: var(--text-color);
+        }
+
+        .summary-time {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+            text-align: right;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Keyframes */
+        @keyframes pulse-glow {
+            from { box-shadow: 0 0 15px rgba(99, 102, 241, 0.3); }
+            to { box-shadow: 0 0 25px rgba(99, 102, 241, 0.6); }
+        }
+
+        @keyframes logo-shimmer {
+            0% { transform: translate(-30%, -30%) rotate(45deg); }
+            100% { transform: translate(30%, 30%) rotate(45deg); }
+        }
+
+        @keyframes pulse-indicator {
+            from { opacity: 0.5; }
+            to { opacity: 1; }
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slide-up {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Wiki Tab Styles */
+        .wiki-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .wiki-sidebar {
+            background: rgba(22, 28, 45, 0.2);
+            padding-right: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .wiki-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 550px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .wiki-item {
+            padding: 0.75rem;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .wiki-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--primary);
+        }
+
+        .wiki-item.active {
+            background: var(--primary-glow);
+            border-color: var(--primary);
+        }
+
+        .wiki-item-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .wiki-item-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .wiki-content-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .wiki-metadata-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 0.75rem;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+        }
+
+        .wiki-meta-val {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+        }
+
+        .wiki-body-markdown {
+            background: rgba(11, 15, 25, 0.5);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            line-height: 1.6;
+            min-height: 300px;
+            white-space: pre-wrap;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .wiki-backlinks {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            background: rgba(255, 255, 255, 0.01);
+            border-radius: 6px;
+            border: 1px solid var(--card-border);
+        }
+
+        .wiki-link-pill {
+            display: inline-block;
+            background: rgba(99, 102, 241, 0.1);
+            color: #a5b4fc;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+            cursor: pointer;
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .wiki-form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .wiki-form-group label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-container">
+            <div class="logo-symbol"></div>
+            <h1>MellowMesh</h1>
+        </div>
+        <div class="status-badge">
+            <div id="status-indicator" class="status-indicator connecting"></div>
+            <span id="status-text">Connecting to Fabric...</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Column: Publisher and Mappings -->
+        <aside>
+            <!-- Publisher Card -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                    Publisher Panel
+                </h2>
+                
+                <div class="form-group">
+                    <label for="publish-type">Publish Type</label>
+                    <select id="publish-type" onchange="togglePublisherType()">
+                        <option value="message">Standard Message</option>
+                        <option value="task">Create Task</option>
+                        <option value="decision">Create Decision</option>
+                    </select>
+                </div>
+
+                <!-- Form 1: Message -->
+                <form id="form-message" onsubmit="handlePublishMessage(event)">
+                    <div class="form-group">
+                        <label for="msg-input-topic">Topic</label>
+                        <input type="text" id="msg-input-topic" value="_forum.general" required placeholder="e.g. _forum.general">
+                    </div>
+                    <div class="form-group">
+                        <label for="msg-input-sender">From (Identity)</label>
+                        <input type="text" id="msg-input-sender" value="human://yannick" required placeholder="e.g. human://yannick">
+                    </div>
+                    <div class="form-group">
+                        <label for="msg-input-body">Content</label>
+                        <textarea id="msg-input-body" rows="4" required placeholder="Type your markdown message here..."></textarea>
+                    </div>
+                    <button type="submit" class="btn">Publish Message</button>
+                </form>
+
+                <!-- Form 2: Task -->
+                <form id="form-task" onsubmit="handlePublishTask(event)" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-input-title">Task Title</label>
+                        <input type="text" id="task-input-title" required placeholder="e.g. Review claims API security">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-desc">Description</label>
+                        <textarea id="task-input-desc" rows="2" placeholder="Describe the task..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-topic">Topic</label>
+                        <input type="text" id="task-input-topic" value="_task.security.review" required placeholder="e.g. _task.security.review">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-caps">Required Capabilities (comma separated)</label>
+                        <input type="text" id="task-input-caps" value="security.review,code.review" placeholder="e.g. code.review">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-priority">Priority</label>
+                        <select id="task-input-priority">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-sender">Created By (Identity)</label>
+                        <input type="text" id="task-input-sender" value="human://yannick" required>
+                    </div>
+                    <button type="submit" class="btn">Create Task</button>
+                </form>
+
+                <!-- Form 3: Decision -->
+                <form id="form-decision" onsubmit="handlePublishDecision(event)" style="display: none;">
+                    <div class="form-group">
+                        <label for="dec-input-title">Decision Title</label>
+                        <input type="text" id="dec-input-title" required placeholder="e.g. Choose storage engine">
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-question">Question</label>
+                        <input type="text" id="dec-input-question" required placeholder="e.g. SQLite or Redb?">
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-decider">Required Decider</label>
+                        <input type="text" id="dec-input-decider" value="human://yannick" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-sender">Created By</label>
+                        <input type="text" id="dec-input-sender" value="agent://yannick/codex" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Options (JSON format)</label>
+                        <textarea id="dec-input-options" rows="3" required placeholder='[{"id":"opt_1","label":"SQLite","pros":["simple"],"cons":[]},{"id":"opt_2","label":"Redb","pros":["rust"],"cons":[]}]'></textarea>
+                    </div>
+                    <button type="submit" class="btn">Request Decision</button>
+                </form>
+            </div>
+
+            <!-- Identity Mapping Card -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Identity Mappings
+                </h2>
+                <div id="mappings-container" class="mappings-list">
+                    <!-- Loaded dynamically -->
+                </div>
+                <form onsubmit="handleAddMapping(event)">
+                    <div class="form-group">
+                        <label for="map-input-ext">External Profile ID</label>
+                        <input type="text" id="map-input-ext" required placeholder="e.g. discord://12345">
+                    </div>
+                    <div class="form-group">
+                        <label for="map-input-fm">MellowMesh ID</label>
+                        <input type="text" id="map-input-fm" required placeholder="e.g. human://yannick">
+                    </div>
+                    <button type="submit" class="btn btn-secondary btn-sm">Add Mapping</button>
+                </form>
+            </div>
+        </aside>
+
+        <!-- Right Column: Navigation Tabs & Grid Contents -->
+        <section class="dashboard-grid">
+            <div class="tabs-header">
+                <button class="tab-btn active" onclick="switchTab('tab-forum')">Forum UI</button>
+                <button class="tab-btn" onclick="switchTab('tab-tasks')">Task Board</button>
+                <button class="tab-btn" onclick="switchTab('tab-decisions')">Decision Log</button>
+                <button class="tab-btn" onclick="switchTab('tab-summaries')">Topic Summaries</button>
+                <button class="tab-btn" onclick="switchTab('tab-wiki')">LLMWiki</button>
+            </div>
+
+            <!-- Tab 1: Forum UI -->
+            <div id="tab-forum" class="tab-content active">
+                <div class="glass-card" style="min-height: 500px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+                            Topic Discussion Forum
+                        </h2>
+                        <div style="width: 250px;">
+                            <input type="text" id="forum-filter-pattern" placeholder="Filter by pattern, e.g. _forum.**" oninput="loadForumHistory()">
+                        </div>
+                    </div>
+                    <div id="forum-container" class="forum-stream">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Task Board -->
+            <div id="tab-tasks" class="tab-content">
+                <div class="glass-card" style="min-height: 500px;">
+                    <h2>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        Workspace Task Board
+                    </h2>
+                    <div id="tasks-container" class="tasks-grid">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 3: Decision Log -->
+            <div id="tab-decisions" class="tab-content">
+                <div class="glass-card" style="min-height: 500px;">
+                    <h2>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        Decision Consent Console
+                    </h2>
+                    <div id="decisions-container" class="decisions-list">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 4: Summaries -->
+            <div id="tab-summaries" class="tab-content">
+                <div class="glass-card" style="min-height: 500px;">
+                    <h2>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        Topic Summaries
+                    </h2>
+                    <div id="summaries-container" class="summaries-list">
+                        <!-- Loaded dynamically -->
+                    </div>
+            </div>
+
+            <!-- Tab 5: LLMWiki -->
+            <div id="tab-wiki" class="tab-content">
+                <div class="glass-card" style="min-height: 600px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                        <h2>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 3.5A2.5 2.5 0 0 1 6.5 6H20v20H6.5A2.5 2.5 0 0 1 4 23.5V3.5z"/></svg>
+                            LLMWiki Knowledge Catalog (OKF)
+                        </h2>
+                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                            <span style="font-size: 0.85rem; color: var(--text-muted);">Wiki:</span>
+                            <select id="wiki-select" style="background: rgba(0,0,0,0.5); color: var(--text-color); border: 1px solid var(--card-border); padding: 0.3rem 0.6rem; border-radius: 4px;" onchange="loadWikiPages()">
+                                <option value="default">default</option>
+                                <option value="dev">dev</option>
+                                <option value="business">business</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="syncWiki()">Sync Files</button>
+                            <button class="btn btn-sm" onclick="showNewWikiForm()">New Page</button>
+                        </div>
+                    </div>
+
+                    <div class="wiki-layout">
+                        <!-- Sidebar: List -->
+                        <div class="wiki-sidebar">
+                            <input type="text" id="wiki-search-input" placeholder="Search wiki pages..." oninput="loadWikiPages()" style="width: 100%; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                            <div style="display: flex; gap: 0.5rem;">
+                                <select id="wiki-type-filter" onchange="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; padding: 0.2rem;">
+                                    <option value="">All Types</option>
+                                    <option value="procedure">procedure</option>
+                                    <option value="runbook">runbook</option>
+                                    <option value="schema">schema</option>
+                                    <option value="metric">metric</option>
+                                    <option value="policy">policy</option>
+                                </select>
+                                <input type="text" id="wiki-tag-filter" placeholder="Filter tag" oninput="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; padding: 0.2rem 0.4rem;">
+                            </div>
+                            <div id="wiki-pages-list" class="wiki-list">
+                                <!-- Loaded dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Content Panel -->
+                        <div class="wiki-content-panel">
+                            <!-- View Mode -->
+                            <div id="wiki-view-mode">
+                                <div id="wiki-view-header" style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--card-border); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+                                    <div>
+                                        <h3 id="wiki-view-title" style="font-size: 1.5rem; font-weight: 800; color: #fff;">Select a page</h3>
+                                        <div id="wiki-view-subtitle" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <button class="btn btn-sm btn-secondary" id="wiki-edit-btn" style="display: none;" onclick="showEditWikiForm()">Edit</button>
+                                        <button class="btn btn-sm btn-danger" id="wiki-delete-btn" style="display: none; background: rgba(236, 72, 153, 0.2); border-color: rgba(236, 72, 153, 0.4); color: var(--accent-pink);" onclick="deleteWikiPage()">Delete</button>
+                                    </div>
+                                </div>
+                                <div id="wiki-view-meta" class="wiki-metadata-grid" style="display: none; margin-bottom: 1rem;">
+                                    <!-- Meta key/values loaded dynamically -->
+                                </div>
+                                <div id="wiki-view-body" class="wiki-body-markdown">
+                                    Please select an OKF document from the list on the left to display its details, or click "New Page" to create one.
+                                </div>
+                                <div id="wiki-view-backlinks" class="wiki-backlinks" style="display: none;">
+                                    <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--text-muted);">Incoming Links (Backlinks):</div>
+                                    <div id="wiki-backlinks-list"></div>
+                                </div>
+                                <div id="wiki-view-outgoing" class="wiki-backlinks" style="display: none; margin-top: 0.5rem;">
+                                    <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--text-muted);">Outgoing Links:</div>
+                                    <div id="wiki-outgoing-list"></div>
+                                </div>
+                                <div id="wiki-graph-card" class="wiki-backlinks" style="display: none; margin-top: 1rem; height: 350px; position: relative;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">Interactive Knowledge Graph:</div>
+                                        <button class="btn btn-sm btn-secondary" onclick="resetGraphLayout()" style="padding: 0.15rem 0.4rem; font-size: 0.75rem; width: auto;">Reset Layout</button>
+                                    </div>
+                                    <canvas id="wiki-graph-canvas" style="width: 100%; height: 280px; background: rgba(0,0,0,0.25); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); cursor: grab; display: block;"></canvas>
+                                </div>
+                            </div>
+
+                            <!-- Edit/New Form Mode -->
+                            <div id="wiki-form-mode" style="display: none;">
+                                <h3 id="wiki-form-header-title" style="font-size: 1.25rem; margin-bottom: 1rem;">Create New Page</h3>
+                                <form id="wiki-form" onsubmit="saveWikiPage(event)">
+                                    <div class="wiki-form-group">
+                                        <label>File Path (relative, e.g. runbooks/db_fail.md)</label>
+                                        <input type="text" id="wiki-form-path" placeholder="runbooks/db_fail.md" required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem;">
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                        <div class="wiki-form-group">
+                                            <label>Document Type</label>
+                                            <input type="text" id="wiki-form-type" placeholder="procedure, runbook, schema, metric..." required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                        </div>
+                                        <div class="wiki-form-group">
+                                            <label>Title</label>
+                                            <input type="text" id="wiki-form-title" placeholder="How to rotate keys" required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                        </div>
+                                    </div>
+                                    <div class="wiki-form-group">
+                                        <label>Description (optional)</label>
+                                        <input type="text" id="wiki-form-description" placeholder="Brief outline of the contents" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                        <div class="wiki-form-group">
+                                            <label>Tags (comma-separated, e.g. auth, security)</label>
+                                            <input type="text" id="wiki-form-tags" placeholder="auth, security" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                        </div>
+                                        <div class="wiki-form-group">
+                                            <label>Resource URI (optional, e.g. db://users)</label>
+                                            <input type="text" id="wiki-form-resource" placeholder="db://users" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                        </div>
+                                    </div>
+                                    <div class="wiki-form-group">
+                                        <label>Markdown Body Content</label>
+                                        <textarea id="wiki-form-body" rows="12" placeholder="# Header\n\nContent goes here. Link other pages like [Credentials](auth/keys.md)." required style="padding: 0.6rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem; resize: vertical; line-height: 1.5;"></textarea>
+                                    </div>
+                                    <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
+                                        <button type="button" class="btn btn-secondary" style="width: auto;" onclick="cancelWikiForm()">Cancel</button>
+                                        <button type="submit" class="btn" style="width: auto;">Save Document</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let ws;
+        
+        // Wiki Global State
+        let currentWikiPages = [];
+        let currentWikiGraph = { nodes: [], links: [] };
+        let selectedPagePath = null;
+        let selectedPageDoc = null;
+        
+        let graphSim = {
+            nodes: [],
+            links: [],
+            selectedNodeId: null,
+            draggedNode: null,
+            canvas: null,
+            ctx: null,
+            animationFrameId: null,
+            transform: { x: 0, y: 0, k: 1 },
+            dragStart: { x: 0, y: 0 },
+            isPanning: false
+        };
+
+        // Initial setup on window load
+        window.addEventListener('DOMContentLoaded', () => {
+            initWebSocket();
+            loadAllData();
+            // Poll for updates periodically as fallback
+            setInterval(loadAllData, 5000);
+            
+            // Set up click interception for markdown links in body view
+            document.getElementById('wiki-view-body').addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (a) {
+                    const href = a.getAttribute('href');
+                    if (href && !href.match(/^[a-z]+:\/\//i) && href.endsWith('.md')) {
+                        e.preventDefault();
+                        selectWikiPage(href);
+                    }
+                }
+            });
+        });
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            
+            // Find btn corresponding
+            const tabBtnIndex = {
+                'tab-forum': 0,
+                'tab-tasks': 1,
+                'tab-decisions': 2,
+                'tab-summaries': 3,
+                'tab-wiki': 4
+            }[tabId];
+            document.querySelectorAll('.tab-btn')[tabBtnIndex].classList.add('active');
+
+            if (tabId === 'tab-wiki') {
+                loadWikiPages();
+            }
+        }
+
+        function togglePublisherType() {
+            const type = document.getElementById('publish-type').value;
+            document.getElementById('form-message').style.display = type === 'message' ? 'block' : 'none';
+            document.getElementById('form-task').style.display = type === 'task' ? 'block' : 'none';
+            document.getElementById('form-decision').style.display = type === 'decision' ? 'block' : 'none';
+        }
+
+        // Fetch functions
+        async function loadAllData() {
+            loadForumHistory();
+            loadTasks();
+            loadDecisions();
+            loadMappings();
+            loadSummaries();
+            if (document.getElementById('tab-wiki').classList.contains('active')) {
+                loadWikiPages();
+            }
+        }
+
+        // LLMWiki Operations
+        async function loadWikiPages() {
+            const wiki = document.getElementById('wiki-select').value;
+            const query = document.getElementById('wiki-search-input').value.trim();
+            const docType = document.getElementById('wiki-type-filter').value;
+            const tag = document.getElementById('wiki-tag-filter').value.trim();
+
+            let url = `/wiki/${encodeURIComponent(wiki)}/pages`;
+            const params = [];
+            if (query) params.push(`query=${encodeURIComponent(query)}`);
+            if (docType) params.push(`doc_type=${encodeURIComponent(docType)}`);
+            if (tag) params.push(`tag=${encodeURIComponent(tag)}`);
+            if (params.length > 0) {
+                url += '?' + params.join('&');
+            }
+
+            try {
+                const res = await fetch(url);
+                if (res.ok) {
+                    currentWikiPages = await res.json();
+                    renderWikiPagesList();
+                }
+            } catch (e) {
+                console.error("Failed to load wiki pages", e);
+            }
+        }
+
+        function renderWikiPagesList() {
+            const container = document.getElementById('wiki-pages-list');
+            if (currentWikiPages.length === 0) {
+                container.innerHTML = '<div style="color: var(--text-muted); text-align: center; margin-top: 1rem; font-size: 0.85rem;">No pages found.</div>';
+                return;
+            }
+            
+            container.innerHTML = currentWikiPages.map(page => {
+                const isActive = page.path === selectedPagePath;
+                const date = new Date(page.timestamp);
+                return `
+                    <div class="wiki-item ${isActive ? 'active' : ''}" onclick="selectWikiPage('${page.path.replace(/'/g, "\\'")}')">
+                        <div class="wiki-item-title">${escapeHtml(page.title)}</div>
+                        <div class="wiki-item-meta">
+                            <span style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-cyan);">${escapeHtml(page.doc_type)}</span>
+                            <span>${date.toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function selectWikiPage(path) {
+            selectedPagePath = path;
+            const wiki = document.getElementById('wiki-select').value;
+            
+            // Re-render list to show active highlighted
+            renderWikiPagesList();
+            
+            try {
+                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`);
+                if (res.ok) {
+                    const doc = await res.json();
+                    selectedPageDoc = doc;
+                    renderWikiPageDetail(doc);
+                }
+            } catch (e) {
+                console.error("Error fetching wiki page detail", e);
+            }
+        }
+
+        function renderWikiPageDetail(doc) {
+            document.getElementById('wiki-form-mode').style.display = 'none';
+            document.getElementById('wiki-view-mode').style.display = 'block';
+            
+            document.getElementById('wiki-view-title').innerText = doc.title;
+            const date = new Date(doc.timestamp);
+            document.getElementById('wiki-view-subtitle').innerText = `Path: ${doc.path} | Last Modified: ${date.toLocaleString()}`;
+            
+            document.getElementById('wiki-edit-btn').style.display = 'inline-block';
+            document.getElementById('wiki-delete-btn').style.display = 'inline-block';
+            
+            const metaContainer = document.getElementById('wiki-view-meta');
+            metaContainer.style.display = 'grid';
+            
+            const tagsHtml = doc.tags && doc.tags.length > 0
+                ? doc.tags.map(t => `<span class="wiki-link-pill" style="cursor: default; margin-bottom: 0.25rem;">${escapeHtml(t)}</span>`).join(' ')
+                : '<span style="color: var(--text-muted);">None</span>';
+                
+            metaContainer.innerHTML = `
+                <div>
+                    <label>Type</label>
+                    <div class="wiki-meta-val">${escapeHtml(doc.doc_type)}</div>
+                </div>
+                <div>
+                    <label>Tags</label>
+                    <div style="margin-top: 0.25rem;">${tagsHtml}</div>
+                </div>
+                <div>
+                    <label>Resource URI</label>
+                    <div class="wiki-meta-val" style="word-break: break-all;">${escapeHtml(doc.resource || 'None')}</div>
+                </div>
+            `;
+            
+            const bodyEl = document.getElementById('wiki-view-body');
+            bodyEl.innerHTML = parseMarkdownToHtml(doc.body);
+            
+            loadWikiGraphAndLinks();
+        }
+
+        async function loadWikiGraphAndLinks() {
+            const wiki = document.getElementById('wiki-select').value;
+            const path = selectedPagePath;
+            
+            try {
+                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/graph`);
+                if (res.ok) {
+                    currentWikiGraph = await res.json();
+                    
+                    document.getElementById('wiki-graph-card').style.display = 'block';
+                    
+                    renderBacklinksAndOutgoing(path);
+                    initWikiGraphCanvas(path);
+                }
+            } catch (e) {
+                console.error("Failed to load wiki graph", e);
+            }
+        }
+
+        function renderBacklinksAndOutgoing(path) {
+            const backlinksContainer = document.getElementById('wiki-backlinks-list');
+            const outgoingContainer = document.getElementById('wiki-outgoing-list');
+            
+            const backlinks = currentWikiGraph.links.filter(l => l.target === path).map(l => l.source);
+            const outgoing = currentWikiGraph.links.filter(l => l.source === path).map(l => l.target);
+            
+            if (backlinks.length > 0) {
+                document.getElementById('wiki-view-backlinks').style.display = 'block';
+                backlinksContainer.innerHTML = backlinks.map(b => {
+                    const node = currentWikiGraph.nodes.find(n => n.path === b);
+                    const title = node ? node.title : b;
+                    return `<span class="wiki-link-pill" onclick="selectWikiPage('${b.replace(/'/g, "\\'")}')">${escapeHtml(title)}</span>`;
+                }).join('');
+            } else {
+                document.getElementById('wiki-view-backlinks').style.display = 'none';
+            }
+            
+            if (outgoing.length > 0) {
+                document.getElementById('wiki-view-outgoing').style.display = 'block';
+                outgoingContainer.innerHTML = outgoing.map(o => {
+                    const node = currentWikiGraph.nodes.find(n => n.path === o);
+                    const title = node ? node.title : o;
+                    return `<span class="wiki-link-pill" onclick="selectWikiPage('${o.replace(/'/g, "\\'")}')">${escapeHtml(title)}</span>`;
+                }).join('');
+            } else {
+                document.getElementById('wiki-view-outgoing').style.display = 'none';
+            }
+        }
+
+        // Markdown Parsing
+        function parseMarkdownToHtml(markdown) {
+            if (!markdown) return '';
+            
+            let html = '';
+            let inCodeBlock = false;
+            let codeBlockContent = [];
+            let inList = false;
+            
+            const lines = markdown.split('\n');
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                
+                if (line.trim().startsWith('```')) {
+                    if (inCodeBlock) {
+                        inCodeBlock = false;
+                        html += `<pre style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem; border: 1px solid var(--card-border); margin: 0.75rem 0; overflow-x: auto; color: #a5b4fc;"><code>${escapeHtml(codeBlockContent.join('\n'))}</code></pre>`;
+                        codeBlockContent = [];
+                    } else {
+                        inCodeBlock = true;
+                    }
+                    continue;
+                }
+                
+                if (inCodeBlock) {
+                    codeBlockContent.push(line);
+                    continue;
+                }
+                
+                const listMatch = line.match(/^(\s*)([-*]|\d+\.)\s+(.*)/);
+                if (listMatch) {
+                    if (!inList) {
+                        inList = true;
+                        html += '<ul style="margin: 0.5rem 0 0.5rem 1.5rem; list-style-type: disc;">';
+                    }
+                    const itemContent = parseMarkdownInline(listMatch[3]);
+                    html += `<li style="margin-bottom: 0.25rem;">${itemContent}</li>`;
+                    continue;
+                } else if (inList && line.trim() === '') {
+                    // ignore
+                } else if (inList) {
+                    inList = false;
+                    html += '</ul>';
+                }
+                
+                const headerMatch = line.match(/^(#{1,6})\s+(.*)/);
+                if (headerMatch) {
+                    const level = headerMatch[1].length;
+                    const content = parseMarkdownInline(headerMatch[2]);
+                    const margin = level === 1 ? '1.5rem 0 0.75rem 0' : '1.25rem 0 0.5rem 0';
+                    const fontSize = {1: '1.4rem', 2: '1.2rem', 3: '1.05rem'}[level] || '0.95rem';
+                    html += `<h${level} style="margin: ${margin}; font-weight: 600; color: #fff; font-size: ${fontSize};">${content}</h${level}>`;
+                    continue;
+                }
+                
+                if (line.trim() === '---' || line.trim() === '***') {
+                    html += '<hr style="border: none; border-top: 1px solid var(--card-border); margin: 1rem 0;">';
+                    continue;
+                }
+                
+                if (line.trim() === '') {
+                    html += '<br>';
+                } else {
+                    html += `<p style="margin-bottom: 0.5rem;">${parseMarkdownInline(line)}</p>`;
+                }
+            }
+            
+            if (inList) {
+                html += '</ul>';
+            }
+            
+            return html;
+        }
+
+        function parseMarkdownInline(text) {
+            let html = escapeHtml(text);
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            html = html.replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan);">$1</code>');
+            html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" style="color: var(--primary); text-decoration: none; border-bottom: 1px dashed var(--primary); transition: all 0.2s ease;">$1</a>');
+            return html;
+        }
+
+        // Force-directed Canvas Graph
+        function initWikiGraphCanvas(selectedPath) {
+            const canvas = document.getElementById('wiki-graph-canvas');
+            if (!canvas) return;
+            
+            if (graphSim.animationFrameId) {
+                cancelAnimationFrame(graphSim.animationFrameId);
+            }
+            
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            
+            graphSim.canvas = canvas;
+            graphSim.ctx = canvas.getContext('2d');
+            graphSim.selectedNodeId = selectedPath;
+            
+            const prevNodesMap = new Map(graphSim.nodes.map(n => [n.path, n]));
+            
+            graphSim.nodes = currentWikiGraph.nodes.map(node => {
+                const prev = prevNodesMap.get(node.path);
+                return {
+                    path: node.path,
+                    title: node.title,
+                    doc_type: node.doc_type,
+                    x: prev ? prev.x : canvas.width / 2 + (Math.random() - 0.5) * 150,
+                    y: prev ? prev.y : canvas.height / 2 + (Math.random() - 0.5) * 150,
+                    vx: prev ? prev.vx : 0,
+                    vy: prev ? prev.vy : 0,
+                    radius: 7 + (node.path === selectedPath ? 4 : 0)
+                };
+            });
+            
+            const nodesByPath = new Map(graphSim.nodes.map(n => [n.path, n]));
+            graphSim.links = currentWikiGraph.links.map(link => {
+                return {
+                    source: nodesByPath.get(link.source),
+                    target: nodesByPath.get(link.target)
+                };
+            }).filter(l => l.source && l.target);
+            
+            canvas.onmousedown = onGraphMouseDown;
+            canvas.onmousemove = onGraphMouseMove;
+            window.onmouseup = onGraphMouseUp;
+            
+            runGraphSimulation();
+        }
+
+        function onGraphMouseDown(e) {
+            const rect = graphSim.canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            let clickedNode = null;
+            for (let node of graphSim.nodes) {
+                const dx = node.x - mouseX;
+                const dy = node.y - mouseY;
+                if (Math.sqrt(dx*dx + dy*dy) < node.radius + 6) {
+                    clickedNode = node;
+                    break;
+                }
+            }
+            
+            if (clickedNode) {
+                graphSim.draggedNode = clickedNode;
+                graphSim.canvas.style.cursor = 'grabbing';
+            } else {
+                graphSim.draggedNode = null;
+                graphSim.isPanning = true;
+                graphSim.dragStart = { x: mouseX - graphSim.transform.x, y: mouseY - graphSim.transform.y };
+            }
+        }
+
+        function onGraphMouseMove(e) {
+            const rect = graphSim.canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            if (graphSim.draggedNode) {
+                graphSim.draggedNode.x = mouseX;
+                graphSim.draggedNode.y = mouseY;
+                graphSim.draggedNode.vx = 0;
+                graphSim.draggedNode.vy = 0;
+            } else if (graphSim.isPanning) {
+                graphSim.transform.x = mouseX - graphSim.dragStart.x;
+                graphSim.transform.y = mouseY - graphSim.dragStart.y;
+            } else {
+                let hoverNode = false;
+                for (let node of graphSim.nodes) {
+                    const dx = node.x - mouseX;
+                    const dy = node.y - mouseY;
+                    if (Math.sqrt(dx*dx + dy*dy) < node.radius + 6) {
+                        hoverNode = true;
+                        break;
+                    }
+                }
+                graphSim.canvas.style.cursor = hoverNode ? 'pointer' : 'grab';
+            }
+        }
+
+        function onGraphMouseUp(e) {
+            if (graphSim.draggedNode) {
+                const rect = graphSim.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const dx = graphSim.draggedNode.x - mouseX;
+                const dy = graphSim.draggedNode.y - mouseY;
+                
+                if (Math.sqrt(dx*dx + dy*dy) < 5) {
+                    selectWikiPage(graphSim.draggedNode.path);
+                }
+                graphSim.draggedNode = null;
+                if (graphSim.canvas) {
+                    graphSim.canvas.style.cursor = 'grab';
+                }
+            }
+            graphSim.isPanning = false;
+        }
+
+        function resetGraphLayout() {
+            if (!graphSim.canvas) return;
+            graphSim.transform = { x: 0, y: 0, k: 1 };
+            graphSim.nodes.forEach(node => {
+                node.x = graphSim.canvas.width / 2 + (Math.random() - 0.5) * 150;
+                node.y = graphSim.canvas.height / 2 + (Math.random() - 0.5) * 150;
+                node.vx = 0;
+                node.vy = 0;
+            });
+        }
+
+        function runGraphSimulation() {
+            if (!graphSim.canvas || !graphSim.ctx) return;
+            
+            const width = graphSim.canvas.width;
+            const height = graphSim.canvas.height;
+            const center = { x: width / 2, y: height / 2 };
+            
+            const repulseStrength = 180;
+            const linkStrength = 0.04;
+            const gravity = 0.015;
+            const friction = 0.85;
+            
+            // 1. Repulsion
+            for (let i = 0; i < graphSim.nodes.length; i++) {
+                const n1 = graphSim.nodes[i];
+                for (let j = i + 1; j < graphSim.nodes.length; j++) {
+                    const n2 = graphSim.nodes[j];
+                    let dx = n2.x - n1.x;
+                    let dy = n2.y - n1.y;
+                    if (dx === 0) dx = 0.1;
+                    
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 220) {
+                        const force = repulseStrength / (dist * dist + 10);
+                        const fx = force * (dx / dist);
+                        const fy = force * (dy / dist);
+                        
+                        if (n1 !== graphSim.draggedNode) {
+                            n1.vx -= fx;
+                            n1.vy -= fy;
+                        }
+                        if (n2 !== graphSim.draggedNode) {
+                            n2.vx += fx;
+                            n2.vy += fy;
+                        }
+                    }
+                }
+            }
+            
+            // 2. Attraction
+            for (let link of graphSim.links) {
+                const n1 = link.source;
+                const n2 = link.target;
+                
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx*dx + dy*dy) || 0.1;
+                
+                const desiredDist = 70;
+                const force = (dist - desiredDist) * linkStrength;
+                const fx = force * (dx / dist);
+                const fy = force * (dy / dist);
+                
+                if (n1 !== graphSim.draggedNode) {
+                    n1.vx += fx;
+                    n1.vy += fy;
+                }
+                if (n2 !== graphSim.draggedNode) {
+                    n2.vx -= fx;
+                    n2.vy -= fy;
+                }
+            }
+            
+            // 3. Gravity and Updates
+            for (let node of graphSim.nodes) {
+                if (node === graphSim.draggedNode) continue;
+                
+                const dx = center.x - node.x;
+                const dy = center.y - node.y;
+                node.vx += dx * gravity;
+                node.vy += dy * gravity;
+                
+                node.vx *= friction;
+                node.vy *= friction;
+                
+                node.x += node.vx;
+                node.y += node.vy;
+                
+                const margin = node.radius + 10;
+                if (node.x < margin) { node.x = margin; node.vx = 0; }
+                if (node.x > width - margin) { node.x = width - margin; node.vx = 0; }
+                if (node.y < margin) { node.y = margin; node.vy = 0; }
+                if (node.y > height - margin) { node.y = height - margin; node.vy = 0; }
+            }
+            
+            // 4. Render
+            const ctx = graphSim.ctx;
+            ctx.clearRect(0, 0, width, height);
+            
+            ctx.save();
+            ctx.translate(graphSim.transform.x, graphSim.transform.y);
+            
+            // Draw links
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            ctx.lineWidth = 1.5;
+            for (let link of graphSim.links) {
+                ctx.beginPath();
+                ctx.moveTo(link.source.x, link.source.y);
+                ctx.lineTo(link.target.x, link.target.y);
+                ctx.stroke();
+                drawLinkArrow(ctx, link.source, link.target);
+            }
+            
+            // Draw nodes
+            for (let node of graphSim.nodes) {
+                const isSelected = node.path === graphSim.selectedNodeId;
+                
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, node.radius, 0, 2 * Math.PI);
+                
+                if (isSelected) {
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = '#6366f1';
+                    ctx.fillStyle = '#6366f1';
+                } else {
+                    ctx.shadowBlur = 0;
+                    if (node.doc_type === 'procedure') ctx.fillStyle = '#06b6d4';
+                    else if (node.doc_type === 'runbook') ctx.fillStyle = '#ec4899';
+                    else if (node.doc_type === 'metric') ctx.fillStyle = '#f59e0b';
+                    else ctx.fillStyle = '#10b981';
+                }
+                
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = isSelected ? 2 : 1;
+                ctx.stroke();
+                
+                ctx.fillStyle = isSelected ? '#ffffff' : '#9ca3af';
+                ctx.font = isSelected ? 'bold 10px Outfit, sans-serif' : '9px Outfit, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(node.title, node.x, node.y - node.radius - 4);
+            }
+            
+            ctx.restore();
+            
+            graphSim.animationFrameId = requestAnimationFrame(runGraphSimulation);
+        }
+
+        function drawLinkArrow(ctx, source, target) {
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 25) return;
+            
+            const tX = target.x - (dx / dist) * target.radius;
+            const tY = target.y - (dy / dist) * target.radius;
+            
+            const arrowLen = 5;
+            const angle = Math.atan2(dy, dx);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.beginPath();
+            ctx.moveTo(tX, tY);
+            ctx.lineTo(tX - arrowLen * Math.cos(angle - Math.PI/8), tY - arrowLen * Math.sin(angle - Math.PI/8));
+            ctx.lineTo(tX - arrowLen * Math.cos(angle + Math.PI/8), tY - arrowLen * Math.sin(angle + Math.PI/8));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Form handlers
+        function showNewWikiForm() {
+            document.getElementById('wiki-view-mode').style.display = 'none';
+            document.getElementById('wiki-form-mode').style.display = 'block';
+            document.getElementById('wiki-form-header-title').innerText = "Create New Page";
+            
+            const pathInput = document.getElementById('wiki-form-path');
+            pathInput.value = '';
+            pathInput.readOnly = false;
+            
+            document.getElementById('wiki-form-type').value = 'procedure';
+            document.getElementById('wiki-form-title').value = '';
+            document.getElementById('wiki-form-description').value = '';
+            document.getElementById('wiki-form-tags').value = '';
+            document.getElementById('wiki-form-resource').value = '';
+            document.getElementById('wiki-form-body').value = '# Page Title\n\nWrite content here. Link pages like [Main Page](index.md).';
+        }
+
+        function showEditWikiForm() {
+            if (!selectedPageDoc) return;
+            
+            document.getElementById('wiki-view-mode').style.display = 'none';
+            document.getElementById('wiki-form-mode').style.display = 'block';
+            document.getElementById('wiki-form-header-title').innerText = "Edit Page";
+            
+            const pathInput = document.getElementById('wiki-form-path');
+            pathInput.value = selectedPageDoc.path;
+            pathInput.readOnly = true;
+            
+            document.getElementById('wiki-form-type').value = selectedPageDoc.doc_type;
+            document.getElementById('wiki-form-title').value = selectedPageDoc.title;
+            document.getElementById('wiki-form-description').value = selectedPageDoc.description || '';
+            document.getElementById('wiki-form-tags').value = selectedPageDoc.tags ? selectedPageDoc.tags.join(', ') : '';
+            document.getElementById('wiki-form-resource').value = selectedPageDoc.resource || '';
+            document.getElementById('wiki-form-body').value = selectedPageDoc.body;
+        }
+
+        function cancelWikiForm() {
+            document.getElementById('wiki-form-mode').style.display = 'none';
+            if (selectedPageDoc) {
+                document.getElementById('wiki-view-mode').style.display = 'block';
+            } else {
+                document.getElementById('wiki-view-body').innerHTML = 'Please select an OKF document from the list on the left to display its details, or click "New Page" to create one.';
+                document.getElementById('wiki-view-title').innerText = 'Select a page';
+                document.getElementById('wiki-view-subtitle').innerText = '';
+                document.getElementById('wiki-edit-btn').style.display = 'none';
+                document.getElementById('wiki-delete-btn').style.display = 'none';
+                document.getElementById('wiki-view-meta').style.display = 'none';
+                document.getElementById('wiki-view-backlinks').style.display = 'none';
+                document.getElementById('wiki-view-outgoing').style.display = 'none';
+                document.getElementById('wiki-graph-card').style.display = 'none';
+            }
+        }
+
+        async function saveWikiPage(e) {
+            e.preventDefault();
+            const wiki = document.getElementById('wiki-select').value;
+            const path = document.getElementById('wiki-form-path').value.trim();
+            
+            const payload = {
+                doc_type: document.getElementById('wiki-form-type').value.trim(),
+                title: document.getElementById('wiki-form-title').value.trim(),
+                description: document.getElementById('wiki-form-description').value.trim() || null,
+                tags: document.getElementById('wiki-form-tags').value.split(',').map(s => s.trim()).filter(s => s !== ''),
+                resource: document.getElementById('wiki-form-resource').value.trim() || null,
+                body: document.getElementById('wiki-form-body').value
+            };
+
+            try {
+                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    await loadWikiPages();
+                    await selectWikiPage(path);
+                } else {
+                    alert("Failed to save wiki page: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function deleteWikiPage() {
+            if (!selectedPagePath) return;
+            if (!confirm(`Are you sure you want to delete the page '${selectedPagePath}'?`)) return;
+            
+            const wiki = document.getElementById('wiki-select').value;
+            try {
+                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(selectedPagePath)}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    selectedPagePath = null;
+                    selectedPageDoc = null;
+                    await loadWikiPages();
+                    cancelWikiForm();
+                } else {
+                    alert("Delete failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function syncWiki() {
+            const wiki = document.getElementById('wiki-select').value;
+            try {
+                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/sync`, {
+                    method: 'POST'
+                });
+                if (res.ok) {
+                    alert("Wiki sync completed successfully!");
+                    loadWikiPages();
+                } else {
+                    alert("Sync failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#039;');
+        }
+
+        // Actions
+        async function handlePublishMessage(e) {
+            e.preventDefault();
+            const topic = document.getElementById('msg-input-topic').value.trim();
+            const from = document.getElementById('msg-input-sender').value.trim();
+            const body = document.getElementById('msg-input-body').value.trim();
+
+            const message = {
+                id: "msg_" + Math.random().toString(36).substr(2, 9),
+                topic,
+                from,
+                owner: from,
+                timestamp: new Date().toISOString(),
+                content_type: "text/markdown",
+                body
+            };
+
+            try {
+                const res = await fetch('/publish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(message)
+                });
+                if (res.ok) {
+                    document.getElementById('msg-input-body').value = '';
+                    loadForumHistory();
+                } else {
+                    alert("Publish failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function handlePublishTask(e) {
+            e.preventDefault();
+            const title = document.getElementById('task-input-title').value.trim();
+            const description = document.getElementById('task-input-desc').value.trim();
+            const topic = document.getElementById('task-input-topic').value.trim();
+            const capsStr = document.getElementById('task-input-caps').value.trim();
+            const priority = document.getElementById('task-input-priority').value;
+            const created_by = document.getElementById('task-input-sender').value.trim();
+
+            const required_capabilities = capsStr ? capsStr.split(',').map(s => s.trim()) : [];
+
+            const task = {
+                id: "task_" + Math.random().toString(36).substr(2, 9),
+                title,
+                description: description || null,
+                created_from: null,
+                created_by,
+                status: "open",
+                priority,
+                topics: [topic],
+                required_capabilities,
+                assigned_to: null,
+                claimed_by: null,
+                deadline: null,
+                artifacts: [],
+                decisions: []
+            };
+
+            try {
+                const res = await fetch('/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(task)
+                });
+                if (res.ok) {
+                    document.getElementById('task-input-title').value = '';
+                    document.getElementById('task-input-desc').value = '';
+                    loadTasks();
+                } else {
+                    alert("Task creation failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function handlePublishDecision(e) {
+            e.preventDefault();
+            const title = document.getElementById('dec-input-title').value.trim();
+            const question = document.getElementById('dec-input-question').value.trim();
+            const required_decider = document.getElementById('dec-input-decider').value.trim();
+            const created_by = document.getElementById('dec-input-sender').value.trim();
+            const optionsStr = document.getElementById('dec-input-options').value.trim();
+
+            let options = [];
+            try {
+                options = JSON.parse(optionsStr);
+            } catch (err) {
+                alert("Invalid JSON options format");
+                return;
+            }
+
+            const decision = {
+                id: "decision_" + Math.random().toString(36).substr(2, 9),
+                title,
+                question,
+                created_by,
+                required_decider,
+                status: "requested",
+                options,
+                response_option_id: null,
+                response_timestamp: null
+            };
+
+            try {
+                const res = await fetch('/decisions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(decision)
+                });
+                if (res.ok) {
+                    document.getElementById('dec-input-title').value = '';
+                    document.getElementById('dec-input-question').value = '';
+                    loadDecisions();
+                } else {
+                    alert("Decision creation failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function handleAddMapping(e) {
+            e.preventDefault();
+            const external_id = document.getElementById('map-input-ext').value.trim();
+            const mellowmesh_id = document.getElementById('map-input-fm').value.trim();
+
+            try {
+                const res = await fetch('/identity-mappings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ external_id, mellowmesh_id })
+                });
+                if (res.ok) {
+                    document.getElementById('map-input-ext').value = '';
+                    document.getElementById('map-input-fm').value = '';
+                    loadMappings();
+                } else {
+                    alert("Add mapping failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function claimTask(taskId, agentId) {
+            try {
+                const res = await fetch(`/tasks/${taskId}/claim`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ claimed_by: agentId })
+                });
+                if (res.ok) {
+                    loadTasks();
+                } else {
+                    alert("Claim failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function completeTask(taskId) {
+            try {
+                const res = await fetch(`/tasks/${taskId}/complete`, {
+                    method: 'POST'
+                });
+                if (res.ok) {
+                    loadTasks();
+                } else {
+                    alert("Complete failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        async function submitDecision(decId) {
+            const selected = document.querySelector(`input[name="dec-opt-${decId}"]:checked`);
+            if (!selected) {
+                alert("Please select an option first!");
+                return;
+            }
+            const optionId = selected.value;
+            try {
+                const res = await fetch(`/decisions/${decId}/respond`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ option_id: optionId })
+                });
+                if (res.ok) {
+                    loadDecisions();
+                } else {
+                    alert("Decision submission failed: " + await res.text());
+                }
+            } catch (err) {
+                alert("Error: " + err);
+            }
+        }
+
+        // WebSocket initialization
+        function initWebSocket() {
+            const statusInd = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${window.location.host}/ws?pattern=**`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusInd.className = 'status-indicator';
+                statusText.innerText = 'Connected to Fabric';
+            };
+
+            ws.onmessage = (event) => {
+                console.log("WebSocket message received:", event.data);
+                loadForumHistory();
+                
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.topic.startsWith('_task.')) {
+                        loadTasks();
+                    } else if (msg.topic.startsWith('_decision.')) {
+                        loadDecisions();
+                    } else if (msg.topic.startsWith('_system.presence.')) {
+                        // ignore/no-op
+                    } else if (msg.topic.startsWith('_wiki.')) {
+                        loadWikiPages();
+                    }
+                } catch (e) {}
+            };
+
+            ws.onclose = () => {
+                statusInd.className = 'status-indicator disconnected';
+                statusText.innerText = 'Disconnected. Reconnecting...';
+                setTimeout(initWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WS error:", err);
+                ws.close();
+            };
+        }
+    </script>
+</body>
+</html>

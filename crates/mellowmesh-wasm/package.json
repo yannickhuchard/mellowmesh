@@ -1,0 +1,27 @@
+{
+  "name": "@mellowmesh/wasm",
+  "version": "0.1.0",
+  "description": "Browser WASM coordination engine for Human-Agent systems",
+  "main": "index.js",
+  "type": "module",
+  "files": [
+    "index.js",
+    "pkg/mellowmesh_wasm_bg.wasm",
+    "pkg/mellowmesh_wasm.js",
+    "pkg/mellowmesh_wasm.d.ts",
+    "pkg/mellowmesh_wasm_bg.wasm.d.ts"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir pkg"
+  },
+  "keywords": [
+    "coordination",
+    "pubsub",
+    "agentic",
+    "wasm",
+    "rust",
+    "offline-first"
+  ],
+  "author": "Yannick",
+  "license": "MIT"
+}

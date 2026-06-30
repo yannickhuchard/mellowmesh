@@ -1,0 +1,38 @@
+[package]
+name = "mellowmesh-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "mellowmeshd"
+path = "src/main.rs"
+
+[dependencies]
+mellowmesh-core = { path = "../mellowmesh-core" }
+mellowmesh-store = { path = "../mellowmesh-store" }
+mellowmesh-connectors = { path = "../mellowmesh-connectors" }
+mellowmesh-client = { path = "../mellowmesh-client" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+jsonschema = "0.18"
+openssl = { version = "0.10", features = ["vendored"] }
+
+
+futures-util = "0.3"
+ulid = { version = "1.1", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokio-tungstenite = "0.21"
+url = "2.5"
+

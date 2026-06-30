@@ -1,0 +1,91 @@
+# Rust / Cargo
+/target
+/target-linux
+/target-win
+/target-*
+/debug
+**/*.rs.bk
+Cargo.lock.status
+.cargo/credentials
+.cargo/credentials.toml
+*.pdb
+
+# Rust coverage, profiling, and diagnostics
+*.profraw
+*.gcda
+*.gcno
+rustc-ice-*.txt
+
+# Cargo tool outputs
+**/mutants.out/
+.nextest/
+tarpaulin-report.html
+
+# WASM / Frontend tooling
+**/pkg/
+node_modules/
+.wasm-pack-gc.bin
+
+# Local Developer Scratchpads
+/scratch/
+
+# SQLite / Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.pfx
+*.p12
+*.pkcs12
+*.snk
+*.pvk
+*.gpg
+secrets.toml
+secrets.json
+
+# Packaging & Wix / Installer outputs
+*.msi
+*.deb
+*.dmg
+*.rpm
+*.wixobj
+*.wixpdb
+/dist
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.launch
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Log Files & Backups
+*.log
+*~
+*.bak

@@ -1,0 +1,5 @@
+# Local agents workspace cache
+.agents/
+
+# Rendered presentation video outputs
+*.mp4

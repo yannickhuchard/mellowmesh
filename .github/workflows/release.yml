@@ -1,0 +1,49 @@
+name: Release Packager
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-package:
+    name: Package for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: ./package-deb.sh
+            shell: bash
+          - os: macos-latest
+            script: ./package-dmg.sh
+            shell: bash
+          - os: windows-latest
+            script: .\package-msi.ps1
+            shell: powershell
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Required for Windows MSI builds (cargo-packager uses WiX)
+      - name: Install WiX (Windows Only)
+        if: matrix.os == 'windows-latest'
+        run: dotnet tool install --global wix
+
+      # Execute native packaging script
+      - name: Compile and Package
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.script }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            target/release/*.msi
+            target/release/*.deb
+            target/release/*.dmg

@@ -1,0 +1,12 @@
+[Unit]
+Description=MellowMesh Intelligent Coordination Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/mellowmeshd
+Restart=always
+User=mellowmesh
+Environment=MELLOWMESH_DB=/var/lib/mellowmesh/mellowmesh.db
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MellowMesh WASM Multi-Tab Dashboard</title>
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #0a0c10;
+      --bg-card: rgba(22, 28, 38, 0.6);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #f0f4f9;
+      --text-muted: #8b9bb4;
+      --primary: #4f46e5;
+      --primary-hover: #6366f1;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --cyan: #06b6d4;
+      --glass-blur: blur(12px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.1) 0px, transparent 50%);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    header {
+      backdrop-filter: var(--glass-blur);
+      background: rgba(10, 12, 16, 0.7);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: white;
+      box-shadow: 0 0 15px rgba(79, 70, 229, 0.4);
+    }
+
+    .logo-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      background: linear-gradient(135deg, #fff, var(--text-muted));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .logo-title span {
+      background: linear-gradient(135deg, var(--primary-hover), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .status-panel {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 0.5rem 0.85rem;
+      border-radius: 20px;
+      border: 1px solid var(--border-color);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.offline {
+      background-color: var(--accent-red);
+      box-shadow: 0 0 8px var(--accent-red);
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+
+    .mode-toggle-group {
+      display: flex;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.25rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .mode-tab {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.4rem 0.85rem;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .mode-tab.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    main {
+      padding: 2rem;
+      max-width: 1600px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 320px 1fr 380px;
+      gap: 2rem;
+    }
+
+    @media (max-width: 1200px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      backdrop-filter: var(--glass-blur);
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: -0.75rem;
+      line-height: 1.4;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input, select, textarea {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 0.6rem 0.8rem;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+    }
+
+    .btn {
+      background: var(--primary);
+      border: none;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 0.65rem 1rem;
+      text-align: center;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+    }
+
+    .btn:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 4px 16px rgba(79, 70, 229, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Left Sidebar Forms & Agent Simulators */
+    .sidebar-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .simulator-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .sim-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .sim-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .sim-cap {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Toggle Switch styles */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 22px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .3s;
+      border-radius: 22px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-green);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    /* Middle Section: Task Board & Decisions */
+    .workspace-middle {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .task-board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      min-height: 400px;
+    }
+
+    .board-column {
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .column-header {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .column-header span {
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.2rem 0.5rem;
+      border-radius: 10px;
+      font-size: 0.75rem;
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: 300px;
+    }
+
+    .task-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      cursor: grab;
+    }
+
+    .task-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .task-card-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .task-card-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .task-card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.25rem;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .badge-priority-high { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+    .badge-priority-medium { background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow); }
+    .badge-priority-low { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+
+    .task-card-owner {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .task-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
+
+    .task-btn {
+      flex: 1;
+      padding: 0.35rem;
+      font-size: 0.75rem;
+      border-radius: 4px;
+    }
+
+    /* Decision list */
+    .decisions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .decision-card {
+      background: rgba(245, 158, 11, 0.03);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+      border-radius: 8px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .decision-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .decision-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--accent-yellow);
+    }
+
+    .decision-question {
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .decision-options {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .decision-btn {
+      flex: 1;
+      padding: 0.4rem;
+      font-size: 0.75rem;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: var(--accent-yellow);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .decision-btn:hover {
+      background: var(--accent-yellow);
+      color: black;
+      font-weight: 600;
+    }
+
+    .decision-responded {
+      font-size: 0.75rem;
+      color: var(--accent-green);
+      font-style: italic;
+    }
+
+    /* Right Sidebar: Console Logs & Sandbox */
+    .sidebar-right {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .console {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .console-header {
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.65rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+    }
+
+    .console-body {
+      padding: 1rem;
+      overflow-y: auto;
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      line-height: 1.5;
+    }
+
+    .log-entry {
+      animation: scanline 0.15s ease-out;
+      word-break: break-all;
+    }
+
+    @keyframes scanline {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .log-topic {
+      color: var(--cyan);
+      font-weight: 500;
+    }
+
+    .log-from {
+      color: var(--accent-yellow);
+    }
+
+    .log-body {
+      color: var(--text-main);
+    }
+
+    .instruction-alert {
+      background: rgba(79, 70, 229, 0.08);
+      border: 1px solid rgba(79, 70, 229, 0.2);
+      border-radius: 8px;
+      padding: 0.85rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .instruction-alert strong {
+      color: var(--primary-hover);
+    }
+
+    .action-btn-danger {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: var(--accent-red);
+      font-weight: 500;
+    }
+
+    .action-btn-danger:hover {
+      background: var(--accent-red);
+      color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-logo">
+      <div class="logo-icon">F</div>
+      <div class="logo-title">MellowMesh <span>WASM Core</span></div>
+    </div>
+    
+    <div class="status-panel">
+      <div class="mode-toggle-group">
+        <button id="mode-tab-standalone" class="mode-tab active" onclick="setMode('standalone')">Standalone (WASM)</button>
+        <button id="mode-tab-client" class="mode-tab" onclick="setMode('client')">Daemon Client</button>
+      </div>
+
+      <div class="status-badge">
+        <div id="status-indicator" class="status-dot"></div>
+        <span id="status-text">Standalone (Local Node)</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Panel: Configurations & Simulator Controls -->
+    <section class="sidebar-left">
+      <!-- Instruction Banner -->
+      <div class="instruction-alert">
+        <div><strong>Multi-Tab Sync Active</strong></div>
+        <div>Open this dashboard in multiple tabs or windows side-by-side. 
+        Create a task, register an agent, or claim work in one tab and watch it synchronize in real-time.</div>
+        <div id="launcher-prompt" style="display: none; border-top: 1px solid rgba(79, 70, 229, 0.25); padding-top: 0.75rem; margin-top: 0.5rem;">
+          <div style="font-weight: 600; color: var(--accent-yellow); margin-bottom: 0.25rem;">Daemon is Offline</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">The local native coordinator is not running on port 40000.</div>
+          <a href="mellowmesh://start" class="btn btn-secondary" style="display: block; font-size: 0.75rem; padding: 0.4rem 0.6rem; text-align: center; text-decoration: none;">Wakeup Native Daemon</a>
+        </div>
+      </div>
+
+      <!-- Agent Registration Form -->
+      <div class="card">
+        <h2>Register Agent</h2>
+        <form id="agent-form" onsubmit="event.preventDefault(); registerAgentSubmit();">
+          <div class="form-group">
+            <label for="agent-name">Agent Name</label>
+            <input type="text" id="agent-name" placeholder="e.g. Gemini Code Pilot" required>
+          </div>
+          <div class="form-group">
+            <label for="agent-owner">Owner URI</label>
+            <input type="text" id="agent-owner" value="human://yannick" required>
+          </div>
+          <div class="form-group">
+            <label for="agent-capability">Core Capability</label>
+            <select id="agent-capability">
+              <option value="code.write">Code Writer (code.write)</option>
+              <option value="code.review">Reviewer (code.review)</option>
+              <option value="data.analyze">Analyst (data.analyze)</option>
+            </select>
+          </div>
+          <button type="submit" class="btn">Register Capabilities</button>
+        </form>
+      </div>
+
+      <!-- Agent Simulation Center -->
+      <div class="card">
+        <h2>Agent Fleet Simulators</h2>
+        <div class="card-subtitle">Toggle mock autonomous scripts running in this tab.</div>
+        
+        <div class="simulator-row">
+          <div class="sim-info">
+            <span class="sim-name">agent://yannick/coder</span>
+            <span class="sim-cap">Claims code.write tasks</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="sim-coder" onchange="toggleSimulators()">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="simulator-row">
+          <div class="sim-info">
+            <span class="sim-name">agent://yannick/reviewer</span>
+            <span class="sim-cap">Claims code.review tasks</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="sim-reviewer" onchange="toggleSimulators()">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Middle Panel: Task Board & Human Decider Decisions -->
+    <section class="workspace-middle">
+      <!-- Create Task Card -->
+      <div class="card">
+        <h2>Create Coordination Task</h2>
+        <form id="task-form" onsubmit="event.preventDefault(); createTaskSubmit();" style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="grid-column: span 2;">
+            <label for="task-title">Task Title / Objective</label>
+            <input type="text" id="task-title" placeholder="e.g. Implement WebRTC Peer Transport" required>
+          </div>
+          <div class="form-group">
+            <label for="task-topic">Topic Tree</label>
+            <input type="text" id="task-topic" value="_task.code.wasm" required>
+          </div>
+          <div class="form-group">
+            <label for="task-cap">Required Capability</label>
+            <select id="task-cap">
+              <option value="code.write">Code Writer (code.write)</option>
+              <option value="code.review">Reviewer (code.review)</option>
+              <option value="data.analyze">Analyst (data.analyze)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="task-priority">Priority</label>
+            <select id="task-priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="task-desc">Task Description</label>
+            <textarea id="task-desc" rows="2" placeholder="Describe the requirements..."></textarea>
+          </div>
+          <button type="submit" class="btn" style="grid-column: span 2;">Launch Task</button>
+        </form>
+      </div>
+
+      <!-- Live Task Kanban Board -->
+      <div class="card">
+        <h2>Task Kanban Board</h2>
+        <div class="task-board">
+          <!-- Open Columns -->
+          <div class="board-column">
+            <div class="column-header">Open <span id="col-open-count">0</span></div>
+            <div id="tasks-open" class="task-list"></div>
+          </div>
+          <!-- Claimed Columns -->
+          <div class="board-column">
+            <div class="column-header">Claimed <span id="col-claimed-count">0</span></div>
+            <div id="tasks-claimed" class="task-list"></div>
+          </div>
+          <!-- Completed Columns -->
+          <div class="board-column">
+            <div class="column-header">Completed <span id="col-completed-count">0</span></div>
+            <div id="tasks-completed" class="task-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Human Consensus Decisions -->
+      <div class="card">
+        <h2>Human-in-the-Loop Consensus Requests</h2>
+        <div id="decisions-container" class="decisions-list">
+          <div style="font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 1rem 0;">
+            No decisions requiring human review.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Panel: Sandbox Console & custom publishes -->
+    <section class="sidebar-right">
+      <!-- MellowMesh Event Stream Console -->
+      <div class="console">
+        <div class="console-header">
+          <span>EVENT STREAM (Filter: **)</span>
+          <span style="display:flex; gap:0.5rem; align-items:center;">
+            <span class="status-dot"></span> Active
+          </span>
+        </div>
+        <div id="console-logs" class="console-body">
+          <div class="log-entry" style="color: var(--text-muted);">Console initialized. Listening to topic fabric...</div>
+        </div>
+      </div>
+
+      <!-- Sandbox Custom Publish -->
+      <div class="card">
+        <h2>Pub/Sub Sandbox</h2>
+        <form id="sandbox-form" onsubmit="event.preventDefault(); sandboxPublishSubmit();">
+          <div class="form-group">
+            <label for="sb-topic">Topic Namespace</label>
+            <input type="text" id="sb-topic" placeholder="e.g. _forum.general" value="_forum.general" required>
+          </div>
+          <div class="form-group">
+            <label for="sb-from">From Identity URI</label>
+            <input type="text" id="sb-from" placeholder="e.g. human://yannick" value="human://yannick" required>
+          </div>
+          <div class="form-group">
+            <label for="sb-body">Message Body (Markdown/Text)</label>
+            <textarea id="sb-body" rows="3" placeholder="Type a message to publish..." required></textarea>
+          </div>
+          <button type="submit" class="btn">Broadcast Message</button>
+        </form>
+      </div>
+
+      <!-- Debug controls -->
+      <button class="btn btn-secondary action-btn-danger" onclick="resetState()">Clear All Local State</button>
+    </section>
+  </main>
+
+  <script type="module" src="demo.js"></script>
+</body>
+</html>

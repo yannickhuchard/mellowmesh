@@ -1,0 +1,16 @@
+[package]
+name = "mellowmesh-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+mellowmesh-core = { path = "../mellowmesh-core" }
+mellowmesh-client = { path = "../mellowmesh-client" }
+tokio = { version = "1.38", features = ["full"] }
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"

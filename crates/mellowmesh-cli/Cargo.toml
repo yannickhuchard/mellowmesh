@@ -1,0 +1,53 @@
+[package]
+name = "mellowmesh-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "mellowmesh"
+path = "src/main.rs"
+
+[dependencies]
+mellowmesh-core = { path = "../mellowmesh-core" }
+mellowmesh-client = { path = "../mellowmesh-client" }
+mellowmesh-store = { path = "../mellowmesh-store" }
+tokio = { version = "1.38", features = ["full"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+ulid = { version = "1.1", features = ["serde"] }
+
+[package.metadata.packager]
+product-name = "mellowmesh"
+version = "0.1.0"
+description = "MellowMesh Intelligent Coordination Core & Daemon"
+homepage = "https://github.com/mellowmesh/mellowmesh"
+authors = ["Yannick Huchard"]
+publisher = "Yannick Huchard"
+identifier = "com.mellowmesh.app"
+formats = ["wix", "deb", "dmg"]
+
+# Point to target/release in workspace root
+binaries-dir = "../../target/release"
+
+[[package.metadata.packager.binaries]]
+path = "mellowmesh"
+main = true
+
+[[package.metadata.packager.binaries]]
+path = "mellowmeshd"
+main = false
+
+[package.metadata.packager.deb]
+depends = ["sqlite3"]
+files = { "../../debian/mellowmesh.service" = "/lib/systemd/system/mellowmesh.service" }
+
+[package.metadata.packager.wix]
+component-refs = ["PathEnvVar", "ProtocolHandler"]
+fragment-paths = ["../../wix/path_env.wxs"]
