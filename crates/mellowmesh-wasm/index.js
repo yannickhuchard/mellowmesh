@@ -37,7 +37,11 @@ export class BrowserMellowMesh {
     if (this.initialized) return;
 
     // 1. Initialize WASM
-    await init(wasmModule);
+    if (wasmModule !== undefined) {
+      await init({ module_or_path: wasmModule });
+    } else {
+      await init();
+    }
     init_panic_hook();
 
     if (this.mode === 'standalone') {

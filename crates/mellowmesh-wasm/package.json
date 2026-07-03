@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "description": "Browser WASM coordination engine for Human-Agent systems",
   "main": "index.js",
+  "types": "index.d.ts",
   "type": "module",
   "files": [
     "index.js",
+    "index.d.ts",
     "pkg/mellowmesh_wasm_bg.wasm",
     "pkg/mellowmesh_wasm.js",
     "pkg/mellowmesh_wasm.d.ts",
@@ -22,6 +24,15 @@
     "rust",
     "offline-first"
   ],
-  "author": "Yannick",
-  "license": "MIT"
+  "author": "Yannick Huchard",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mellowmesh/mellowmesh.git",
+    "directory": "crates/mellowmesh-wasm"
+  },
+  "bugs": {
+    "url": "https://github.com/mellowmesh/mellowmesh/issues"
+  },
+  "homepage": "https://github.com/mellowmesh/mellowmesh/tree/main/crates/mellowmesh-wasm#readme"
 }
