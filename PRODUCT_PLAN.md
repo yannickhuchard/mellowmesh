@@ -136,9 +136,11 @@ keypair; the owner keypair moves to Phase 2 where the relay actually needs it.*
 require-auth on relayed hubs); client/CLI remote mode via `MELLOWMESH_URL`;
 live subscriptions through the relay (`mellowmesh tail` works remotely);
 remote MCP over Streamable HTTP (`/hub/<id>/mcp`), with the tool logic
-shared between the stdio server and the daemon endpoint — the café approval
-works today over REST, streaming, and MCP. Remaining: E2E encryption,
-Telegram ramp with inline approve/reject, the demo video.*
+shared between the stdio server and the daemon endpoint; the Telegram ramp
+(decision cards with inline approve/reject buttons, audited interface
+relaying) plus a Discord `!approve` flow — the café approval works today
+over REST, streaming, MCP, and chat. Remaining: E2E encryption, native
+Discord buttons (needs gateway), the demo video.*
 
 | Change | Where |
 | :--- | :--- |

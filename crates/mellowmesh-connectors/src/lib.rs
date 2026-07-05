@@ -8,6 +8,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
 use mellowmesh_client::MellowMeshClient;
+use mellowmesh_core::decision::Decision;
 use mellowmesh_core::message::Message;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -32,6 +33,71 @@ async fn resolve_identity(client: &MellowMeshClient, external_id: &str) -> Strin
         }
     }
     external_id.to_string()
+}
+
+/// Mock connectors are opt-in: they publish fake traffic, which nobody wants
+/// on a real fabric by default.
+fn mocks_enabled() -> bool {
+    matches!(
+        std::env::var("MELLOWMESH_CONNECTOR_MOCKS")
+            .unwrap_or_default()
+            .as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
+/// Extract a `Decision` from a `_decision.<id>.requested` event message.
+pub fn decision_from_event(msg: &Message) -> Option<Decision> {
+    if !msg.topic.starts_with("_decision.") || !msg.topic.ends_with(".requested") {
+        return None;
+    }
+    msg.payload
+        .as_ref()
+        .and_then(|p| serde_json::from_value(p.clone()).ok())
+}
+
+/// Parse Telegram inline-button callback data: `d|<decision_id>|<option_id>`.
+pub fn parse_callback_data(data: &str) -> Option<(String, String)> {
+    let mut parts = data.splitn(3, '|');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("d"), Some(dec), Some(opt)) if !dec.is_empty() && !opt.is_empty() => {
+            Some((dec.to_string(), opt.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// Parse a chat approval command: `!approve <decision_id> <option_id>`.
+pub fn parse_approve_command(content: &str) -> Option<(String, String)> {
+    let rest = content.trim().strip_prefix("!approve")?;
+    let mut parts = rest.split_whitespace();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(dec), Some(opt), None) => Some((dec.to_string(), opt.to_string())),
+        _ => None,
+    }
+}
+
+/// Telegram inline keyboard with one button per decision option.
+pub fn telegram_decision_keyboard(decision: &Decision) -> serde_json::Value {
+    let rows: Vec<Vec<serde_json::Value>> = decision
+        .options
+        .iter()
+        .map(|o| {
+            vec![serde_json::json!({
+                "text": o.label,
+                "callback_data": format!("d|{}|{}", decision.id, o.id),
+            })]
+        })
+        .collect();
+    serde_json::json!({ "inline_keyboard": rows })
+}
+
+/// Human-readable decision announcement for chat interfaces.
+pub fn decision_announcement(decision: &Decision) -> String {
+    format!(
+        "🔔 Decision required: {}\n{}\nRequested by {} for {}",
+        decision.title, decision.question, decision.created_by, decision.required_decider
+    )
 }
 
 // ==========================================
@@ -86,6 +152,42 @@ impl DiscordConnector {
             }
         });
 
+        // Pending decisions become Discord messages answered with
+        // `!approve <decision_id> <option_id>` (buttons need a gateway
+        // connection; command replies work over plain REST).
+        let dec_client = self.client.clone();
+        let dec_channel = channel_id.to_string();
+        let dec_token = token.to_string();
+        let dec_http = reqwest::Client::new();
+        tokio::spawn(async move {
+            if let Ok(mut sub) = dec_client.subscribe("_decision.*.requested").await {
+                while let Some(Ok(msg)) = sub.next().await {
+                    let Some(decision) = decision_from_event(&msg) else {
+                        continue;
+                    };
+                    let options: String = decision
+                        .options
+                        .iter()
+                        .map(|o| format!("\n• `{}` — {}", o.id, o.label))
+                        .collect();
+                    let content = format!(
+                        "{}{}\nReply with: `!approve {} <option_id>`",
+                        decision_announcement(&decision),
+                        options,
+                        decision.id
+                    );
+                    let url =
+                        format!("https://discord.com/api/v10/channels/{dec_channel}/messages");
+                    let _ = dec_http
+                        .post(&url)
+                        .header("Authorization", format!("Bot {dec_token}"))
+                        .json(&serde_json::json!({ "content": content }))
+                        .send()
+                        .await;
+                }
+            }
+        });
+
         // Polling loop for inbound Discord messages
         let poll_client = reqwest::Client::new();
         let default_interval = Duration::from_secs(5);
@@ -129,6 +231,34 @@ impl DiscordConnector {
                                 let author_name = author["username"].as_str().unwrap_or("unknown");
                                 let ext_id = format!("discord://{author_id}");
                                 let mellowmesh_id = resolve_identity(&self.client, &ext_id).await;
+
+                                // Decision approval command: relay the
+                                // human's answer instead of forwarding the
+                                // message to the forum.
+                                if let Some((dec_id, opt_id)) = parse_approve_command(content) {
+                                    let result = self
+                                        .client
+                                        .respond_decision_as(&dec_id, &opt_id, Some(&mellowmesh_id))
+                                        .await;
+                                    let reply = match &result {
+                                        Ok(_) => format!(
+                                            "✅ Recorded `{opt_id}` for `{dec_id}` (by {author_name})"
+                                        ),
+                                        Err(e) => format!("❌ Could not record decision: {e}"),
+                                    };
+                                    let url = format!(
+                                        "https://discord.com/api/v10/channels/{channel_id}/messages"
+                                    );
+                                    let _ = poll_client
+                                        .post(&url)
+                                        .header("Authorization", format!("Bot {token}"))
+                                        .json(&serde_json::json!({ "content": reply }))
+                                        .send()
+                                        .await;
+                                    last_message_id = Some(id.to_string());
+                                    processed_any = true;
+                                    continue;
+                                }
 
                                 info!(
                                     "Discord message received from {} ({}): {}",
@@ -230,8 +360,11 @@ impl InterfaceConnector for DiscordConnector {
     async fn run(&self) -> anyhow::Result<()> {
         if let (Some(token), Some(channel_id)) = (&self.token, &self.channel_id) {
             self.run_live(token, channel_id).await
-        } else {
+        } else if mocks_enabled() {
             self.run_mock().await
+        } else {
+            info!("Discord connector idle (set DISCORD_TOKEN and DISCORD_CHANNEL_ID to enable)");
+            Ok(())
         }
     }
 }
@@ -286,6 +419,32 @@ impl TelegramConnector {
             }
         });
 
+        // The café approval: pending decisions become Telegram messages with
+        // one inline button per option.
+        let decision_client = self.client.clone();
+        let dec_chat_id = chat_id.to_string();
+        let dec_token = token.to_string();
+        let dec_http = reqwest::Client::new();
+        tokio::spawn(async move {
+            if let Ok(mut sub) = decision_client.subscribe("_decision.*.requested").await {
+                while let Some(Ok(msg)) = sub.next().await {
+                    let Some(decision) = decision_from_event(&msg) else {
+                        continue;
+                    };
+                    let url = format!("https://api.telegram.org/bot{dec_token}/sendMessage");
+                    let _ = dec_http
+                        .post(&url)
+                        .json(&serde_json::json!({
+                            "chat_id": dec_chat_id,
+                            "text": decision_announcement(&decision),
+                            "reply_markup": telegram_decision_keyboard(&decision),
+                        }))
+                        .send()
+                        .await;
+                }
+            }
+        });
+
         // Polling loop for updates
         let poll_client = reqwest::Client::new();
         let default_interval = Duration::from_secs(4);
@@ -305,6 +464,79 @@ impl TelegramConnector {
                             for update in updates {
                                 if let Some(update_id) = update["update_id"].as_i64() {
                                     offset = update_id + 1;
+                                }
+
+                                // Inline button tap: relay the human's answer.
+                                if update["callback_query"].is_object() {
+                                    let cb = &update["callback_query"];
+                                    let data = cb["data"].as_str().unwrap_or("");
+                                    if let Some((dec_id, opt_id)) = parse_callback_data(data) {
+                                        let from_id = cb["from"]["id"].as_i64().unwrap_or(0);
+                                        let username =
+                                            cb["from"]["username"].as_str().unwrap_or("unknown");
+                                        let ext_id = format!("telegram://{from_id}");
+                                        let human = resolve_identity(&self.client, &ext_id).await;
+
+                                        let result = self
+                                            .client
+                                            .respond_decision_as(&dec_id, &opt_id, Some(&human))
+                                            .await;
+                                        info!(
+                                            "Telegram decision response {} -> {} by {} ({:?})",
+                                            dec_id,
+                                            opt_id,
+                                            ext_id,
+                                            result.as_ref().map(|_| "ok")
+                                        );
+
+                                        // Acknowledge the tap.
+                                        let answer_text = if result.is_ok() {
+                                            "Recorded ✔"
+                                        } else {
+                                            "Failed to record — check the daemon"
+                                        };
+                                        if let Some(cb_id) = cb["id"].as_str() {
+                                            let url = format!(
+                                                "https://api.telegram.org/bot{token}/answerCallbackQuery"
+                                            );
+                                            let _ = poll_client
+                                                .post(&url)
+                                                .json(&serde_json::json!({
+                                                    "callback_query_id": cb_id,
+                                                    "text": answer_text,
+                                                }))
+                                                .send()
+                                                .await;
+                                        }
+
+                                        // Rewrite the message: outcome shown,
+                                        // buttons removed so it can't be
+                                        // answered twice from this card.
+                                        if result.is_ok() {
+                                            if let (Some(msg_chat_id), Some(message_id)) = (
+                                                cb["message"]["chat"]["id"].as_i64(),
+                                                cb["message"]["message_id"].as_i64(),
+                                            ) {
+                                                let orig =
+                                                    cb["message"]["text"].as_str().unwrap_or("");
+                                                let url = format!(
+                                                    "https://api.telegram.org/bot{token}/editMessageText"
+                                                );
+                                                let _ = poll_client
+                                                    .post(&url)
+                                                    .json(&serde_json::json!({
+                                                        "chat_id": msg_chat_id,
+                                                        "message_id": message_id,
+                                                        "text": format!(
+                                                            "{orig}\n\n✅ {opt_id} — answered by @{username}"
+                                                        ),
+                                                    }))
+                                                    .send()
+                                                    .await;
+                                            }
+                                        }
+                                    }
+                                    continue;
                                 }
 
                                 if let Some(message) = update["message"].as_object() {
@@ -417,8 +649,11 @@ impl InterfaceConnector for TelegramConnector {
     async fn run(&self) -> anyhow::Result<()> {
         if let (Some(token), Some(chat_id)) = (&self.token, &self.chat_id) {
             self.run_live(token, chat_id).await
-        } else {
+        } else if mocks_enabled() {
             self.run_mock().await
+        } else {
+            info!("Telegram connector idle (set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID to enable)");
+            Ok(())
         }
     }
 }
@@ -609,8 +844,11 @@ impl InterfaceConnector for TeamsConnector {
     async fn run(&self) -> anyhow::Result<()> {
         if let Some(ref webhook_url) = self.webhook_url {
             self.run_live(webhook_url).await
-        } else {
+        } else if mocks_enabled() {
             self.run_mock().await
+        } else {
+            info!("Teams connector idle (set TEAMS_WEBHOOK_URL to enable)");
+            Ok(())
         }
     }
 }
@@ -663,6 +901,102 @@ impl ConnectorsManager {
 mod tests {
     use super::*;
     use axum::http::Request;
+    use mellowmesh_core::decision::DecisionOption;
+
+    fn sample_decision() -> Decision {
+        Decision {
+            id: "decision_abc".to_string(),
+            title: "Deploy?".to_string(),
+            question: "Ship v2 to production?".to_string(),
+            created_by: "agent://you/builder".to_string(),
+            required_decider: "human://you".to_string(),
+            status: "requested".to_string(),
+            options: vec![
+                DecisionOption {
+                    id: "option_1".to_string(),
+                    label: "Ship it".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                },
+                DecisionOption {
+                    id: "option_2".to_string(),
+                    label: "Hold".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                },
+            ],
+            response_option_id: None,
+            response_timestamp: None,
+            responded_by: None,
+        }
+    }
+
+    #[test]
+    fn test_parse_callback_data() {
+        assert_eq!(
+            parse_callback_data("d|decision_abc|option_1"),
+            Some(("decision_abc".to_string(), "option_1".to_string()))
+        );
+        assert_eq!(parse_callback_data("x|decision_abc|option_1"), None);
+        assert_eq!(parse_callback_data("d|decision_abc"), None);
+        assert_eq!(parse_callback_data(""), None);
+    }
+
+    #[test]
+    fn test_parse_approve_command() {
+        assert_eq!(
+            parse_approve_command("!approve decision_abc option_2"),
+            Some(("decision_abc".to_string(), "option_2".to_string()))
+        );
+        assert_eq!(
+            parse_approve_command("  !approve decision_abc option_2  "),
+            Some(("decision_abc".to_string(), "option_2".to_string()))
+        );
+        assert_eq!(parse_approve_command("!approve decision_abc"), None);
+        assert_eq!(parse_approve_command("!approve a b c"), None);
+        assert_eq!(parse_approve_command("hello world"), None);
+    }
+
+    #[test]
+    fn test_telegram_keyboard_and_announcement() {
+        let decision = sample_decision();
+        let kb = telegram_decision_keyboard(&decision);
+        let rows = kb["inline_keyboard"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0]["text"], "Ship it");
+        assert_eq!(rows[0][0]["callback_data"], "d|decision_abc|option_1");
+        // Telegram limits callback_data to 64 bytes.
+        assert!(rows[0][0]["callback_data"].as_str().unwrap().len() <= 64);
+
+        let text = decision_announcement(&decision);
+        assert!(text.contains("Deploy?"));
+        assert!(text.contains("Ship v2 to production?"));
+    }
+
+    #[test]
+    fn test_decision_from_event() {
+        let decision = sample_decision();
+        let msg = Message {
+            id: "msg_1".to_string(),
+            topic: format!("_decision.{}.requested", decision.id),
+            from: decision.created_by.clone(),
+            owner: None,
+            timestamp: chrono::Utc::now(),
+            content_type: "application/json".to_string(),
+            body: "Decision requested".to_string(),
+            headers: None,
+            payload: serde_json::to_value(&decision).ok(),
+            parent_id: None,
+        };
+        let parsed = decision_from_event(&msg).unwrap();
+        assert_eq!(parsed.id, "decision_abc");
+        assert_eq!(parsed.options.len(), 2);
+
+        // Non-decision topics are ignored even with a payload.
+        let mut other = msg.clone();
+        other.topic = "_forum.general".to_string();
+        assert!(decision_from_event(&other).is_none());
+    }
     use base64::engine::general_purpose::STANDARD as BASE64;
     use hmac::{Hmac, Mac};
     use mellowmesh_client::MellowMeshClient;

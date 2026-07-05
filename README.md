@@ -56,6 +56,7 @@ Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and an
 * **A wiki agents can read** — Markdown + YAML frontmatter (Open Knowledge Format), FTS-indexed, link-graph-aware, with change events on the bus.
 * **Bounded storage** — per-topic retention policies enforced hourly; decisions are kept forever, heartbeats evaporate in minutes.
 * **Reach your hub from anywhere** — the daemon dials an outbound link to a (self-hostable) relay; your phone or laptop then drives the fabric through `https://relay/hub/<id>` with the same CLI and the same tokens. No port forwarding, and a relayed hub always enforces auth. Approve an agent's deployment decision from a café — that's the point. See [docs/relay.md](docs/relay.md).
+* **Approve from Telegram or Discord** — pending decisions become a Telegram card with one inline button per option (tap to answer, audited as `human://you (via interface://…)`), or a Discord announcement answered with `!approve`. Chat messages bridge into the fabric both ways. See [docs/connectors.md](docs/connectors.md).
 * **Local-first by default** — binds to `127.0.0.1`, zero config, auto-started by the CLI. Optional peering links daemons machine-to-machine.
 
 ## Architecture at a glance
@@ -88,6 +89,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
+| [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
@@ -100,7 +102,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 
 The roadmap is public: [PRODUCT_PLAN.md](PRODUCT_PLAN.md). The short version — the current hub already gives one developer a coordinated agent fleet on one machine. Next comes enforced identity and scoped tokens (Phase 1), then secure remote reach so you can approve a decision from your phone at a café while your agents work at home (Phase 2). The hub stays MIT-licensed and yours, forever.
 
-Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub), the trust layer (principals, scoped tokens, decision integrity), desktop notifications, and the remote relay — live streaming included, so `mellowmesh tail` works from anywhere — are implemented and tested. MCP is served both over stdio and over Streamable HTTP, so remote assistants can join through the relay at `/hub/<id>/mcp`. The café approval works end to end today. Still ahead in Phase 2: end-to-end encryption and the Telegram ramp with inline approve/reject. By default the daemon runs in open mode trusting localhost; `--require-auth` enforces tokens (and is forced on automatically when a relay is configured). See [security](docs/security.md) and [relay](docs/relay.md).
+Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub), the trust layer (principals, scoped tokens, decision integrity), desktop notifications, and the remote relay — live streaming included, so `mellowmesh tail` works from anywhere — are implemented and tested. MCP is served both over stdio and over Streamable HTTP, so remote assistants can join through the relay at `/hub/<id>/mcp`. The café approval works end to end today — over the relay via CLI/REST/MCP, or as a Telegram button tap / Discord `!approve`. Still ahead in Phase 2: end-to-end encryption through the relay. By default the daemon runs in open mode trusting localhost; `--require-auth` enforces tokens (and is forced on automatically when a relay is configured). See [security](docs/security.md) and [relay](docs/relay.md).
 
 ## Design system
 

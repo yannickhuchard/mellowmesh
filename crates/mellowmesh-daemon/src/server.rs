@@ -452,6 +452,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_interface_relays_human_decision_response() {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        use mellowmesh_core::decision::{Decision, DecisionOption};
+
+        let store = Store::new_in_memory().unwrap();
+
+        // An interface token, as minted for the Telegram/Discord connectors.
+        let interface_token = generate_token();
+        store
+            .upsert_principal(&Principal {
+                id: "interface://local/connectors".to_string(),
+                kind: "interface".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_iface".to_string(),
+                principal: "interface://local/connectors".to_string(),
+                token_hash: hash_token(&interface_token),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec!["**".to_string()],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
+        store
+            .insert_decision(&Decision {
+                id: "dec_relay".to_string(),
+                title: "Ship?".to_string(),
+                question: "Ship it?".to_string(),
+                created_by: "agent://you/builder".to_string(),
+                required_decider: "human://you".to_string(),
+                status: "requested".to_string(),
+                options: vec![DecisionOption {
+                    id: "option_yes".to_string(),
+                    label: "Yes".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                }],
+                response_option_id: None,
+                response_timestamp: None,
+                responded_by: None,
+            })
+            .unwrap();
+
+        let state = test_state(store.clone(), true);
+        let app = create_router(state);
+        let port = 40013;
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // The connector relays a Telegram tap on behalf of a mapped human.
+        let http = reqwest::Client::new();
+        let resp = http
+            .post(format!(
+                "http://127.0.0.1:{port}/decisions/dec_relay/respond"
+            ))
+            .bearer_auth(&interface_token)
+            .json(&serde_json::json!({
+                "option_id": "option_yes",
+                "responded_by": "human://you"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let decision = store.get_decision("dec_relay").unwrap().unwrap();
+        assert_eq!(decision.status, "approved");
+        assert_eq!(
+            decision.responded_by,
+            Some("human://you (via interface://local/connectors)".to_string())
+        );
+    }
+
+    #[tokio::test]
     async fn test_identity_mapping_rest_api() {
         let store = Store::new_in_memory().unwrap();
         let metrics = Arc::new(DaemonMetrics::default());

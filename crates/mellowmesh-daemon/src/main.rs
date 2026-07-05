@@ -276,15 +276,48 @@ async fn main() -> anyhow::Result<()> {
     peer_manager.set_state(state.clone()).await;
     peer_manager.start();
 
-    let app = create_router(state);
+    let app = create_router(state.clone());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
     tracing::info!("MellowMesh daemon listening on: {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    // Initialize and start connectors
-    let client = mellowmesh_client::MellowMeshClient::new(args.port);
+    // Initialize and start connectors. Under required auth they get their
+    // own interface token (rotated each boot) so they can publish, subscribe,
+    // and relay human decision responses.
+    let mut client = mellowmesh_client::MellowMeshClient::new(args.port);
+    if require_auth {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        let principal_id = "interface://local/connectors".to_string();
+        if let Ok(Some(old_id)) = state.store.get_config("connectors_token_id") {
+            let _ = state.store.revoke_token(&old_id);
+        }
+        let plaintext = generate_token();
+        let record = TokenRecord {
+            id: format!("tok_{}", ulid::Ulid::new().to_string().to_lowercase()),
+            principal: principal_id.clone(),
+            token_hash: hash_token(&plaintext),
+            read_scopes: vec!["**".to_string()],
+            write_scopes: vec!["**".to_string()],
+            created_at: chrono::Utc::now(),
+            revoked: false,
+        };
+        let minted = state
+            .store
+            .upsert_principal(&Principal {
+                id: principal_id,
+                kind: "interface".to_string(),
+                display_name: Some("Local interface connectors".to_string()),
+                created_at: chrono::Utc::now(),
+            })
+            .and_then(|_| state.store.insert_token(&record))
+            .and_then(|_| state.store.set_config("connectors_token_id", &record.id));
+        match minted {
+            Ok(_) => client = client.with_token(plaintext),
+            Err(e) => tracing::error!("Failed to mint connectors token: {}", e),
+        }
+    }
     let connectors_mgr = mellowmesh_connectors::ConnectorsManager::new(client);
     connectors_mgr.start();
 

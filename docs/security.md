@@ -53,10 +53,12 @@ mellowmesh token revoke tok_…  # immediate revocation
   filtered to topics matching the token's read scopes.
 * **Claims**: an authenticated agent may only claim tasks as itself — no
   impersonation.
-* **Decisions**: only `human://` principals may respond to a decision. An
-  agent can never approve its own proposal. Every response records
-  `responded_by` for audit (unauthenticated responses in open mode are
-  recorded as `human://local-unauthenticated`).
+* **Decisions**: only `human://` principals may respond to a decision
+  directly, and `interface://` principals (chat connectors) may *relay* a
+  human's answer — recorded as `human://x (via interface://y)`. Agents and
+  nodes can never respond: an agent cannot approve its own proposal. Every
+  response records `responded_by` for audit (unauthenticated responses in
+  open mode are recorded as `human://local-unauthenticated`).
 * **Token administration**: owner only.
 
 Scopes use the same wildcard grammar as subscriptions: `*` (one token),

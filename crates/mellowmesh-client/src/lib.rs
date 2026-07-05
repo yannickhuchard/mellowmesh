@@ -370,13 +370,30 @@ impl MellowMeshClient {
     }
 
     pub async fn respond_decision(&self, decision_id: &str, option_id: &str) -> anyhow::Result<()> {
+        self.respond_decision_as(decision_id, option_id, None).await
+    }
+
+    /// Respond to a decision with an explicit `responded_by` hint. Used by
+    /// interface connectors relaying a human's answer (e.g. a Telegram
+    /// button tap); the daemon records it in the audit trail. Ignored when
+    /// the caller is an authenticated human principal.
+    pub async fn respond_decision_as(
+        &self,
+        decision_id: &str,
+        option_id: &str,
+        responded_by: Option<&str>,
+    ) -> anyhow::Result<()> {
         let client = &self.http;
+        let mut payload = serde_json::json!({ "option_id": option_id });
+        if let Some(by) = responded_by {
+            payload["responded_by"] = serde_json::json!(by);
+        }
         let resp = client
             .post(format!(
                 "{}/decisions/{}/respond",
                 self.base_url, decision_id
             ))
-            .json(&serde_json::json!({ "option_id": option_id }))
+            .json(&payload)
             .send()
             .await?;
         if !resp.status().is_success() {
