@@ -258,6 +258,7 @@ async fn main() -> anyhow::Result<()> {
         shutdown_trigger: shutdown_trigger.clone(),
         require_auth,
         owner,
+        port: args.port,
     };
 
     // Background maintenance: lease reclaim + retention purge

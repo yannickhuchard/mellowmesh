@@ -65,6 +65,10 @@ daemon as a framed stream, the daemon opens a matching local subscription
 under your token (read scopes filter deliveries as usual), and every message
 is relayed back in real time.
 
+Remote MCP works the same way: point any Streamable HTTP MCP client at
+`https://<relay>/hub/<hub_id>/mcp` with your bearer token — see
+[MCP integration](mcp.md).
+
 Any HTTP client works too:
 
 ```bash

@@ -23,4 +23,6 @@ pub struct AppState {
     /// Owner principal URI (`human://...`) — the only identity allowed to
     /// administer tokens.
     pub owner: String,
+    /// Port this daemon is bound to (loopback base for internal dispatch).
+    pub port: u16,
 }

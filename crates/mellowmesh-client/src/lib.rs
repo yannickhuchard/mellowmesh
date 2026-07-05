@@ -1,4 +1,5 @@
 pub mod autostart;
+pub mod mcp;
 
 use futures_util::Stream;
 use futures_util::StreamExt;

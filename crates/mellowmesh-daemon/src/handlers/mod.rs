@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod decision;
 pub mod identity;
+pub mod mcp;
 pub mod message;
 pub mod metrics;
 pub mod named_topic;

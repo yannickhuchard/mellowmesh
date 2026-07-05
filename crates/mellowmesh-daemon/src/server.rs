@@ -90,6 +90,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/wiki/:wiki/sync", post(handlers::wiki::sync_wiki_endpoint))
         .route("/wiki/:wiki/graph", get(handlers::wiki::get_wiki_graph))
         .route("/shutdown", post(shutdown_handler))
+        .route("/mcp", post(handlers::mcp::handle_mcp))
         .route(
             "/auth/tokens",
             post(crate::auth::create_token).get(crate::auth::list_tokens),
@@ -245,7 +246,103 @@ mod tests {
             shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
             require_auth,
             owner: "human://test".to_string(),
+            port: 0,
         }
+    }
+
+    #[tokio::test]
+    async fn test_http_mcp_endpoint() {
+        let store = Store::new_in_memory().unwrap();
+        let port = 40012;
+        let mut state = test_state(store, false);
+        state.port = port; // loopback dispatch for tools/call
+        let app = create_router(state);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let base = format!("http://127.0.0.1:{port}");
+        let http = reqwest::Client::new();
+
+        // initialize
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["serverInfo"]["name"], "mellowmesh-mcp");
+
+        // tools/list exposes the full toolset
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/list"
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert!(tools.len() >= 20);
+
+        // tools/call round-trips through the daemon's own API
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {
+                    "name": "create_task",
+                    "arguments": {
+                        "title": "MCP-created task",
+                        "topics": ["_task.mcp"],
+                        "capabilities": ["demo"]
+                    }
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false);
+
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": { "name": "list_tasks", "arguments": {} }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("MCP-created task"));
+
+        // notifications are acknowledged without a body
+        let resp = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "method": "notifications/initialized"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 202);
     }
 
     #[tokio::test]
@@ -385,6 +482,7 @@ mod tests {
             shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
             require_auth: false,
             owner: "human://test".to_string(),
+            port: 0,
         };
 
         let app = create_router(state);
@@ -451,6 +549,7 @@ mod tests {
             shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
             require_auth: false,
             owner: "human://test".to_string(),
+            port: 0,
         };
 
         let app = create_router(state);

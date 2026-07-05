@@ -31,6 +31,16 @@ Add to `claude_desktop_config.json` (`%APPDATA%\Claude\` on Windows, `~/Library/
 
 Spawn `mellowmesh mcp` as a background stdio subprocess. The server communicates using standard JSON-RPC 2.0.
 
+## Remote MCP (Streamable HTTP)
+
+The daemon also serves the same 21 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
+
+```text
+https://<relay>/hub/<hub_id>/mcp
+```
+
+Any client speaking the Streamable HTTP MCP transport (Claude Mobile/web connectors, custom agents) can join your fabric from anywhere. Requests must carry your bearer token (`Authorization: Bearer mm_...`); tool calls are dispatched under that token, so its scopes bound exactly what a remote assistant can publish, read, and claim. Stateless mode: each JSON-RPC message gets one JSON response; notifications are acknowledged with `202`.
+
 ## Exposed MCP Tools
 
 The server registers 21 tools covering all aspects of coordination:
