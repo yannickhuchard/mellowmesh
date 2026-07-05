@@ -5,10 +5,10 @@ use axum::{
     Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use mellowmesh_client::MellowMeshClient;
-use mellowmesh_core::message::Message;
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
+use mellowmesh_client::MellowMeshClient;
+use mellowmesh_core::message::Message;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::net::SocketAddr;
@@ -74,13 +74,11 @@ impl DiscordConnector {
                         continue;
                     }
                     let discord_msg = format!("**{}** (via MellowMesh):\n{}", msg.from, msg.body);
-                    let url = format!(
-                        "https://discord.com/api/v10/channels/{}/messages",
-                        channel_id_str
-                    );
+                    let url =
+                        format!("https://discord.com/api/v10/channels/{channel_id_str}/messages");
                     let _ = http_client
                         .post(&url)
-                        .header("Authorization", format!("Bot {}", token_str))
+                        .header("Authorization", format!("Bot {token_str}"))
                         .json(&serde_json::json!({ "content": discord_msg }))
                         .send()
                         .await;
@@ -93,17 +91,15 @@ impl DiscordConnector {
         let default_interval = Duration::from_secs(5);
         let mut current_interval = default_interval;
         loop {
-            let mut url = format!(
-                "https://discord.com/api/v10/channels/{}/messages?limit=5",
-                channel_id
-            );
+            let mut url =
+                format!("https://discord.com/api/v10/channels/{channel_id}/messages?limit=5");
             if let Some(ref last_id) = last_message_id {
-                url = format!("{}&after={}", url, last_id);
+                url = format!("{url}&after={last_id}");
             }
 
             let resp = poll_client
                 .get(&url)
-                .header("Authorization", format!("Bot {}", token))
+                .header("Authorization", format!("Bot {token}"))
                 .send()
                 .await;
 
@@ -131,7 +127,7 @@ impl DiscordConnector {
 
                                 let author_id = author["id"].as_str().unwrap_or("unknown");
                                 let author_name = author["username"].as_str().unwrap_or("unknown");
-                                let ext_id = format!("discord://{}", author_id);
+                                let ext_id = format!("discord://{author_id}");
                                 let mellowmesh_id = resolve_identity(&self.client, &ext_id).await;
 
                                 info!(
@@ -140,7 +136,7 @@ impl DiscordConnector {
                                 );
 
                                 let fm_msg = Message {
-                                    id: format!("msg_{}", id),
+                                    id: format!("msg_{id}"),
                                     topic: "_forum.general".to_string(),
                                     from: ext_id,
                                     owner: Some(mellowmesh_id),
@@ -276,7 +272,7 @@ impl TelegramConnector {
                         continue;
                     }
                     let telegram_msg = format!("*{}* (via MellowMesh):\n{}", msg.from, msg.body);
-                    let url = format!("https://api.telegram.org/bot{}/sendMessage", token_str);
+                    let url = format!("https://api.telegram.org/bot{token_str}/sendMessage");
                     let _ = http_client
                         .post(&url)
                         .json(&serde_json::json!({
@@ -296,8 +292,7 @@ impl TelegramConnector {
         let mut current_interval = default_interval;
         loop {
             let url = format!(
-                "https://api.telegram.org/bot{}/getUpdates?offset={}&limit=5&timeout=5",
-                token, offset
+                "https://api.telegram.org/bot{token}/getUpdates?offset={offset}&limit=5&timeout=5"
             );
 
             let resp = poll_client.get(&url).send().await;
@@ -321,7 +316,7 @@ impl TelegramConnector {
                                         let from_id = from_user["id"].as_i64().unwrap_or(0);
                                         let username =
                                             from_user["username"].as_str().unwrap_or("unknown");
-                                        let ext_id = format!("telegram://{}", from_id);
+                                        let ext_id = format!("telegram://{from_id}");
                                         let mellowmesh_id =
                                             resolve_identity(&self.client, &ext_id).await;
 
@@ -508,7 +503,7 @@ impl TeamsConnector {
                 };
 
                 let from_user = payload.from.unwrap_or_else(|| "bob".to_string());
-                let ext_id = format!("teams://{}", from_user);
+                let ext_id = format!("teams://{from_user}");
                 let mellowmesh_id = resolve_identity(&client, &ext_id).await;
 
                 info!("Teams webhook message received from {}: {}", ext_id, payload.text);
@@ -669,8 +664,8 @@ mod tests {
     use super::*;
     use axum::http::Request;
     use base64::engine::general_purpose::STANDARD as BASE64;
-    use mellowmesh_client::MellowMeshClient;
     use hmac::{Hmac, Mac};
+    use mellowmesh_client::MellowMeshClient;
     use sha2::Sha256;
     use tower::ServiceExt;
 
@@ -696,7 +691,7 @@ mod tests {
         let req = Request::builder()
             .method("POST")
             .uri("/webhook")
-            .header("Authorization", format!("HMAC {}", correct_sig_b64))
+            .header("Authorization", format!("HMAC {correct_sig_b64}"))
             .body(axum::body::Body::from(payload))
             .unwrap();
 

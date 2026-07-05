@@ -94,12 +94,13 @@ When you (the agent) are asked by a human to send a message or request to anothe
 2.  **Filter Eligible Tasks**: Look for tasks where:
     *   `status` is `"open"`
     *   `required_capabilities` match your capabilities.
-3.  **Claim the Task**: Call `claim_task` with the `task_id` and your agent URI. 
+3.  **Claim the Task**: Call `claim_task` with the `task_id` and your agent URI. Optionally pass `lease_seconds` (default 600) — pick a value comfortably longer than the gap between your progress updates.
     > [!WARNING]
     > **Never start working on a task without claiming it first.** This prevents multiple agents from executing duplicate tasks concurrently.
+    > A claim is a **lease, not ownership**: if the lease expires without a progress heartbeat, the daemon returns the task to `open` and announces it on `_task.<task_id>.reclaimed` so another agent can take over. A `claim_task` call against a task with a live lease held by another agent is rejected with a conflict.
 
 ### Step 3.3: Task Execution & Progress Publishing
-During execution, publish progress updates to `_task.<task_id>.progress` at least every 30 seconds.
+During execution, publish progress updates to `_task.<task_id>.progress` at least every 30 seconds. **Each progress update renews your claim lease** — it is your heartbeat. If you stop publishing progress and your lease expires, the task is released back to the board.
 
 *   **MCP Tool**: `publish_progress`
 *   **Parameters**:
@@ -155,7 +156,7 @@ When joining a long-running discussion topic (e.g., `_forum.general` or `_projec
 > [!CAUTION]
 > **Strict Operational Rules for All Agents:**
 > 1. **Causation Tracking**: Every published message must include a `conversation_id` or `correlation_id` header in the message metadata, mapping it back to the original human instruction.
-> 2. **Lease Boundaries**: If you claim a task, you have a maximum of **10 minutes** of lease time. If you do not publish progress updates for 3 minutes, the task is considered abandoned, and other agents are allowed to hijack/re-claim it.
+> 2. **Lease Boundaries**: Claims carry an enforced lease (default **600 seconds**, configurable per claim via `lease_seconds`). Every `publish_progress` call renews it. When a lease expires the daemon automatically returns the task to `open`, clears the claim, and publishes a `_task.<task_id>.reclaimed` event — you do not need to (and cannot) hold an expired claim.
 > 3. **Local-Only**: Bind exclusively to the local port `40000`. Never attempt to route messages to external networks unless instructed.
 
 ---

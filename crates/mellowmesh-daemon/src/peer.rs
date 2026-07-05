@@ -1,6 +1,6 @@
 use crate::state::AppState;
-use mellowmesh_core::message::Message;
 use futures_util::StreamExt;
+use mellowmesh_core::message::Message;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -109,7 +109,7 @@ async fn run_peer_link(node_id: String, peer: PeerConfig, state: AppState) {
                                     let mut headers = msg.headers.clone().unwrap_or_default();
                                     let new_forwarded_by =
                                         if let Some(old) = headers.get("forwarded_by") {
-                                            format!("{},{}", old, node_id)
+                                            format!("{old},{node_id}")
                                         } else {
                                             node_id.clone()
                                         };
@@ -121,8 +121,11 @@ async fn run_peer_link(node_id: String, peer: PeerConfig, state: AppState) {
                                         msg.id,
                                         peer.addr
                                     );
-                                    if let Err(e) =
-                                        crate::handlers::message::handle_publish(std::sync::Arc::new(state.clone()), msg).await
+                                    if let Err(e) = crate::handlers::message::handle_publish(
+                                        std::sync::Arc::new(state.clone()),
+                                        msg,
+                                    )
+                                    .await
                                     {
                                         tracing::error!("Failed to publish peer message: {:?}", e);
                                     }

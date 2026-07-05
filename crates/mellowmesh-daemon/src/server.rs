@@ -34,7 +34,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/named-topics",
-            post(handlers::named_topic::register_named_topic).get(handlers::named_topic::list_named_topics),
+            post(handlers::named_topic::register_named_topic)
+                .get(handlers::named_topic::list_named_topics),
         )
         .route(
             "/named-topics/:name",

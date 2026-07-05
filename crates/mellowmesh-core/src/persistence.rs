@@ -120,6 +120,80 @@ impl PersistenceConfig {
     }
 }
 
+/// Parse a retention duration string (e.g. "30s", "5m", "24h", "7d") into a
+/// [`chrono::Duration`]. Returns `None` for non-expiring values ("forever",
+/// "policy") and for unparseable inputs, meaning: never purge.
+pub fn parse_retention(retention: &str) -> Option<chrono::Duration> {
+    let s = retention.trim().to_lowercase();
+    if s.is_empty() || s == "forever" || s == "policy" {
+        return None;
+    }
+    let (digits, unit) = s.split_at(s.len() - 1);
+    let value: i64 = digits.parse().ok()?;
+    if value < 0 {
+        return None;
+    }
+    match unit {
+        "s" => Some(chrono::Duration::seconds(value)),
+        "m" => Some(chrono::Duration::minutes(value)),
+        "h" => Some(chrono::Duration::hours(value)),
+        "d" => Some(chrono::Duration::days(value)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_retention_units() {
+        assert_eq!(parse_retention("30s"), Some(chrono::Duration::seconds(30)));
+        assert_eq!(parse_retention("5m"), Some(chrono::Duration::minutes(5)));
+        assert_eq!(parse_retention("24h"), Some(chrono::Duration::hours(24)));
+        assert_eq!(parse_retention("90d"), Some(chrono::Duration::days(90)));
+        assert_eq!(parse_retention(" 7D "), Some(chrono::Duration::days(7)));
+    }
+
+    #[test]
+    fn test_parse_retention_non_expiring() {
+        assert_eq!(parse_retention("forever"), None);
+        assert_eq!(parse_retention("policy"), None);
+        assert_eq!(parse_retention(""), None);
+    }
+
+    #[test]
+    fn test_parse_retention_invalid() {
+        assert_eq!(parse_retention("abc"), None);
+        assert_eq!(parse_retention("10x"), None);
+        assert_eq!(parse_retention("d"), None);
+        assert_eq!(parse_retention("-5d"), None);
+    }
+
+    #[test]
+    fn test_resolve_falls_back_to_default() {
+        let config = PersistenceConfig {
+            default: PersistencePolicy {
+                mode: PersistenceMode::Metadata,
+                retention: "7d".to_string(),
+                max_message_size: None,
+                sync: false,
+            },
+            rules: vec![(
+                "_forum.**".to_string(),
+                PersistencePolicy {
+                    mode: PersistenceMode::Queryable,
+                    retention: "180d".to_string(),
+                    max_message_size: None,
+                    sync: false,
+                },
+            )],
+        };
+        assert_eq!(config.resolve("_forum.general").retention, "180d");
+        assert_eq!(config.resolve("random.topic").retention, "7d");
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OverflowPolicy {

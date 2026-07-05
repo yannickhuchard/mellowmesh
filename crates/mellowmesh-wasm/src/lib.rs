@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use chrono::Utc;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::Decision;
@@ -35,6 +37,12 @@ pub struct WasmMellowMeshNode {
     tasks: Mutex<Vec<Task>>,
     decisions: Mutex<Vec<Decision>>,
     subscriptions: Mutex<Vec<Subscription>>,
+}
+
+impl Default for WasmMellowMeshNode {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[wasm_bindgen]
@@ -162,7 +170,7 @@ impl WasmMellowMeshNode {
         // Publish task system message
         let system_msg = Message {
             id: format!("msg_{}", Ulid::new().to_string().to_lowercase()),
-            topic: format!("_task.system.created"),
+            topic: "_task.system.created".to_string(),
             from: "system://coordinator".to_string(),
             owner: None,
             timestamp: Utc::now(),
@@ -268,7 +276,7 @@ impl WasmMellowMeshNode {
         // Publish system message
         let system_msg = Message {
             id: format!("msg_{}", Ulid::new().to_string().to_lowercase()),
-            topic: format!("_decision.system.created"),
+            topic: "_decision.system.created".to_string(),
             from: "system://coordinator".to_string(),
             owner: None,
             timestamp: Utc::now(),
@@ -343,7 +351,7 @@ impl WasmMellowMeshNode {
         matching.sort_by_key(|m| m.timestamp);
 
         let len = matching.len();
-        let start = if len > limit { len - limit } else { 0 };
+        let start = len.saturating_sub(limit);
         let slice = &matching[start..];
 
         serde_wasm_bindgen::to_value(slice)

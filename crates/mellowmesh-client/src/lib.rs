@@ -1,13 +1,13 @@
 pub mod autostart;
 
+use futures_util::Stream;
+use futures_util::StreamExt;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::Decision;
 use mellowmesh_core::message::Message;
 use mellowmesh_core::task::Task;
-pub use mellowmesh_core::topic::NamedTopic;
 use mellowmesh_core::telemetry::TraceSession;
-use futures_util::Stream;
-use futures_util::StreamExt;
+pub use mellowmesh_core::topic::NamedTopic;
 
 #[derive(Clone)]
 pub struct MellowMeshClient {
@@ -18,7 +18,7 @@ pub struct MellowMeshClient {
 impl MellowMeshClient {
     pub fn new(port: u16) -> Self {
         Self {
-            base_url: format!("http://127.0.0.1:{}", port),
+            base_url: format!("http://127.0.0.1:{port}"),
             port,
         }
     }
@@ -29,7 +29,7 @@ impl MellowMeshClient {
             autostart::spawn_daemon(port)?;
         }
         Ok(Self {
-            base_url: format!("http://127.0.0.1:{}", port),
+            base_url: format!("http://127.0.0.1:{port}"),
             port,
         })
     }
@@ -39,7 +39,7 @@ impl MellowMeshClient {
             autostart::spawn_daemon(port)?;
         }
         Ok(Self {
-            base_url: format!("http://127.0.0.1:{}", port),
+            base_url: format!("http://127.0.0.1:{port}"),
             port,
         })
     }
@@ -47,7 +47,7 @@ impl MellowMeshClient {
     pub async fn publish(&self, msg: &Message) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/publish", self.base_url))
+            .post(format!("{}/publish", self.base_url))
             .json(msg)
             .send()
             .await?;
@@ -96,7 +96,7 @@ impl MellowMeshClient {
     pub async fn get_history(&self, limit: usize) -> anyhow::Result<Vec<Message>> {
         let client = reqwest::Client::new();
         let resp = client
-            .get(&format!("{}/history", self.base_url))
+            .get(format!("{}/history", self.base_url))
             .query(&[("limit", limit)])
             .send()
             .await?;
@@ -113,7 +113,7 @@ impl MellowMeshClient {
     pub async fn search_messages(&self, query: &str) -> anyhow::Result<Vec<Message>> {
         let client = reqwest::Client::new();
         let resp = client
-            .get(&format!("{}/search", self.base_url))
+            .get(format!("{}/search", self.base_url))
             .query(&[("query", query)])
             .send()
             .await?;
@@ -139,7 +139,7 @@ impl MellowMeshClient {
     pub async fn register_agent(&self, agent: &AgentRegistration) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/agents", self.base_url))
+            .post(format!("{}/agents", self.base_url))
             .json(agent)
             .send()
             .await?;
@@ -171,7 +171,7 @@ impl MellowMeshClient {
             topic: topic.to_string(),
         };
         let resp = client
-            .post(&format!("{}/named-topics", self.base_url))
+            .post(format!("{}/named-topics", self.base_url))
             .json(&payload)
             .send()
             .await?;
@@ -200,7 +200,7 @@ impl MellowMeshClient {
         let client = reqwest::Client::new();
         let encoded_name: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
         let resp = client
-            .delete(&format!("{}/named-topics/{}", self.base_url, encoded_name))
+            .delete(format!("{}/named-topics/{}", self.base_url, encoded_name))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -215,7 +215,7 @@ impl MellowMeshClient {
     pub async fn create_task(&self, task: &Task) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/tasks", self.base_url))
+            .post(format!("{}/tasks", self.base_url))
             .json(task)
             .send()
             .await?;
@@ -238,10 +238,26 @@ impl MellowMeshClient {
     }
 
     pub async fn claim_task(&self, task_id: &str, agent_id: &str) -> anyhow::Result<()> {
+        self.claim_task_with_lease(task_id, agent_id, None).await
+    }
+
+    /// Claim a task with an explicit lease duration. The claim is released
+    /// automatically by the daemon if the lease expires without renewal;
+    /// publishing progress on `_task.<id>.progress` renews it.
+    pub async fn claim_task_with_lease(
+        &self,
+        task_id: &str,
+        agent_id: &str,
+        lease_seconds: Option<u64>,
+    ) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
+        let mut payload = serde_json::json!({ "claimed_by": agent_id });
+        if let Some(lease) = lease_seconds {
+            payload["lease_seconds"] = serde_json::json!(lease);
+        }
         let resp = client
-            .post(&format!("{}/tasks/{}/claim", self.base_url, task_id))
-            .json(&serde_json::json!({ "claimed_by": agent_id }))
+            .post(format!("{}/tasks/{}/claim", self.base_url, task_id))
+            .json(&payload)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -253,7 +269,7 @@ impl MellowMeshClient {
     pub async fn complete_task(&self, task_id: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/tasks/{}/complete", self.base_url, task_id))
+            .post(format!("{}/tasks/{}/complete", self.base_url, task_id))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -268,7 +284,7 @@ impl MellowMeshClient {
     pub async fn create_decision(&self, decision: &Decision) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/decisions", self.base_url))
+            .post(format!("{}/decisions", self.base_url))
             .json(decision)
             .send()
             .await?;
@@ -296,7 +312,7 @@ impl MellowMeshClient {
     pub async fn respond_decision(&self, decision_id: &str, option_id: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!(
+            .post(format!(
                 "{}/decisions/{}/respond",
                 self.base_url, decision_id
             ))
@@ -323,7 +339,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<TraceSession> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/traces", self.base_url))
+            .post(format!("{}/traces", self.base_url))
             .json(&serde_json::json!({
                 "target_type": target_type,
                 "target": target,
@@ -347,7 +363,7 @@ impl MellowMeshClient {
     pub async fn disable_trace(&self, id: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .delete(&format!("{}/traces/{}", self.base_url, id))
+            .delete(format!("{}/traces/{}", self.base_url, id))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -385,7 +401,7 @@ impl MellowMeshClient {
 
     pub async fn get_forum(&self, pattern: Option<String>) -> anyhow::Result<Vec<Message>> {
         let client = reqwest::Client::new();
-        let mut req = client.get(&format!("{}/forum", self.base_url));
+        let mut req = client.get(format!("{}/forum", self.base_url));
         if let Some(pat) = pattern {
             req = req.query(&[("pattern", pat)]);
         }
@@ -400,7 +416,7 @@ impl MellowMeshClient {
     pub async fn store_summary(&self, topic: &str, summary: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/summaries", self.base_url))
+            .post(format!("{}/summaries", self.base_url))
             .json(&serde_json::json!({ "topic": topic, "summary": summary }))
             .send()
             .await?;
@@ -420,7 +436,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<mellowmesh_core::persistence::ContextResult> {
         let client = reqwest::Client::new();
         let mut req = client
-            .get(&format!("{}/context", self.base_url))
+            .get(format!("{}/context", self.base_url))
             .query(&[("topic", topic)]);
         if let Some(lim) = limit {
             req = req.query(&[("limit", lim)]);
@@ -439,7 +455,7 @@ impl MellowMeshClient {
     pub async fn add_identity_mapping(&self, ext_id: &str, fm_id: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/identity-mappings", self.base_url))
+            .post(format!("{}/identity-mappings", self.base_url))
             .json(&serde_json::json!({ "external_id": ext_id, "mellowmesh_id": fm_id }))
             .send()
             .await?;
@@ -475,7 +491,7 @@ impl MellowMeshClient {
     pub async fn shutdown_daemon(&self) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/shutdown", self.base_url))
+            .post(format!("{}/shutdown", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -492,7 +508,7 @@ impl MellowMeshClient {
         tag: Option<&str>,
     ) -> anyhow::Result<Vec<mellowmesh_core::okf::OKFDocument>> {
         let client = reqwest::Client::new();
-        let mut req = client.get(&format!("{}/wiki/{}/pages", self.base_url, wiki));
+        let mut req = client.get(format!("{}/wiki/{}/pages", self.base_url, wiki));
         let mut query_params = Vec::new();
         if let Some(q) = query {
             query_params.push(("query", q.to_string()));
@@ -533,6 +549,7 @@ impl MellowMeshClient {
         Ok(doc)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn write_wiki_page(
         &self,
         wiki: &str,
@@ -546,7 +563,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<mellowmesh_core::okf::OKFDocument> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
+            .post(format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
             .json(&serde_json::json!({
                 "doc_type": doc_type,
                 "title": title,
@@ -570,7 +587,7 @@ impl MellowMeshClient {
     pub async fn delete_wiki_page(&self, wiki: &str, path: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .delete(&format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
+            .delete(format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -585,7 +602,7 @@ impl MellowMeshClient {
     pub async fn sync_wiki(&self, wiki: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/wiki/{}/sync", self.base_url, wiki))
+            .post(format!("{}/wiki/{}/sync", self.base_url, wiki))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -614,7 +631,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/schemas", self.base_url))
+            .post(format!("{}/schemas", self.base_url))
             .json(&serde_json::json!({
                 "topic_pattern": topic_pattern,
                 "version": version,
@@ -650,7 +667,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .post(&format!("{}/schemas/status", self.base_url))
+            .post(format!("{}/schemas/status", self.base_url))
             .json(&serde_json::json!({
                 "topic_pattern": topic_pattern,
                 "version": version,
@@ -670,7 +687,7 @@ impl MellowMeshClient {
     pub async fn remove_schema(&self, topic_pattern: &str, version: &str) -> anyhow::Result<()> {
         let client = reqwest::Client::new();
         let resp = client
-            .delete(&format!("{}/schemas", self.base_url))
+            .delete(format!("{}/schemas", self.base_url))
             .query(&[("topic_pattern", topic_pattern), ("version", version)])
             .send()
             .await?;

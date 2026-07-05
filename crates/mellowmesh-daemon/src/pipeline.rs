@@ -90,6 +90,10 @@ impl<T> BoundedQueue<T> {
     pub fn len(&self) -> usize {
         self.queue.lock().unwrap().len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub struct PersistencePipeline {

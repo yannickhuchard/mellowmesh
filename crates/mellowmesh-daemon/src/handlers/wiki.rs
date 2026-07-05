@@ -96,7 +96,7 @@ pub async fn get_page(
         Some(doc) => Ok(Json(doc)),
         None => Err((
             StatusCode::NOT_FOUND,
-            format!("Page '{}' not found in wiki '{}'", path, wiki),
+            format!("Page '{path}' not found in wiki '{wiki}'"),
         )),
     }
 }
@@ -110,7 +110,7 @@ pub async fn write_page(
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            format!("Wiki namespace '{}' is not configured", wiki),
+            format!("Wiki namespace '{wiki}' is not configured"),
         )
     })?;
 
@@ -124,7 +124,7 @@ pub async fn write_page(
         std::fs::create_dir_all(parent).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to create directories: {}", e),
+                format!("Failed to create directories: {e}"),
             )
         })?;
     }
@@ -143,19 +143,15 @@ pub async fn write_page(
         links: Vec::new(),
     });
 
-    let doc = okf::parse_okf_string(&wiki, &path, &temp_content).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            format!("Invalid OKF format: {}", e),
-        )
-    })?;
+    let doc = okf::parse_okf_string(&wiki, &path, &temp_content)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid OKF format: {e}")))?;
 
     let doc_serialized = okf::serialize_okf(&doc);
 
     std::fs::write(&file_path, &doc_serialized).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write file: {}", e),
+            format!("Failed to write file: {e}"),
         )
     })?;
 
@@ -183,7 +179,7 @@ pub async fn write_page(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // 4. Publish Event message to Mellowmesh Topic
-    let event_topic = format!("_wiki.{}.page.{}", wiki, event_type);
+    let event_topic = format!("_wiki.{wiki}.page.{event_type}");
     let mut payload_map = HashMap::new();
     payload_map.insert("wiki", serde_json::json!(wiki));
     payload_map.insert("path", serde_json::json!(path));
@@ -197,10 +193,7 @@ pub async fn write_page(
         owner: None,
         timestamp: Utc::now(),
         content_type: "application/json".to_string(),
-        body: format!(
-            "Wiki page '{}' was {} in wiki '{}'.",
-            path, event_type, wiki
-        ),
+        body: format!("Wiki page '{path}' was {event_type} in wiki '{wiki}'."),
         headers: None,
         payload: Some(serde_json::to_value(payload_map).unwrap()),
         parent_id: None,
@@ -211,7 +204,7 @@ pub async fn write_page(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to publish event: {}", e),
+                format!("Failed to publish event: {e}"),
             )
         })?;
 
@@ -225,7 +218,7 @@ pub async fn delete_page(
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            format!("Wiki namespace '{}' is not configured", wiki),
+            format!("Wiki namespace '{wiki}' is not configured"),
         )
     })?;
 
@@ -248,7 +241,7 @@ pub async fn delete_page(
 
     let doc = match doc_opt {
         Some(d) => d,
-        None => return Err((StatusCode::NOT_FOUND, format!("Page '{}' not found", path))),
+        None => return Err((StatusCode::NOT_FOUND, format!("Page '{path}' not found"))),
     };
 
     // Delete file if exists
@@ -256,7 +249,7 @@ pub async fn delete_page(
         std::fs::remove_file(file_path).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to delete file: {}", e),
+                format!("Failed to delete file: {e}"),
             )
         })?;
     }
@@ -271,7 +264,7 @@ pub async fn delete_page(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Publish event
-    let event_topic = format!("_wiki.{}.page.deleted", wiki);
+    let event_topic = format!("_wiki.{wiki}.page.deleted");
     let mut payload_map = HashMap::new();
     payload_map.insert("wiki", serde_json::json!(wiki));
     payload_map.insert("path", serde_json::json!(path));
@@ -285,7 +278,7 @@ pub async fn delete_page(
         owner: None,
         timestamp: Utc::now(),
         content_type: "application/json".to_string(),
-        body: format!("Wiki page '{}' was deleted from wiki '{}'.", path, wiki),
+        body: format!("Wiki page '{path}' was deleted from wiki '{wiki}'."),
         headers: None,
         payload: Some(serde_json::to_value(payload_map).unwrap()),
         parent_id: None,
@@ -296,7 +289,7 @@ pub async fn delete_page(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to publish event: {}", e),
+                format!("Failed to publish event: {e}"),
             )
         })?;
 
@@ -310,7 +303,7 @@ pub async fn sync_wiki_endpoint(
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            format!("Wiki namespace '{}' is not configured", wiki),
+            format!("Wiki namespace '{wiki}' is not configured"),
         )
     })?;
 
@@ -319,7 +312,7 @@ pub async fn sync_wiki_endpoint(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Sync failed: {}", e),
+                format!("Sync failed: {e}"),
             )
         })?;
 

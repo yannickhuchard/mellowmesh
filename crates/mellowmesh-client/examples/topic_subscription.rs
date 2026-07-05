@@ -1,6 +1,6 @@
+use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::message::Message;
-use futures_util::StreamExt;
 use std::time::Duration;
 
 #[tokio::main]
@@ -15,10 +15,7 @@ async fn main() -> anyhow::Result<()> {
     // Pattern "NEWS.>" matches any topic starting with "news." (case-insensitive) followed by one or more levels.
     // For example: "news.french.technology", "NEWS.German.Art", etc.
     let pattern = "NEWS.>";
-    println!(
-        "Subscribing to pattern: '{}' (case-insensitive = true)...",
-        pattern
-    );
+    println!("Subscribing to pattern: '{pattern}' (case-insensitive = true)...");
 
     let mut stream = client.subscribe_with_options(pattern, true).await?;
 
@@ -42,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
             parent_id: None,
         };
         if let Err(e) = client_clone.publish(&msg1).await {
-            eprintln!("[Publisher] Failed to publish message 1: {}", e);
+            eprintln!("[Publisher] Failed to publish message 1: {e}");
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -64,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
             parent_id: None,
         };
         if let Err(e) = client_clone.publish(&msg2).await {
-            eprintln!("[Publisher] Failed to publish message 2: {}", e);
+            eprintln!("[Publisher] Failed to publish message 2: {e}");
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -84,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
             parent_id: None,
         };
         if let Err(e) = client_clone.publish(&msg3).await {
-            eprintln!("[Publisher] Failed to publish message 3: {}", e);
+            eprintln!("[Publisher] Failed to publish message 3: {e}");
         }
     });
 
@@ -92,10 +89,7 @@ async fn main() -> anyhow::Result<()> {
 
     // We expect to receive exactly 2 messages
     let mut count = 0;
-    while let Some(msg_result) = tokio::time::timeout(Duration::from_secs(3), stream.next())
-        .await
-        .ok()
-    {
+    while let Ok(msg_result) = tokio::time::timeout(Duration::from_secs(3), stream.next()).await {
         if let Some(Ok(msg)) = msg_result {
             println!("\n[Subscriber] Received message {}:", count + 1);
             println!("  ID:        {}", msg.id);
@@ -113,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if count < 2 {
-        println!("\nSubscriber timed out. Received {} messages.", count);
+        println!("\nSubscriber timed out. Received {count} messages.");
     }
 
     Ok(())

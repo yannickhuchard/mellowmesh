@@ -19,7 +19,7 @@ pub async fn register_agent(
             // Publish registry sync event message
             let mut headers = HashMap::new();
             headers.insert("x-registry-action".to_string(), "register".to_string());
-            
+
             let msg = Message {
                 id: format!("msg_{}", ulid::Ulid::new().to_string().to_lowercase()),
                 topic: "_system.registry.agent".to_string(),
@@ -38,7 +38,7 @@ pub async fn register_agent(
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to register agent: {}", e),
+            format!("Failed to register agent: {e}"),
         )),
     }
 }
@@ -50,7 +50,7 @@ pub async fn list_agents(
         Ok(agents) => Ok(Json(agents)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list agents: {}", e),
+            format!("Failed to list agents: {e}"),
         )),
     }
 }

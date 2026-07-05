@@ -43,6 +43,8 @@ export interface Task {
   deadline?: string | null;
   artifacts?: any[];
   decisions?: any[];
+  lease_seconds?: number | null;
+  claim_expires_at?: string | null;
   [key: string]: any;
 }
 

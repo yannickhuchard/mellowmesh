@@ -63,7 +63,7 @@ pub async fn enable_trace(
     let started_at = Utc::now();
     let expires_at = started_at + duration;
 
-    let topic_level_str = format!("{:?}", level).to_lowercase();
+    let topic_level_str = format!("{level:?}").to_lowercase();
     let trace_topic = format!(
         "_trace.{}.{}.{}",
         params.target_type,
@@ -91,7 +91,7 @@ pub async fn enable_trace(
     if let Err(e) = state.trace_mgr.enable_session(ts.clone()) {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to enable trace session: {}", e),
+            format!("Failed to enable trace session: {e}"),
         ));
     }
 
@@ -105,7 +105,7 @@ pub async fn list_traces(
         Ok(s) => Ok(Json(s)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list trace sessions: {}", e),
+            format!("Failed to list trace sessions: {e}"),
         )),
     }
 }
@@ -118,7 +118,7 @@ pub async fn disable_trace(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to disable trace session: {}", e),
+            format!("Failed to disable trace session: {e}"),
         )),
     }
 }

@@ -18,9 +18,9 @@ impl Store {
             }
         }
         let manager = SqliteConnectionManager::file(path_ref).with_init(|c| {
-            c.pragma_update(None, "busy_timeout", &5000)?;
-            c.pragma_update(None, "journal_mode", &"WAL")?;
-            c.pragma_update(None, "synchronous", &"NORMAL")?;
+            c.pragma_update(None, "busy_timeout", 5000)?;
+            c.pragma_update(None, "journal_mode", "WAL")?;
+            c.pragma_update(None, "synchronous", "NORMAL")?;
             Ok(())
         });
         let pool = Pool::new(manager)?;
@@ -31,7 +31,7 @@ impl Store {
 
     pub fn new_in_memory() -> anyhow::Result<Self> {
         let manager = SqliteConnectionManager::memory().with_init(|c| {
-            c.pragma_update(None, "busy_timeout", &5000)?;
+            c.pragma_update(None, "busy_timeout", 5000)?;
             Ok(())
         });
         let pool = Pool::new(manager)?;
@@ -200,6 +200,10 @@ impl Store {
         // Migrations for parent_id in messages and tasks
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN parent_id TEXT", []);
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN parent_id TEXT", []);
+
+        // Migrations for claim leases on tasks
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN lease_seconds INTEGER", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN claim_expires_at TEXT", []);
 
         // Table for Topic Schema Contracts
         conn.execute(
@@ -449,6 +453,8 @@ mod tests {
             artifacts: vec![],
             decisions: vec![],
             parent_id: None,
+            lease_seconds: None,
+            claim_expires_at: None,
         };
 
         store.insert_task(&task).unwrap();
@@ -457,14 +463,196 @@ mod tests {
         assert_eq!(retrieved.title, "Test Task");
         assert_eq!(retrieved.status, "open");
 
-        store.claim_task("task_1", "agent://codex").unwrap();
+        let outcome = store.claim_task("task_1", "agent://codex", None).unwrap();
+        assert!(matches!(
+            outcome,
+            crate::task_store::ClaimOutcome::Claimed { .. }
+        ));
         let claimed = store.get_task("task_1").unwrap().unwrap();
         assert_eq!(claimed.status, "claimed");
         assert_eq!(claimed.claimed_by, Some("agent://codex".to_string()));
+        assert!(claimed.claim_expires_at.is_some());
 
         store.complete_task("task_1").unwrap();
         let completed = store.get_task("task_1").unwrap().unwrap();
         assert_eq!(completed.status, "completed");
+        assert_eq!(completed.claim_expires_at, None);
+    }
+
+    fn make_open_task(id: &str) -> Task {
+        Task {
+            id: id.to_string(),
+            title: format!("Task {id}"),
+            description: None,
+            created_from: None,
+            created_by: "human://yannick".to_string(),
+            status: "open".to_string(),
+            priority: "medium".to_string(),
+            topics: vec!["_project.test".to_string()],
+            required_capabilities: vec![],
+            assigned_to: None,
+            claimed_by: None,
+            deadline: None,
+            artifacts: vec![],
+            decisions: vec![],
+            parent_id: None,
+            lease_seconds: None,
+            claim_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn test_claim_conflict_and_reclaim_by_same_agent() {
+        use crate::task_store::ClaimOutcome;
+        let store = Store::new_in_memory().unwrap();
+        store.insert_task(&make_open_task("task_lease")).unwrap();
+
+        // First claim succeeds
+        let outcome = store
+            .claim_task("task_lease", "agent://yannick/coder", Some(300))
+            .unwrap();
+        assert!(matches!(outcome, ClaimOutcome::Claimed { .. }));
+
+        // A second agent claiming while the lease is live is a conflict
+        let outcome = store
+            .claim_task("task_lease", "agent://yannick/tester", Some(300))
+            .unwrap();
+        assert_eq!(
+            outcome,
+            ClaimOutcome::Conflict {
+                held_by: "agent://yannick/coder".to_string()
+            }
+        );
+
+        // The holder re-claiming renews rather than conflicts
+        let outcome = store
+            .claim_task("task_lease", "agent://yannick/coder", Some(300))
+            .unwrap();
+        assert!(matches!(outcome, ClaimOutcome::Claimed { .. }));
+
+        // Claiming a nonexistent task reports NotFound
+        let outcome = store
+            .claim_task("task_ghost", "agent://yannick/coder", None)
+            .unwrap();
+        assert_eq!(outcome, ClaimOutcome::NotFound);
+
+        // Completed tasks are not claimable
+        store.complete_task("task_lease").unwrap();
+        let outcome = store
+            .claim_task("task_lease", "agent://yannick/tester", None)
+            .unwrap();
+        assert_eq!(
+            outcome,
+            ClaimOutcome::NotClaimable {
+                status: "completed".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_expired_lease_release_and_takeover() {
+        use crate::task_store::ClaimOutcome;
+        let store = Store::new_in_memory().unwrap();
+        store.insert_task(&make_open_task("task_exp")).unwrap();
+
+        // Claim, then force the lease into the past
+        store
+            .claim_task("task_exp", "agent://yannick/crashed", Some(60))
+            .unwrap();
+        store
+            .conn()
+            .unwrap()
+            .execute(
+                "UPDATE tasks SET claim_expires_at = '2000-01-01T00:00:00Z' WHERE id = 'task_exp'",
+                [],
+            )
+            .unwrap();
+
+        // Another agent can take over an expired claim directly
+        let outcome = store
+            .claim_task("task_exp", "agent://yannick/rescuer", Some(60))
+            .unwrap();
+        assert!(matches!(outcome, ClaimOutcome::Claimed { .. }));
+        let task = store.get_task("task_exp").unwrap().unwrap();
+        assert_eq!(task.claimed_by, Some("agent://yannick/rescuer".to_string()));
+
+        // Expire again and verify the sweeper path releases it to open
+        store
+            .conn()
+            .unwrap()
+            .execute(
+                "UPDATE tasks SET claim_expires_at = '2000-01-01T00:00:00Z' WHERE id = 'task_exp'",
+                [],
+            )
+            .unwrap();
+        let released = store.release_expired_claims().unwrap();
+        assert_eq!(released.len(), 1);
+        assert_eq!(released[0].id, "task_exp");
+        let task = store.get_task("task_exp").unwrap().unwrap();
+        assert_eq!(task.status, "open");
+        assert_eq!(task.claimed_by, None);
+        assert_eq!(task.claim_expires_at, None);
+    }
+
+    #[test]
+    fn test_renew_claim() {
+        let store = Store::new_in_memory().unwrap();
+        store.insert_task(&make_open_task("task_renew")).unwrap();
+        store
+            .claim_task("task_renew", "agent://yannick/coder", Some(600))
+            .unwrap();
+        let before = store
+            .get_task("task_renew")
+            .unwrap()
+            .unwrap()
+            .claim_expires_at
+            .unwrap();
+
+        // Renewal by the holder succeeds; by a stranger it does not
+        assert!(store
+            .renew_claim("task_renew", "agent://yannick/coder")
+            .unwrap());
+        assert!(!store
+            .renew_claim("task_renew", "agent://yannick/impostor")
+            .unwrap());
+
+        let after = store
+            .get_task("task_renew")
+            .unwrap()
+            .unwrap()
+            .claim_expires_at
+            .unwrap();
+        assert!(after >= before);
+    }
+
+    #[test]
+    fn test_delete_messages_before() {
+        let store = Store::new_in_memory().unwrap();
+        let mut old_msg = Message {
+            id: "msg_old".to_string(),
+            topic: "_forum.general".to_string(),
+            from: "human://yannick".to_string(),
+            owner: None,
+            timestamp: Utc::now() - chrono::Duration::days(365),
+            content_type: "text/plain".to_string(),
+            body: "ancient history".to_string(),
+            headers: None,
+            payload: None,
+            parent_id: None,
+        };
+        store.insert_message(&old_msg).unwrap();
+        old_msg.id = "msg_new".to_string();
+        old_msg.timestamp = Utc::now();
+        old_msg.body = "fresh news".to_string();
+        store.insert_message(&old_msg).unwrap();
+
+        let cutoff = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let deleted = store
+            .delete_messages_before("_forum.general", &cutoff)
+            .unwrap();
+        assert_eq!(deleted, 1);
+        assert!(store.get_message("msg_old").unwrap().is_none());
+        assert!(store.get_message("msg_new").unwrap().is_some());
     }
 
     #[test]
@@ -622,6 +810,8 @@ mod tests {
             artifacts: vec![],
             decisions: vec![],
             parent_id: Some("task_1".to_string()),
+            lease_seconds: None,
+            claim_expires_at: None,
         };
         store.insert_task(&task).unwrap();
 

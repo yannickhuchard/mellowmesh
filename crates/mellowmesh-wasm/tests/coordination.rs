@@ -98,6 +98,8 @@ fn test_task_lifecycle() {
         artifacts: vec![],
         decisions: vec![],
         parent_id: None,
+        lease_seconds: None,
+        claim_expires_at: None,
     };
 
     node.create_task(serde_wasm_bindgen::to_value(&task).unwrap())
@@ -202,6 +204,8 @@ fn test_state_serialization() {
         artifacts: vec![],
         decisions: vec![],
         parent_id: None,
+        lease_seconds: None,
+        claim_expires_at: None,
     };
     node.create_task(serde_wasm_bindgen::to_value(&task).unwrap())
         .unwrap();

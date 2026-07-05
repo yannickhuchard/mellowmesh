@@ -1,10 +1,10 @@
 use chrono::Utc;
+use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::{Decision, DecisionOption};
 use mellowmesh_core::message::Message;
 use mellowmesh_core::task::Task;
-use futures_util::StreamExt;
 use std::collections::HashMap;
 
 fn print_table(headers: &[&str], rows: &[Vec<String>]) {
@@ -51,7 +51,7 @@ fn print_table(headers: &[&str], rows: &[Vec<String>]) {
 }
 
 pub async fn run_daemon_start(port: u16) -> anyhow::Result<()> {
-    println!("Starting MellowMesh daemon (mellowmeshd) on port {}...", port);
+    println!("Starting MellowMesh daemon (mellowmeshd) on port {port}...");
     mellowmesh_client::autostart::spawn_daemon(port)?;
     println!("Daemon started successfully.");
     Ok(())
@@ -59,7 +59,7 @@ pub async fn run_daemon_start(port: u16) -> anyhow::Result<()> {
 
 pub async fn run_daemon_stop(port: u16, force: bool) -> anyhow::Result<()> {
     if !mellowmesh_client::autostart::is_daemon_running(port) {
-        println!("MellowMesh daemon is not running on port {}.", port);
+        println!("MellowMesh daemon is not running on port {port}.");
         return Ok(());
     }
 
@@ -69,7 +69,7 @@ pub async fn run_daemon_stop(port: u16, force: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    println!("Stopping MellowMesh daemon on port {}...", port);
+    println!("Stopping MellowMesh daemon on port {port}...");
 
     let client = MellowMeshClient::new(port);
     match client.shutdown_daemon().await {
@@ -77,10 +77,7 @@ pub async fn run_daemon_stop(port: u16, force: bool) -> anyhow::Result<()> {
             println!("Shutdown request sent successfully.");
         }
         Err(e) => {
-            eprintln!(
-                "Failed to send shutdown request to daemon: {}. Attempting force kill...",
-                e
-            );
+            eprintln!("Failed to send shutdown request to daemon: {e}. Attempting force kill...");
             force_kill_daemon();
             return Ok(());
         }
@@ -113,7 +110,7 @@ fn force_kill_daemon() {
     {
         println!("Killing mellowmeshd.exe process...");
         let mut cmd = std::process::Command::new("taskkill");
-        cmd.args(&["/F", "/IM", "mellowmeshd.exe"]);
+        cmd.args(["/F", "/IM", "mellowmeshd.exe"]);
         match cmd.output() {
             Ok(output) => {
                 if output.status.success() {
@@ -128,7 +125,7 @@ fn force_kill_daemon() {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute taskkill command: {}", e);
+                eprintln!("Failed to execute taskkill command: {e}");
             }
         }
     }
@@ -163,7 +160,7 @@ fn force_kill_daemon() {
 }
 
 pub async fn run_daemon_restart(port: u16) -> anyhow::Result<()> {
-    println!("Restarting MellowMesh daemon on port {}...", port);
+    println!("Restarting MellowMesh daemon on port {port}...");
     // Graceful stop
     run_daemon_stop(port, false).await?;
     // Short wait to ensure port is freed
@@ -178,12 +175,12 @@ pub async fn run_daemon_clean(port: u16) -> anyhow::Result<()> {
 
     // 2. Locate the database files
     let db_path = mellowmesh_store::sqlite::default_db_path();
-    println!("Deleting local database at: {:?}", db_path);
+    println!("Deleting local database at: {db_path:?}");
 
     if db_path.exists() {
         match std::fs::remove_file(&db_path) {
-            Ok(_) => println!("Deleted database file: {:?}", db_path),
-            Err(e) => eprintln!("Failed to delete database file {:?}: {}", db_path, e),
+            Ok(_) => println!("Deleted database file: {db_path:?}"),
+            Err(e) => eprintln!("Failed to delete database file {db_path:?}: {e}"),
         }
     } else {
         println!("Database file does not exist.");
@@ -193,18 +190,18 @@ pub async fn run_daemon_clean(port: u16) -> anyhow::Result<()> {
     let wal_path = db_path.with_extension("db-wal");
     if wal_path.exists() {
         if let Err(e) = std::fs::remove_file(&wal_path) {
-            eprintln!("Failed to delete WAL file {:?}: {}", wal_path, e);
+            eprintln!("Failed to delete WAL file {wal_path:?}: {e}");
         } else {
-            println!("Deleted WAL file: {:?}", wal_path);
+            println!("Deleted WAL file: {wal_path:?}");
         }
     }
 
     let shm_path = db_path.with_extension("db-shm");
     if shm_path.exists() {
         if let Err(e) = std::fs::remove_file(&shm_path) {
-            eprintln!("Failed to delete SHM file {:?}: {}", shm_path, e);
+            eprintln!("Failed to delete SHM file {shm_path:?}: {e}");
         } else {
-            println!("Deleted SHM file: {:?}", shm_path);
+            println!("Deleted SHM file: {shm_path:?}");
         }
     }
 
@@ -218,8 +215,8 @@ pub async fn run_status(port: u16) -> anyhow::Result<()> {
 
     println!("MellowMesh Daemon Status:");
     println!("  Running:       {}", if running { "YES" } else { "NO" });
-    println!("  Default Port:  {}", port);
-    println!("  Database Path: {:?}", db_path);
+    println!("  Default Port:  {port}");
+    println!("  Database Path: {db_path:?}");
     Ok(())
 }
 
@@ -227,7 +224,7 @@ pub async fn run_topics(client: &MellowMeshClient) -> anyhow::Result<()> {
     let topics = client.list_topics().await?;
     println!("Topics:");
     for t in topics {
-        println!("  - {}", t);
+        println!("  - {t}");
     }
     Ok(())
 }
@@ -254,7 +251,11 @@ pub async fn run_publish(
     Ok(())
 }
 
-pub async fn run_read(client: &MellowMeshClient, topic: String, limit: usize) -> anyhow::Result<()> {
+pub async fn run_read(
+    client: &MellowMeshClient,
+    topic: String,
+    limit: usize,
+) -> anyhow::Result<()> {
     let history = client.get_history(limit).await?;
     let filtered: Vec<Message> = history
         .into_iter()
@@ -262,7 +263,7 @@ pub async fn run_read(client: &MellowMeshClient, topic: String, limit: usize) ->
         .collect();
 
     if filtered.is_empty() {
-        println!("No messages found matching topic pattern '{}'.", topic);
+        println!("No messages found matching topic pattern '{topic}'.");
         return Ok(());
     }
 
@@ -282,10 +283,7 @@ pub async fn run_read(client: &MellowMeshClient, topic: String, limit: usize) ->
 }
 
 pub async fn run_tail(client: &MellowMeshClient, pattern: String) -> anyhow::Result<()> {
-    println!(
-        "Tailing topic pattern '{}'. Press Ctrl+C to stop...",
-        pattern
-    );
+    println!("Tailing topic pattern '{pattern}'. Press Ctrl+C to stop...");
     let mut stream = client.subscribe(&pattern).await?;
     while let Some(msg_res) = stream.next().await {
         match msg_res {
@@ -302,7 +300,7 @@ pub async fn run_tail(client: &MellowMeshClient, pattern: String) -> anyhow::Res
                 println!("{}", "-".repeat(60));
             }
             Err(e) => {
-                eprintln!("Error receiving message: {:?}", e);
+                eprintln!("Error receiving message: {e:?}");
                 break;
             }
         }
@@ -318,12 +316,12 @@ pub async fn run_agent_register(
     capabilities: Vec<String>,
 ) -> anyhow::Result<()> {
     // Determine name from ID
-    let name = id.split('/').last().unwrap_or(&id).to_string();
+    let name = id.split('/').next_back().unwrap_or(&id).to_string();
     let reg = AgentRegistration {
         id: if id.starts_with("agent://") {
             id
         } else {
-            format!("agent://{}", id)
+            format!("agent://{id}")
         },
         name,
         owner,
@@ -406,6 +404,8 @@ pub async fn run_task_create(
         artifacts: vec![],
         decisions: vec![],
         parent_id: None,
+        lease_seconds: None,
+        claim_expires_at: None,
     };
     client.create_task(&task).await?;
     println!("Task created successfully.");
@@ -422,10 +422,18 @@ pub async fn run_tasks(client: &MellowMeshClient) -> anyhow::Result<()> {
             t.status,
             t.priority,
             t.claimed_by.unwrap_or_else(|| "-".to_string()),
+            t.claim_expires_at.unwrap_or_else(|| "-".to_string()),
         ]);
     }
     print_table(
-        &["Task ID", "Title", "Status", "Priority", "Claimed By"],
+        &[
+            "Task ID",
+            "Title",
+            "Status",
+            "Priority",
+            "Claimed By",
+            "Lease Expires",
+        ],
         &rows,
     );
     Ok(())
@@ -435,20 +443,23 @@ pub async fn run_claim(
     client: &MellowMeshClient,
     task_id: &str,
     agent_id: &str,
+    lease_seconds: Option<u64>,
 ) -> anyhow::Result<()> {
     let full_agent_id = if agent_id.starts_with("agent://") {
         agent_id.to_string()
     } else {
-        format!("agent://{}", agent_id)
+        format!("agent://{agent_id}")
     };
-    client.claim_task(task_id, &full_agent_id).await?;
-    println!("Task {} claimed by {}.", task_id, full_agent_id);
+    client
+        .claim_task_with_lease(task_id, &full_agent_id, lease_seconds)
+        .await?;
+    println!("Task {task_id} claimed by {full_agent_id}.");
     Ok(())
 }
 
 pub async fn run_complete(client: &MellowMeshClient, task_id: &str) -> anyhow::Result<()> {
     client.complete_task(task_id).await?;
-    println!("Task {} marked as completed.", task_id);
+    println!("Task {task_id} marked as completed.");
     Ok(())
 }
 
@@ -518,10 +529,7 @@ pub async fn run_respond(
     option_id: &str,
 ) -> anyhow::Result<()> {
     client.respond_decision(decision_id, option_id).await?;
-    println!(
-        "Decision {} answered with option {}.",
-        decision_id, option_id
-    );
+    println!("Decision {decision_id} answered with option {option_id}.");
     Ok(())
 }
 
@@ -536,7 +544,7 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
     }
 
     if grouped.is_empty() {
-        println!("No forum messages found matching pattern '{}'.", pat);
+        println!("No forum messages found matching pattern '{pat}'.");
         return Ok(());
     }
 
@@ -546,7 +554,7 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
 
     for topic in topics {
         println!("============================================================");
-        println!("TOPIC: {}", topic);
+        println!("TOPIC: {topic}");
         println!("============================================================");
         let mut msgs = grouped.remove(&topic).unwrap();
         // Chronological order
@@ -569,7 +577,7 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
 pub async fn run_search(client: &MellowMeshClient, query: String) -> anyhow::Result<()> {
     let results = client.search_messages(&query).await?;
     if results.is_empty() {
-        println!("No messages found matching search query '{}'.", query);
+        println!("No messages found matching search query '{query}'.");
         return Ok(());
     }
     for m in results {
@@ -614,7 +622,7 @@ pub async fn run_trace_enable(
 
 pub async fn run_trace_disable(client: &MellowMeshClient, id: &str) -> anyhow::Result<()> {
     client.disable_trace(id).await?;
-    println!("Trace session {} disabled successfully.", id);
+    println!("Trace session {id} disabled successfully.");
     Ok(())
 }
 
@@ -653,7 +661,7 @@ pub async fn run_metrics(client: &MellowMeshClient) -> anyhow::Result<()> {
 
     if let Some(obj) = metrics.as_object() {
         for (k, v) in obj {
-            println!("  {:<40} : {}", k, v);
+            println!("  {k:<40} : {v}");
         }
     } else {
         println!("{}", serde_json::to_string_pretty(&metrics)?);
@@ -670,7 +678,7 @@ pub async fn run_wiki_list(
 ) -> anyhow::Result<()> {
     let pages = client.list_wiki_pages(wiki, None, doc_type, tag).await?;
     if pages.is_empty() {
-        println!("No pages found in wiki '{}'.", wiki);
+        println!("No pages found in wiki '{wiki}'.");
         return Ok(());
     }
 
@@ -691,18 +699,22 @@ pub async fn run_wiki_list(
     Ok(())
 }
 
-pub async fn run_wiki_view(client: &MellowMeshClient, wiki: &str, path: &str) -> anyhow::Result<()> {
+pub async fn run_wiki_view(
+    client: &MellowMeshClient,
+    wiki: &str,
+    path: &str,
+) -> anyhow::Result<()> {
     let doc = client.get_wiki_page(wiki, path).await?;
     println!("============================================================");
     println!("WIKI: {} | PATH: {}", doc.wiki, doc.path);
     println!("TITLE: {}", doc.title);
     println!("TYPE: {}", doc.doc_type);
     if let Some(desc) = &doc.description {
-        println!("DESCRIPTION: {}", desc);
+        println!("DESCRIPTION: {desc}");
     }
     println!("TAGS: {}", doc.tags.join(", "));
     if let Some(res) = &doc.resource {
-        println!("RESOURCE: {}", res);
+        println!("RESOURCE: {res}");
     }
     println!(
         "UPDATED: {}",
@@ -730,7 +742,7 @@ pub async fn run_wiki_search(
         .list_wiki_pages(wiki, Some(query), doc_type, tag)
         .await?;
     if pages.is_empty() {
-        println!("No pages matching query '{}' in wiki '{}'.", query, wiki);
+        println!("No pages matching query '{query}' in wiki '{wiki}'.");
         return Ok(());
     }
 
@@ -748,7 +760,7 @@ pub async fn run_wiki_search(
 }
 
 pub async fn run_wiki_sync(client: &MellowMeshClient, wiki: &str) -> anyhow::Result<()> {
-    println!("Triggering sync for wiki '{}'...", wiki);
+    println!("Triggering sync for wiki '{wiki}'...");
     client.sync_wiki(wiki).await?;
     println!("Wiki sync completed successfully.");
     Ok(())
@@ -761,12 +773,9 @@ pub async fn run_schema_add(
     file_path: &str,
 ) -> anyhow::Result<()> {
     let schema_content = std::fs::read_to_string(file_path)
-        .map_err(|e| anyhow::anyhow!("Failed to read schema file '{}': {}", file_path, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read schema file '{file_path}': {e}"))?;
     client.add_schema(topic, version, &schema_content).await?;
-    println!(
-        "Schema for topic '{}' (version: {}) registered successfully.",
-        topic, version
-    );
+    println!("Schema for topic '{topic}' (version: {version}) registered successfully.");
     Ok(())
 }
 
@@ -777,10 +786,7 @@ pub async fn run_schema_status(
     status: &str,
 ) -> anyhow::Result<()> {
     client.set_schema_status(topic, version, status).await?;
-    println!(
-        "Schema status for '{}' (version: {}) updated to '{}'.",
-        topic, version, status
-    );
+    println!("Schema status for '{topic}' (version: {version}) updated to '{status}'.");
     Ok(())
 }
 
@@ -790,10 +796,7 @@ pub async fn run_schema_remove(
     version: &str,
 ) -> anyhow::Result<()> {
     client.remove_schema(topic, version).await?;
-    println!(
-        "Schema version '{}' for topic '{}' deleted successfully.",
-        version, topic
-    );
+    println!("Schema version '{version}' for topic '{topic}' deleted successfully.");
     Ok(())
 }
 
@@ -816,5 +819,244 @@ pub async fn run_schema_list(client: &MellowMeshClient) -> anyhow::Result<()> {
         ]);
     }
     print_table(&["Topic Pattern", "Version", "Status", "Created At"], &rows);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Guided demo: two simulated agents divide tasks, survive a crash via claim
+// leases, and pause for a human decision — the core MellowMesh loop in ~2 min.
+// ---------------------------------------------------------------------------
+
+const DEMO_HUMAN: &str = "human://you";
+const DEMO_BUILDER: &str = "agent://you/builder";
+const DEMO_SCOUT: &str = "agent://you/scout";
+
+fn demo_id(prefix: &str) -> String {
+    format!(
+        "{}_{}",
+        prefix,
+        ulid::Ulid::new().to_string().to_lowercase()
+    )
+}
+
+fn demo_task(id: &str, title: &str, topic: &str) -> Task {
+    Task {
+        id: id.to_string(),
+        title: title.to_string(),
+        description: None,
+        created_from: None,
+        created_by: DEMO_HUMAN.to_string(),
+        status: "open".to_string(),
+        priority: "medium".to_string(),
+        topics: vec![topic.to_string()],
+        required_capabilities: vec!["demo".to_string()],
+        assigned_to: None,
+        claimed_by: None,
+        deadline: None,
+        artifacts: vec![],
+        decisions: vec![],
+        parent_id: None,
+        lease_seconds: None,
+        claim_expires_at: None,
+    }
+}
+
+async fn demo_progress(
+    client: &MellowMeshClient,
+    task_id: &str,
+    agent: &str,
+    pct: i64,
+    text: &str,
+) -> anyhow::Result<()> {
+    let msg = Message {
+        id: String::new(),
+        topic: format!("_task.{task_id}.progress"),
+        from: agent.to_string(),
+        owner: Some(DEMO_HUMAN.to_string()),
+        timestamp: Utc::now(),
+        content_type: "application/json".to_string(),
+        body: text.to_string(),
+        headers: None,
+        payload: Some(serde_json::json!({ "task_id": task_id, "percentage": pct, "status": text })),
+        parent_id: None,
+    };
+    client.publish(&msg).await?;
+    println!("      [{agent}] {pct}% — {text}");
+    Ok(())
+}
+
+async fn demo_prompt(question: &str) -> anyhow::Result<String> {
+    print!("{question}");
+    use std::io::Write;
+    std::io::stdout().flush()?;
+    let answer = tokio::task::spawn_blocking(|| {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).map(|_| line)
+    })
+    .await??;
+    Ok(answer.trim().to_lowercase())
+}
+
+pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
+    println!();
+    println!("=== MellowMesh Demo: agents dividing work under human command ===");
+    println!();
+    println!("Two simulated agents will register on your local fabric, split tasks,");
+    println!("survive a crash thanks to claim leases, and stop to ask YOU for a decision.");
+    println!("Everything they do is a real message you can inspect afterwards.");
+    println!();
+
+    // 1. Register the fleet
+    println!("[1/5] Registering agents on the fabric...");
+    for (id, name) in [(DEMO_BUILDER, "builder"), (DEMO_SCOUT, "scout")] {
+        client
+            .register_agent(&AgentRegistration {
+                id: id.to_string(),
+                name: name.to_string(),
+                owner: DEMO_HUMAN.to_string(),
+                mode: "autonomous".to_string(),
+                capabilities: vec!["demo".to_string()],
+            })
+            .await?;
+        println!("      Registered {id}");
+    }
+
+    // 2. Create work
+    println!();
+    println!("[2/5] Creating two tasks...");
+    let task_a = demo_id("task");
+    let task_b = demo_id("task");
+    client
+        .create_task(&demo_task(
+            &task_a,
+            "Draft the release notes",
+            "_task.demo.docs",
+        ))
+        .await?;
+    client
+        .create_task(&demo_task(
+            &task_b,
+            "Audit dependency licenses",
+            "_task.demo.audit",
+        ))
+        .await?;
+    println!("      {task_a} — Draft the release notes");
+    println!("      {task_b} — Audit dependency licenses");
+
+    // 3. Builder works task A end to end
+    println!();
+    println!("[3/5] Builder claims task A and reports progress...");
+    client
+        .claim_task_with_lease(&task_a, DEMO_BUILDER, None)
+        .await?;
+    for (pct, text) in [
+        (25, "Collected merged pull requests"),
+        (60, "Drafting highlights section"),
+        (100, "Release notes ready"),
+    ] {
+        demo_progress(client, &task_a, DEMO_BUILDER, pct, text).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    }
+    client.complete_task(&task_a).await?;
+    println!("      Task A completed by builder.");
+
+    // 4. Scout claims task B with a short lease, then "crashes"
+    println!();
+    println!("[4/5] Scout claims task B with a 5-second lease... and crashes.");
+    client
+        .claim_task_with_lease(&task_b, DEMO_SCOUT, Some(5))
+        .await?;
+    println!("      Scout stopped responding. No progress heartbeats are arriving.");
+    println!("      Watch the daemon reclaim the task when the lease expires");
+    println!("      (lease sweep runs every ~10s)...");
+
+    let reclaim_deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let tasks = client.list_tasks().await?;
+        let b = tasks.iter().find(|t| t.id == task_b);
+        match b {
+            Some(t) if t.status == "open" => {
+                println!("      Lease expired: task B is OPEN again. No work was lost.");
+                break;
+            }
+            _ if std::time::Instant::now() > reclaim_deadline => {
+                anyhow::bail!(
+                    "Task B was not reclaimed in time — is the daemon running an older version without the lease sweeper?"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    println!("      Builder picks up the abandoned task...");
+    client
+        .claim_task_with_lease(&task_b, DEMO_BUILDER, None)
+        .await?;
+    demo_progress(client, &task_b, DEMO_BUILDER, 50, "License scan complete").await?;
+
+    // 5. Human-in-the-loop decision
+    println!();
+    println!("[5/5] Builder found a GPL dependency and wants YOUR decision before acting.");
+    let decision_id = demo_id("decision");
+    client
+        .create_decision(&Decision {
+            id: decision_id.clone(),
+            title: "Replace GPL-licensed dependency?".to_string(),
+            question: "The audit found one GPL-3.0 dependency. Replace it with an MIT alternative?"
+                .to_string(),
+            created_by: DEMO_BUILDER.to_string(),
+            required_decider: DEMO_HUMAN.to_string(),
+            status: "requested".to_string(),
+            options: vec![
+                DecisionOption {
+                    id: "option_replace".to_string(),
+                    label: "Yes, replace it".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                },
+                DecisionOption {
+                    id: "option_keep".to_string(),
+                    label: "No, keep it for now".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                },
+            ],
+            response_option_id: None,
+            response_timestamp: None,
+        })
+        .await?;
+    println!("      The agent is now blocked, waiting for a human. That is the point.");
+    println!();
+
+    let answer = demo_prompt("      Approve the replacement? [y/n]: ").await?;
+    let option = if answer.starts_with('y') {
+        "option_replace"
+    } else {
+        "option_keep"
+    };
+    client.respond_decision(&decision_id, option).await?;
+    println!("      Decision recorded: {option}");
+
+    demo_progress(
+        client,
+        &task_b,
+        DEMO_BUILDER,
+        100,
+        "Audit finished per your decision",
+    )
+    .await?;
+    client.complete_task(&task_b).await?;
+
+    println!();
+    println!("=== Demo complete ===");
+    println!();
+    println!("Everything you just saw is permanent, structured data on YOUR machine:");
+    println!("  mellowmesh tasks                     # both tasks, completed");
+    println!("  mellowmesh decisions                 # your decision, recorded for audit");
+    println!("  mellowmesh read \"_task.**\" --limit 20  # every progress heartbeat");
+    println!();
+    println!("Next step — let your real agents join the fabric:");
+    println!("  claude mcp add mellowmesh -- mellowmesh mcp");
     Ok(())
 }

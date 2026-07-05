@@ -108,7 +108,7 @@ impl Store {
 
     pub fn search_messages(&self, query: &str) -> anyhow::Result<Vec<Message>> {
         let conn = self.conn()?;
-        let search_pattern = format!("%{}%", query);
+        let search_pattern = format!("%{query}%");
         let mut stmt = conn.prepare("SELECT id, topic, from_identity, owner_identity, timestamp, content_type, body, headers, payload, parent_id FROM messages WHERE body LIKE ?1 OR topic LIKE ?1 ORDER BY timestamp DESC")?;
         let rows = stmt.query_map(params![search_pattern], |row| {
             let ts_str: String = row.get(4)?;
@@ -145,6 +145,22 @@ impl Store {
             messages.push(r?);
         }
         Ok(messages)
+    }
+
+    /// Delete all messages on `topic` older than the RFC3339 `cutoff`
+    /// timestamp, including their full-text-search index entries.
+    /// Returns the number of messages removed.
+    pub fn delete_messages_before(&self, topic: &str, cutoff: &str) -> anyhow::Result<usize> {
+        let conn = self.conn()?;
+        conn.execute(
+            "DELETE FROM messages_fts WHERE id IN (SELECT id FROM messages WHERE topic = ?1 AND timestamp < ?2)",
+            params![topic, cutoff],
+        )?;
+        let deleted = conn.execute(
+            "DELETE FROM messages WHERE topic = ?1 AND timestamp < ?2",
+            params![topic, cutoff],
+        )?;
+        Ok(deleted)
     }
 
     pub fn list_topics(&self) -> anyhow::Result<Vec<String>> {

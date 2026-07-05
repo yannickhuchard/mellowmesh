@@ -23,10 +23,7 @@ async fn main() -> anyhow::Result<()> {
         "required": ["order_id", "total"]
     }"#;
 
-    println!(
-        "Registering schema contract for '{}' (version {})...",
-        topic_pattern, version
-    );
+    println!("Registering schema contract for '{topic_pattern}' (version {version})...");
     client
         .add_schema(topic_pattern, version, schema_json)
         .await?;
@@ -67,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
 
     match client.publish(&invalid_msg).await {
         Ok(_) => println!("WARNING: Invalid message was accepted (unexpected)!"),
-        Err(e) => println!("Correctly rejected invalid message. Error: {}", e),
+        Err(e) => println!("Correctly rejected invalid message. Error: {e}"),
     }
 
     // 4. Publish a child message referencing the parent order to demonstrate lineage routing

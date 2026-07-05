@@ -30,6 +30,7 @@ impl SubscriptionRegistry {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add(
         &self,
         id: String,

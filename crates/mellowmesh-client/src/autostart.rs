@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub fn is_daemon_running(port: u16) -> bool {
-    let addr = format!("127.0.0.1:{}", port);
+    let addr = format!("127.0.0.1:{port}");
     if let Ok(socket_addr) = addr.parse() {
         TcpStream::connect_timeout(&socket_addr, Duration::from_millis(1000)).is_ok()
     } else {
@@ -61,7 +61,6 @@ pub fn spawn_daemon(port: u16) -> anyhow::Result<()> {
     }
 
     Err(anyhow::anyhow!(
-        "Timeout waiting for mellowmeshd to start on port {}",
-        port
+        "Timeout waiting for mellowmeshd to start on port {port}"
     ))
 }

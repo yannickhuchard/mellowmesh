@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+/// Default claim lease duration granted when an agent claims a task
+/// without specifying `lease_seconds` (10 minutes).
+pub const DEFAULT_LEASE_SECONDS: u64 = 600;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Task {
     pub id: String, // e.g., "task_01HY..."
@@ -23,4 +27,11 @@ pub struct Task {
     pub decisions: Vec<String>, // list of decision IDs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// Lease duration in seconds granted at claim time. Renewed on progress
+    /// updates; when the lease expires the daemon releases the claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_seconds: Option<u64>,
+    /// RFC3339 UTC instant at which the current claim lease expires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_expires_at: Option<String>,
 }

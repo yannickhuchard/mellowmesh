@@ -22,8 +22,7 @@ impl Topic {
             }
             if c == '*' || c == '>' {
                 return Err(format!(
-                    "Invalid character '{}' in topic. Topic names cannot contain wildcards",
-                    c
+                    "Invalid character '{c}' in topic. Topic names cannot contain wildcards"
                 ));
             }
         }

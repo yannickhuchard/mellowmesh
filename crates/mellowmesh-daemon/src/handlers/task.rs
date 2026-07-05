@@ -12,6 +12,7 @@ use ulid::Ulid;
 #[derive(Deserialize)]
 pub struct ClaimPayload {
     claimed_by: String,
+    lease_seconds: Option<u64>,
 }
 
 pub async fn create_task(
@@ -28,7 +29,7 @@ pub async fn create_task(
         Ok(_) => Ok((StatusCode::OK, Json(task))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create task: {}", e),
+            format!("Failed to create task: {e}"),
         )),
     }
 }
@@ -40,7 +41,7 @@ pub async fn list_tasks(
         Ok(tasks) => Ok(Json(tasks)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list tasks: {}", e),
+            format!("Failed to list tasks: {e}"),
         )),
     }
 }
@@ -50,11 +51,29 @@ pub async fn claim_task(
     Path(task_id): Path<String>,
     Json(payload): Json<ClaimPayload>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    match state.store.claim_task(&task_id, &payload.claimed_by) {
-        Ok(_) => Ok(StatusCode::OK),
+    use mellowmesh_store::task_store::ClaimOutcome;
+    match state
+        .store
+        .claim_task(&task_id, &payload.claimed_by, payload.lease_seconds)
+    {
+        Ok(ClaimOutcome::Claimed { lease_expires_at }) => Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({ "lease_expires_at": lease_expires_at })),
+        )),
+        Ok(ClaimOutcome::Conflict { held_by }) => Err((
+            StatusCode::CONFLICT,
+            format!("Task {task_id} is already claimed by {held_by} and its lease has not expired"),
+        )),
+        Ok(ClaimOutcome::NotFound) => {
+            Err((StatusCode::NOT_FOUND, format!("Task {task_id} not found")))
+        }
+        Ok(ClaimOutcome::NotClaimable { status }) => Err((
+            StatusCode::BAD_REQUEST,
+            format!("Task {task_id} is not claimable (status: {status})"),
+        )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to claim task: {}", e),
+            format!("Failed to claim task: {e}"),
         )),
     }
 }
@@ -67,7 +86,7 @@ pub async fn complete_task(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to complete task: {}", e),
+            format!("Failed to complete task: {e}"),
         )),
     }
 }

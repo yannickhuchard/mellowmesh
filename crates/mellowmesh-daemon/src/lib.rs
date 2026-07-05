@@ -5,5 +5,6 @@ pub mod pipeline;
 pub mod server;
 pub mod state;
 pub mod subscription;
+pub mod sweeper;
 pub mod trace_mgr;
 pub mod wiki_sync;

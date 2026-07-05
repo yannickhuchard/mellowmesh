@@ -25,9 +25,7 @@ impl HotBuffer for BoundedHotBuffer {
     fn append_transient(&self, msg: &Message) -> Result<HotOffset> {
         let offset = HotOffset(self.next_offset.fetch_add(1, Ordering::Relaxed));
         let mut buffers = self.buffers.write().unwrap();
-        let queue = buffers
-            .entry(msg.topic.clone())
-            .or_insert_with(VecDeque::new);
+        let queue = buffers.entry(msg.topic.clone()).or_default();
 
         if queue.len() >= self.capacity {
             queue.pop_front();

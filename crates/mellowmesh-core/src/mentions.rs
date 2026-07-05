@@ -50,7 +50,10 @@ pub fn parse_mentions(
                     let trimmed_name = name.trim();
 
                     // Check agent match
-                    if let Some(agent) = sorted_agents.iter().find(|a| a.name.eq_ignore_ascii_case(trimmed_name)) {
+                    if let Some(agent) = sorted_agents
+                        .iter()
+                        .find(|a| a.name.eq_ignore_ascii_case(trimmed_name))
+                    {
                         result.push_str(&format!("[@{}]({})", agent.name, agent.id));
                         if !mentions.contains(&agent.id) {
                             mentions.push(agent.id.clone());
@@ -64,8 +67,10 @@ pub fn parse_mentions(
                         let username = o.strip_prefix("human://").unwrap_or(o.as_str());
                         username.eq_ignore_ascii_case(trimmed_name)
                     }) {
-                        let display_name = owner_uri.strip_prefix("human://").unwrap_or(owner_uri.as_str());
-                        result.push_str(&format!("[@{}]({})", display_name, owner_uri));
+                        let display_name = owner_uri
+                            .strip_prefix("human://")
+                            .unwrap_or(owner_uri.as_str());
+                        result.push_str(&format!("[@{display_name}]({owner_uri})"));
                         if !mentions.contains(owner_uri) {
                             mentions.push(owner_uri.clone());
                         }
@@ -117,7 +122,9 @@ pub fn parse_mentions(
             // C. Try dynamic human owner match (greedy matching)
             let mut owner_matched = false;
             for owner_uri in &owners {
-                let username = owner_uri.strip_prefix("human://").unwrap_or(owner_uri.as_str());
+                let username = owner_uri
+                    .strip_prefix("human://")
+                    .unwrap_or(owner_uri.as_str());
                 let name_chars: Vec<char> = username.chars().collect();
                 let name_len = name_chars.len();
 
@@ -138,7 +145,7 @@ pub fn parse_mentions(
                         };
 
                         if is_boundary {
-                            result.push_str(&format!("[@{}]({})", username, owner_uri));
+                            result.push_str(&format!("[@{username}]({owner_uri})"));
                             if !mentions.contains(owner_uri) {
                                 mentions.push(owner_uri.clone());
                             }
@@ -164,7 +171,10 @@ pub fn parse_mentions(
                     let trimmed_name = name.trim();
 
                     // Check named topic match
-                    if let Some(nt) = sorted_topics.iter().find(|t| t.name.eq_ignore_ascii_case(trimmed_name)) {
+                    if let Some(nt) = sorted_topics
+                        .iter()
+                        .find(|t| t.name.eq_ignore_ascii_case(trimmed_name))
+                    {
                         let topic_uri = format!("topic://{}", nt.topic);
                         result.push_str(&format!("[#{}]({})", nt.name, topic_uri));
                         if !mentions.contains(&topic_uri) {
@@ -271,7 +281,10 @@ mod tests {
     fn test_simple_mention() {
         let agents = mock_agents();
         let (body, uris) = parse_mentions("Please check with @Hermes and report.", &agents, &[]);
-        assert_eq!(body, "Please check with [@Hermes](agent://yannick/hermes) and report.");
+        assert_eq!(
+            body,
+            "Please check with [@Hermes](agent://yannick/hermes) and report."
+        );
         assert_eq!(uris, vec!["agent://yannick/hermes"]);
     }
 
@@ -279,7 +292,10 @@ mod tests {
     fn test_spaces_mention() {
         let agents = mock_agents();
         let (body, uris) = parse_mentions("Ask @Claude Cowork for help.", &agents, &[]);
-        assert_eq!(body, "Ask [@Claude Cowork](agent://yannick/claude-cowork) for help.");
+        assert_eq!(
+            body,
+            "Ask [@Claude Cowork](agent://yannick/claude-cowork) for help."
+        );
         assert_eq!(uris, vec!["agent://yannick/claude-cowork"]);
     }
 
@@ -302,7 +318,10 @@ mod tests {
             },
         ];
         let (body, uris) = parse_mentions("Ping @Claude Cowork today.", &agents, &[]);
-        assert_eq!(body, "Ping [@Claude Cowork](agent://yannick/claude-cowork) today.");
+        assert_eq!(
+            body,
+            "Ping [@Claude Cowork](agent://yannick/claude-cowork) today."
+        );
         assert_eq!(uris, vec!["agent://yannick/claude-cowork"]);
     }
 
@@ -310,7 +329,10 @@ mod tests {
     fn test_bracketed_mention() {
         let agents = mock_agents();
         let (body, uris) = parse_mentions("Tag @[OpenClaw AI] for the next run.", &agents, &[]);
-        assert_eq!(body, "Tag [@OpenClaw AI](agent://yannick/openclaw) for the next run.");
+        assert_eq!(
+            body,
+            "Tag [@OpenClaw AI](agent://yannick/openclaw) for the next run."
+        );
         assert_eq!(uris, vec!["agent://yannick/openclaw"]);
     }
 
@@ -318,7 +340,10 @@ mod tests {
     fn test_human_owner_mention() {
         let agents = mock_agents();
         let (body, uris) = parse_mentions("Assigned to @yannick for approval.", &agents, &[]);
-        assert_eq!(body, "Assigned to [@yannick](human://yannick) for approval.");
+        assert_eq!(
+            body,
+            "Assigned to [@yannick](human://yannick) for approval."
+        );
         assert_eq!(uris, vec!["human://yannick"]);
     }
 
@@ -348,9 +373,16 @@ mod tests {
                 capabilities: vec![],
             },
         ];
-        let (body, uris) = parse_mentions("Check with @[R&D Agent] and @[CEO & Co-founder] first.", &agents, &[]);
+        let (body, uris) = parse_mentions(
+            "Check with @[R&D Agent] and @[CEO & Co-founder] first.",
+            &agents,
+            &[],
+        );
         assert_eq!(body, "Check with [@R&D Agent](agent://company/rd-agent) and [@CEO & Co-founder](agent://company/ceo-bot) first.");
-        assert_eq!(uris, vec!["agent://company/rd-agent", "agent://company/ceo-bot"]);
+        assert_eq!(
+            uris,
+            vec!["agent://company/rd-agent", "agent://company/ceo-bot"]
+        );
     }
 
     #[test]
@@ -358,7 +390,10 @@ mod tests {
         let agents = mock_agents();
         let (body, uris) = parse_mentions("Ping @Hermes and then @Claude Cowork.", &agents, &[]);
         assert_eq!(body, "Ping [@Hermes](agent://yannick/hermes) and then [@Claude Cowork](agent://yannick/claude-cowork).");
-        assert_eq!(uris, vec!["agent://yannick/hermes", "agent://yannick/claude-cowork"]);
+        assert_eq!(
+            uris,
+            vec!["agent://yannick/hermes", "agent://yannick/claude-cowork"]
+        );
     }
 
     #[test]
@@ -386,9 +421,20 @@ mod tests {
                 capabilities: vec![],
             },
         ];
-        let (body, uris) = parse_mentions("Notify @Claude Coworker, @Claude Cowork, and @Claude.", &agents, &[]);
+        let (body, uris) = parse_mentions(
+            "Notify @Claude Coworker, @Claude Cowork, and @Claude.",
+            &agents,
+            &[],
+        );
         assert_eq!(body, "Notify [@Claude Coworker](agent://yannick/claude-coworker), [@Claude Cowork](agent://yannick/claude-cowork), and [@Claude](agent://yannick/claude).");
-        assert_eq!(uris, vec!["agent://yannick/claude-coworker", "agent://yannick/claude-cowork", "agent://yannick/claude"]);
+        assert_eq!(
+            uris,
+            vec![
+                "agent://yannick/claude-coworker",
+                "agent://yannick/claude-cowork",
+                "agent://yannick/claude"
+            ]
+        );
     }
 
     #[test]
@@ -411,7 +457,13 @@ mod tests {
         ];
         let (body, uris) = parse_mentions("Tag @张伟 and @[أحمد] for validation.", &agents, &[]);
         assert_eq!(body, "Tag [@张伟](agent://yannick/chinese-agent) and [@أحمد](agent://yannick/arabic-agent) for validation.");
-        assert_eq!(uris, vec!["agent://yannick/chinese-agent", "agent://yannick/arabic-agent"]);
+        assert_eq!(
+            uris,
+            vec![
+                "agent://yannick/chinese-agent",
+                "agent://yannick/arabic-agent"
+            ]
+        );
     }
 
     #[test]
@@ -426,18 +478,27 @@ mod tests {
 
         // 2. Bracketed topic with spaces
         let (body2, uris2) = parse_mentions("Did you see #[Mario Galaxy]?", &agents, &topics);
-        assert_eq!(body2, "Did you see [#Mario Galaxy](topic://_forum.games.mario galaxy)?");
+        assert_eq!(
+            body2,
+            "Did you see [#Mario Galaxy](topic://_forum.games.mario galaxy)?"
+        );
         assert_eq!(uris2, vec!["topic://_forum.games.mario galaxy"]);
 
         // 3. Mixed agents, humans, and topics
-        let (body3, uris3) = parse_mentions("Tell @Hermes that #General is active.", &agents, &topics);
+        let (body3, uris3) =
+            parse_mentions("Tell @Hermes that #General is active.", &agents, &topics);
         assert_eq!(body3, "Tell [@Hermes](agent://yannick/hermes) that [#General](topic://_forum.general) is active.");
-        assert_eq!(uris3, vec!["agent://yannick/hermes", "topic://_forum.general"]);
+        assert_eq!(
+            uris3,
+            vec!["agent://yannick/hermes", "topic://_forum.general"]
+        );
 
         // 4. Greedy matched topic with spaces (no brackets)
         let (body4, uris4) = parse_mentions("Did you see #Mario Galaxy?", &agents, &topics);
-        assert_eq!(body4, "Did you see [#Mario Galaxy](topic://_forum.games.mario galaxy)?");
+        assert_eq!(
+            body4,
+            "Did you see [#Mario Galaxy](topic://_forum.games.mario galaxy)?"
+        );
         assert_eq!(uris4, vec!["topic://_forum.games.mario galaxy"]);
     }
 }
-

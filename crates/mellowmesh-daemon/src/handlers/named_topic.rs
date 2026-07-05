@@ -26,7 +26,7 @@ pub async fn register_named_topic(
             // Publish registry sync event message
             let mut headers = HashMap::new();
             headers.insert("x-registry-action".to_string(), "register".to_string());
-            
+
             let msg = Message {
                 id: format!("msg_{}", ulid::Ulid::new().to_string().to_lowercase()),
                 topic: "_system.registry.named_topic".to_string(),
@@ -40,12 +40,12 @@ pub async fn register_named_topic(
                 parent_id: None,
             };
             let _ = crate::handlers::message::handle_publish(std::sync::Arc::new(state), msg).await;
-            
+
             Ok(StatusCode::OK)
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to register named topic: {}", e),
+            format!("Failed to register named topic: {e}"),
         )),
     }
 }
@@ -57,7 +57,7 @@ pub async fn list_named_topics(
         Ok(topics) => Ok(Json(topics)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list named topics: {}", e),
+            format!("Failed to list named topics: {e}"),
         )),
     }
 }
@@ -67,10 +67,7 @@ pub async fn remove_named_topic(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if name.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Name cannot be empty".to_string(),
-        ));
+        return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
     }
 
     match state.store.remove_named_topic(&name) {
@@ -78,7 +75,7 @@ pub async fn remove_named_topic(
             // Publish registry sync event message
             let mut headers = HashMap::new();
             headers.insert("x-registry-action".to_string(), "remove".to_string());
-            
+
             let msg = Message {
                 id: format!("msg_{}", ulid::Ulid::new().to_string().to_lowercase()),
                 topic: "_system.registry.named_topic".to_string(),
@@ -92,12 +89,12 @@ pub async fn remove_named_topic(
                 parent_id: None,
             };
             let _ = crate::handlers::message::handle_publish(std::sync::Arc::new(state), msg).await;
-            
+
             Ok(StatusCode::OK)
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to remove named topic: {}", e),
+            format!("Failed to remove named topic: {e}"),
         )),
     }
 }

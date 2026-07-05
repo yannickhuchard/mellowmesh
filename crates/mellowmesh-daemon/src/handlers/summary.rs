@@ -34,7 +34,7 @@ pub async fn store_summary(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to store topic summary: {}", e),
+            format!("Failed to store topic summary: {e}"),
         )),
     }
 }
@@ -51,7 +51,7 @@ pub async fn get_context(
         Ok(result) => Ok((StatusCode::OK, Json(result))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to get topic context: {}", e),
+            format!("Failed to get topic context: {e}"),
         )),
     }
 }

@@ -207,7 +207,8 @@ async fn main() -> anyhow::Result<()> {
     let store_clone = store.clone();
     let wikis_clone = wikis.clone();
     tokio::spawn(async move {
-        if let Err(e) = mellowmesh_daemon::wiki_sync::sync_all_wikis(&store_clone, &wikis_clone).await
+        if let Err(e) =
+            mellowmesh_daemon::wiki_sync::sync_all_wikis(&store_clone, &wikis_clone).await
         {
             tracing::error!("Initial wiki sync failed: {}", e);
         }
@@ -225,6 +226,9 @@ async fn main() -> anyhow::Result<()> {
         node_id,
         shutdown_trigger: shutdown_trigger.clone(),
     };
+
+    // Background maintenance: lease reclaim + retention purge
+    mellowmesh_daemon::sweeper::start(state.clone());
 
     let peer_manager = Arc::new(mellowmesh_daemon::peer::PeerManager::new(
         state.node_id.clone(),

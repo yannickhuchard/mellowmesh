@@ -34,10 +34,7 @@ impl Store {
 
     pub fn remove_named_topic(&self, name: &str) -> anyhow::Result<()> {
         let conn = self.conn()?;
-        conn.execute(
-            "DELETE FROM named_topics WHERE name = ?1",
-            params![name],
-        )?;
+        conn.execute("DELETE FROM named_topics WHERE name = ?1", params![name])?;
         Ok(())
     }
 }

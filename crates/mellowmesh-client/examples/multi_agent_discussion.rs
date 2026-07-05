@@ -1,7 +1,7 @@
+use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::message::Message;
-use futures_util::StreamExt;
 use std::time::Duration;
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     let hermes_id = "agent://yannick/Hermes".to_string();
     let claude_id = "agent://yannick/Claude Cowork".to_string();
 
-    println!("Registering agent: {} (Name: 'Hermes')", hermes_id);
+    println!("Registering agent: {hermes_id} (Name: 'Hermes')");
     client
         .register_agent(&AgentRegistration {
             id: hermes_id.clone(),
@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
-    println!("Registering agent: {} (Name: 'Claude Cowork')", claude_id);
+    println!("Registering agent: {claude_id} (Name: 'Claude Cowork')");
     client
         .register_agent(&AgentRegistration {
             id: claude_id.clone(),
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         let mut stream = match client_hermes.subscribe(inbox_topic).await {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[Hermes] Failed to subscribe to inbox: {}", e);
+                eprintln!("[Hermes] Failed to subscribe to inbox: {e}");
                 return;
             }
         };
@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
         while let Some(Ok(msg)) = stream.next().await {
             println!("\n[Hermes Inbox] Received directed mention message!");
             println!("  Content: \"{}\"", msg.body);
-            
+
             // Wait and respond
             tokio::time::sleep(Duration::from_millis(1000)).await;
             println!("[Hermes] Replying back to the forum...");
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         let mut stream = match client_claude.subscribe(inbox_topic).await {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[Claude Cowork] Failed to subscribe to inbox: {}", e);
+                eprintln!("[Claude Cowork] Failed to subscribe to inbox: {e}");
                 return;
             }
         };
@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
         while let Some(Ok(msg)) = stream.next().await {
             println!("\n[Claude Cowork Inbox] Received directed mention message!");
             println!("  Content: \"{}\"", msg.body);
-            
+
             // Wait and respond
             tokio::time::sleep(Duration::from_millis(1500)).await;
             println!("[Claude Cowork] Replying back to the forum...");
@@ -111,16 +111,13 @@ async fn main() -> anyhow::Result<()> {
 
     // 3. Subscribe to the public forum to see the replies
     let forum_topic = "_forum.general";
-    println!("\n[Human] Subscribing to public forum topic: '{}'...", forum_topic);
+    println!("\n[Human] Subscribing to public forum topic: '{forum_topic}'...");
     let mut forum_stream = client.subscribe(forum_topic).await?;
 
     // 4. Publish a message triggering both agents
     tokio::time::sleep(Duration::from_millis(500)).await;
     let trigger_body = "Hello @Claude Cowork and @Hermes, can you start on the EV blog post?";
-    println!(
-        "\n[Human] Publishing trigger message to '{}':\n  \"{}\"",
-        forum_topic, trigger_body
-    );
+    println!("\n[Human] Publishing trigger message to '{forum_topic}':\n  \"{trigger_body}\"");
 
     let msg = Message {
         id: String::new(),
@@ -139,7 +136,9 @@ async fn main() -> anyhow::Result<()> {
     // 5. Read replies from the forum (expecting 2 replies from our agents)
     println!("\n[Human] Listening for replies on the forum (waiting up to 10 seconds)...");
     let mut replies_received = 0;
-    while let Some(msg_result) = tokio::time::timeout(Duration::from_secs(10), forum_stream.next()).await.ok() {
+    while let Ok(msg_result) =
+        tokio::time::timeout(Duration::from_secs(10), forum_stream.next()).await
+    {
         if let Some(Ok(recv_msg)) = msg_result {
             // Skip the initial trigger message we sent
             if recv_msg.from == "human://yannick" {
@@ -150,9 +149,9 @@ async fn main() -> anyhow::Result<()> {
             println!("  From:    {}", recv_msg.from);
             println!("  Body:    {}", recv_msg.body);
             if let Some(ref pid) = recv_msg.parent_id {
-                println!("  In Reply To (parent_id): {}", pid);
+                println!("  In Reply To (parent_id): {pid}");
             }
-            
+
             replies_received += 1;
             if replies_received == 2 {
                 println!("\nSUCCESS! Received replies from both Hermes and Claude Cowork.");
@@ -164,7 +163,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if replies_received < 2 {
-        eprintln!("Timed out waiting for replies. Received {} replies.", replies_received);
+        eprintln!("Timed out waiting for replies. Received {replies_received} replies.");
         eprintln!("Ensure the mellowmesh daemon is running locally on port 40000.");
     }
 

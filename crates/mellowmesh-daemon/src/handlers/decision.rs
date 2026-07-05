@@ -28,7 +28,7 @@ pub async fn create_decision(
         Ok(_) => Ok((StatusCode::OK, Json(decision))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to create decision: {}", e),
+            format!("Failed to create decision: {e}"),
         )),
     }
 }
@@ -40,7 +40,7 @@ pub async fn list_decisions(
         Ok(decisions) => Ok(Json(decisions)),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list decisions: {}", e),
+            format!("Failed to list decisions: {e}"),
         )),
     }
 }
@@ -57,7 +57,7 @@ pub async fn respond_decision(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to respond to decision: {}", e),
+            format!("Failed to respond to decision: {e}"),
         )),
     }
 }

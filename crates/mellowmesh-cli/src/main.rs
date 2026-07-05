@@ -62,6 +62,10 @@ enum Commands {
         task_id: String,
         #[arg(short, long)]
         agent: String,
+        /// Claim lease duration in seconds (default 600). The claim is
+        /// auto-released if it expires without a progress heartbeat.
+        #[arg(long)]
+        lease_seconds: Option<u64>,
     },
 
     /// Complete a claimed task
@@ -99,6 +103,9 @@ enum Commands {
 
     /// Schema management (Contracts)
     Schema(SchemaCmd),
+
+    /// Run a guided two-agent coordination demo on the local fabric
+    Demo,
 
     /// Start Model Context Protocol (MCP) server
     Mcp,
@@ -435,8 +442,12 @@ async fn main() -> anyhow::Result<()> {
         Commands::Tasks => {
             commands::run_tasks(&client).await?;
         }
-        Commands::Claim { task_id, agent } => {
-            commands::run_claim(&client, &task_id, &agent).await?;
+        Commands::Claim {
+            task_id,
+            agent,
+            lease_seconds,
+        } => {
+            commands::run_claim(&client, &task_id, &agent, lease_seconds).await?;
         }
         Commands::Complete { task_id } => {
             commands::run_complete(&client, &task_id).await?;
@@ -551,6 +562,9 @@ async fn main() -> anyhow::Result<()> {
                 commands::run_schema_list(&client).await?;
             }
         },
+        Commands::Demo => {
+            commands::run_demo(&client).await?;
+        }
         Commands::Mcp => {
             mcp::run_mcp_server(cli.port).await?;
         }

@@ -1,7 +1,7 @@
 use chrono::Utc;
+use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::message::Message;
-use futures_util::StreamExt;
 use std::sync::Arc;
 use tokio::sync::{Barrier, Mutex};
 use tokio::time::Instant;
@@ -10,7 +10,7 @@ use tokio::time::Instant;
 async fn main() -> anyhow::Result<()> {
     let port = 40001;
     println!("Starting MellowMesh Benchmarking Suite...");
-    println!("Launching daemon on test port {}...", port);
+    println!("Launching daemon on test port {port}...");
 
     // Auto-start on port 40001
     let _client = MellowMeshClient::connect_with_port(port).await?;
@@ -21,10 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let total_messages = num_publishers * msgs_per_publisher;
     let expected_deliveries = num_subscribers * total_messages;
 
-    println!(
-        "Registering subscribers ({} concurrent WebSocket connections)...",
-        num_subscribers
-    );
+    println!("Registering subscribers ({num_subscribers} concurrent WebSocket connections)...");
 
     let start_barrier = Arc::new(Barrier::new(num_publishers + 1));
     let delivery_counter = Arc::new(Mutex::new(0));
@@ -42,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
             let mut stream = match client_clone.subscribe("_test.**").await {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Subscriber {} failed to connect: {:?}", i, e);
+                    eprintln!("Subscriber {i} failed to connect: {e:?}");
                     return;
                 }
             };
@@ -72,10 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Wait a brief moment to make sure WebSockets are fully connected
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-    println!(
-        "Subscribers ready. Spawning {} publisher tasks...",
-        num_publishers
-    );
+    println!("Subscribers ready. Spawning {num_publishers} publisher tasks...");
 
     // Spawn publishers
     let mut pub_handles = Vec::new();
@@ -88,18 +82,18 @@ async fn main() -> anyhow::Result<()> {
             for i in 0..msgs_per_publisher {
                 let msg = Message {
                     id: String::new(),
-                    topic: format!("_test.bench.item.{}", p),
-                    from: format!("agent://publisher/{}", p),
+                    topic: format!("_test.bench.item.{p}"),
+                    from: format!("agent://publisher/{p}"),
                     owner: None,
                     timestamp: Utc::now(),
                     content_type: "text/plain".to_string(),
-                    body: format!("Bench message {} - {}", p, i),
+                    body: format!("Bench message {p} - {i}"),
                     headers: None,
                     payload: None,
                     parent_id: None,
                 };
                 if let Err(e) = client_clone.publish(&msg).await {
-                    eprintln!("Publisher {} failed to publish: {:?}", p, e);
+                    eprintln!("Publisher {p} failed to publish: {e:?}");
                 }
             }
         });
@@ -115,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         h.await?;
     }
     let publish_duration = start_time.elapsed();
-    println!("Publishing completed in {:?}.", publish_duration);
+    println!("Publishing completed in {publish_duration:?}.");
 
     // Wait for subscribers to receive all deliveries (with a timeout of 15s)
     let timeout = tokio::time::Duration::from_secs(15);
@@ -143,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(windows)]
     {
         let _ = std::process::Command::new("taskkill")
-            .args(&["/IM", "mellowmeshd.exe", "/F"])
+            .args(["/IM", "mellowmeshd.exe", "/F"])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
@@ -168,19 +162,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     println!("\n=== MellowMesh Stress Test Benchmark Results ===");
-    println!("Total Messages Published:   {}", total_messages);
+    println!("Total Messages Published:   {total_messages}");
+    println!("Total Target Deliveries:   {expected_deliveries} (Fan-out: {num_subscribers})");
+    println!("Actual Deliveries Received: {final_count}");
+    println!("Publish Throughput:        {publish_throughput:.2} msgs/sec");
     println!(
-        "Total Target Deliveries:   {} (Fan-out: {})",
-        expected_deliveries, num_subscribers
-    );
-    println!("Actual Deliveries Received: {}", final_count);
-    println!(
-        "Publish Throughput:        {:.2} msgs/sec",
-        publish_throughput
-    );
-    println!(
-        "Delivery Throughput:       {:.2} msgs/sec (Fan-out delivery rate)",
-        delivery_throughput
+        "Delivery Throughput:       {delivery_throughput:.2} msgs/sec (Fan-out delivery rate)"
     );
     println!(
         "Mean Fan-out Latency:      {:.2} ms ({:.2} µs)",

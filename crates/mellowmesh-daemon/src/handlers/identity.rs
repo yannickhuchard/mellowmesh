@@ -25,7 +25,7 @@ pub async fn create_mapping(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to insert mapping: {}", e),
+            format!("Failed to insert mapping: {e}"),
         )),
     }
 }
@@ -46,7 +46,7 @@ pub async fn list_mappings(
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list mappings: {}", e),
+            format!("Failed to list mappings: {e}"),
         )),
     }
 }

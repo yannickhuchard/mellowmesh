@@ -2,6 +2,7 @@ pub mod agent;
 pub mod decision;
 pub mod hot_buffer;
 pub mod identity;
+pub mod mentions;
 pub mod message;
 pub mod okf;
 pub mod persistence;
@@ -9,5 +10,3 @@ pub mod priority;
 pub mod task;
 pub mod telemetry;
 pub mod topic;
-pub mod mentions;
-

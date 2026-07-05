@@ -36,7 +36,7 @@ pub async fn add_schema(
     if let Err(e) = serde_json::from_str::<serde_json::Value>(&payload.schema_content) {
         return Err((
             StatusCode::BAD_REQUEST,
-            format!("Invalid JSON Schema content: {}", e),
+            format!("Invalid JSON Schema content: {e}"),
         ));
     }
 
@@ -52,7 +52,7 @@ pub async fn add_schema(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to save schema: {}", e),
+            format!("Failed to save schema: {e}"),
         )),
     }
 }
@@ -64,7 +64,7 @@ pub async fn list_schemas(
         Ok(schemas) => Ok((StatusCode::OK, Json(schemas))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to list schemas: {}", e),
+            format!("Failed to list schemas: {e}"),
         )),
     }
 }
@@ -80,7 +80,7 @@ pub async fn remove_schema(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to remove schema: {}", e),
+            format!("Failed to remove schema: {e}"),
         )),
     }
 }
@@ -103,7 +103,7 @@ pub async fn set_schema_status(
         Ok(_) => Ok(StatusCode::OK),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to update schema status: {}", e),
+            format!("Failed to update schema status: {e}"),
         )),
     }
 }

@@ -28,7 +28,7 @@ pub async fn run_mcp_server(port: u16) -> anyhow::Result<()> {
                 let err_res = make_error_response(
                     serde_json::Value::Null,
                     -32700,
-                    &format!("Parse error: {}", e),
+                    &format!("Parse error: {e}"),
                 );
                 let _ = write_response(&mut stdout, &err_res).await;
                 continue;
@@ -116,7 +116,7 @@ pub async fn run_mcp_server(port: u16) -> anyhow::Result<()> {
             _ => {
                 if !is_notification {
                     let err_res =
-                        make_error_response(id, -32601, &format!("Method not found: {}", method));
+                        make_error_response(id, -32601, &format!("Method not found: {method}"));
                     let _ = write_response(&mut stdout, &err_res).await;
                 }
             }
@@ -184,7 +184,7 @@ fn list_tools_schema() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "publish_progress",
-            "description": "Publish a task progress update. Writes directly to `_task.<task_id>.progress`.",
+            "description": "Publish a task progress update. Writes directly to `_task.<task_id>.progress` and renews the publishing agent's claim lease on that task (heartbeat).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -373,7 +373,7 @@ fn list_tools_schema() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "claim_task",
-            "description": "Claim a task for an agent.",
+            "description": "Claim a task for an agent. Claims carry a lease (default 600s) that is renewed every time the agent publishes progress; if the lease expires without a heartbeat the daemon releases the task back to open so other agents can pick it up.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -384,6 +384,10 @@ fn list_tools_schema() -> Vec<serde_json::Value> {
                     "agent_id": {
                         "type": "string",
                         "description": "Agent URI claiming the task"
+                    },
+                    "lease_seconds": {
+                        "type": "integer",
+                        "description": "Claim lease duration in seconds (default 600). Choose a value comfortably longer than the gap between your progress updates."
                     }
                 },
                 "required": ["task_id", "agent_id"]
@@ -776,7 +780,7 @@ async fn handle_tool_call(
 
             let msg = Message {
                 id: String::new(),
-                topic: format!("_task.{}.progress", task_id),
+                topic: format!("_task.{task_id}.progress"),
                 from: agent_id.to_string(),
                 owner: None,
                 timestamp: Utc::now(),
@@ -824,7 +828,7 @@ async fn handle_tool_call(
 
             let msg = Message {
                 id: String::new(),
-                topic: format!("_artifact.{}", artifact_id),
+                topic: format!("_artifact.{artifact_id}"),
                 from: created_by.to_string(),
                 owner: None,
                 timestamp: Utc::now(),
@@ -987,6 +991,8 @@ async fn handle_tool_call(
                 artifacts: Vec::new(),
                 decisions: Vec::new(),
                 parent_id,
+                lease_seconds: None,
+                claim_expires_at: None,
             };
             client.create_task(&task).await?;
             Ok(vec![serde_json::json!({
@@ -1011,10 +1017,16 @@ async fn handle_tool_call(
                 .get("agent_id")
                 .and_then(|a| a.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing agent_id"))?;
-            client.claim_task(task_id, agent_id).await?;
+            let lease_seconds = args.get("lease_seconds").and_then(|l| l.as_u64());
+            client
+                .claim_task_with_lease(task_id, agent_id, lease_seconds)
+                .await?;
             Ok(vec![serde_json::json!({
                 "type": "text",
-                "text": format!("Task {} successfully claimed by {}", task_id, agent_id)
+                "text": format!(
+                    "Task {} successfully claimed by {}. The claim holds a lease (default 600s); publish progress with publish_progress to renew it, or the task returns to open.",
+                    task_id, agent_id
+                )
             })])
         }
         "complete_task" => {
@@ -1056,7 +1068,7 @@ async fn handle_tool_call(
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Option must be a string"))?;
                 options.push(mellowmesh_core::decision::DecisionOption {
-                    id: format!("option_{}", idx),
+                    id: format!("option_{idx}"),
                     label: opt_str.to_string(),
                     pros: Vec::new(),
                     cons: Vec::new(),
@@ -1336,7 +1348,7 @@ async fn handle_tool_call(
                 "text": format!("Named topic '{}' removed successfully.", name)
             })])
         }
-        _ => Err(anyhow::anyhow!("Unsupported tool call: {}", name)),
+        _ => Err(anyhow::anyhow!("Unsupported tool call: {name}")),
     }
 }
 
