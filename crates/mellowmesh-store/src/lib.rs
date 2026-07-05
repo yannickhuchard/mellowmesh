@@ -1,4 +1,5 @@
 pub mod agent_store;
+pub mod auth_store;
 pub mod decision_store;
 pub mod identity_store;
 pub mod message_store;

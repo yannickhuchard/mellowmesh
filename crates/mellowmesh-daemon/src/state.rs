@@ -17,4 +17,10 @@ pub struct AppState {
     pub wikis: Arc<std::collections::HashMap<String, std::path::PathBuf>>,
     pub node_id: String,
     pub shutdown_trigger: Arc<tokio::sync::Notify>,
+    /// When true, every request (except health/dashboard) must present a
+    /// valid bearer token.
+    pub require_auth: bool,
+    /// Owner principal URI (`human://...`) — the only identity allowed to
+    /// administer tokens.
+    pub owner: String,
 }

@@ -159,6 +159,7 @@ fn test_decision_consensus() {
         ],
         response_option_id: None,
         response_timestamp: None,
+        responded_by: None,
     };
 
     node.create_decision(serde_wasm_bindgen::to_value(&decision).unwrap())

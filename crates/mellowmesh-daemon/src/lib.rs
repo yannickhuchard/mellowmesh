@@ -1,5 +1,7 @@
+pub mod auth;
 pub mod handlers;
 pub mod metrics;
+pub mod notify;
 pub mod peer;
 pub mod pipeline;
 pub mod server;

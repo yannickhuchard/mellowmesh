@@ -79,6 +79,7 @@ async fn release_expired_leases(state: &AppState) {
         if let Err(e) = handle_publish(Arc::new(state.clone()), msg).await {
             tracing::warn!("Failed to announce lease release for {}: {}", task.id, e);
         }
+        crate::notify::notify_task_reclaimed(&task.title, &previous_holder);
     }
 }
 

@@ -1085,6 +1085,7 @@ async fn handle_tool_call(
                 options,
                 response_option_id: None,
                 response_timestamp: None,
+                responded_by: None,
             };
             client.create_decision(&decision).await?;
             Ok(vec![serde_json::json!({

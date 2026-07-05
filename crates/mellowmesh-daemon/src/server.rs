@@ -90,8 +90,17 @@ pub fn create_router(state: AppState) -> Router {
         .route("/wiki/:wiki/sync", post(handlers::wiki::sync_wiki_endpoint))
         .route("/wiki/:wiki/graph", get(handlers::wiki::get_wiki_graph))
         .route("/shutdown", post(shutdown_handler))
+        .route(
+            "/auth/tokens",
+            post(crate::auth::create_token).get(crate::auth::list_tokens),
+        )
+        .route("/auth/tokens/:id", delete(crate::auth::revoke_token))
         .route("/", get(ui_handler))
         .route("/ui", get(ui_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
         .with_state(state)
 }
 
@@ -111,17 +120,24 @@ async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
 async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let pattern = params.pattern.unwrap_or_else(|| "**".to_string());
     let case_insensitive = params.case_insensitive.unwrap_or(false);
-    ws.on_upgrade(move |socket| handle_socket(socket, pattern, case_insensitive, state))
+    // Read scopes of the authenticated principal, if any: deliveries are
+    // filtered message-by-message against these patterns.
+    let read_scopes = ctx.principal.map(|p| p.read_scopes);
+    ws.on_upgrade(move |socket| {
+        handle_socket(socket, pattern, case_insensitive, read_scopes, state)
+    })
 }
 
 async fn handle_socket(
     socket: WebSocket,
     pattern: String,
     case_insensitive: bool,
+    read_scopes: Option<Vec<String>>,
     state: AppState,
 ) {
     let conn_id = format!("conn_{}", Ulid::new().to_string().to_lowercase());
@@ -151,6 +167,11 @@ async fn handle_socket(
                 q.pop_front()
             };
             if let Some(msg) = opt_msg {
+                if let Some(ref scopes) = read_scopes {
+                    if !mellowmesh_core::auth::scopes_allow(scopes, &msg.topic) {
+                        continue;
+                    }
+                }
                 if let Ok(text) = serde_json::to_string(&msg) {
                     if ws_sender.send(WsMessage::Text(text)).await.is_err() {
                         break;
@@ -197,6 +218,142 @@ mod tests {
     use mellowmesh_store::Store;
     use std::net::SocketAddr;
 
+    fn test_state(store: Store, require_auth: bool) -> AppState {
+        let metrics = Arc::new(DaemonMetrics::default());
+        let pipeline = Arc::new(PersistencePipeline::new(store.clone(), metrics.clone()));
+        pipeline.start();
+        let trace_mgr = Arc::new(TraceSessionManager::new(store.clone(), metrics.clone()));
+        let registry = SubscriptionRegistry::new(metrics.clone());
+        let policy_config = Arc::new(PersistenceConfig {
+            default: PersistencePolicy {
+                mode: PersistenceMode::Queryable,
+                retention: "7d".to_string(),
+                max_message_size: None,
+                sync: false,
+            },
+            rules: vec![],
+        });
+        AppState {
+            store,
+            registry,
+            metrics,
+            pipeline,
+            trace_mgr,
+            policy_config,
+            wikis: Arc::new(std::collections::HashMap::new()),
+            node_id: "test-node".to_string(),
+            shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
+            require_auth,
+            owner: "human://test".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_require_auth_enforcement() {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+
+        let store = Store::new_in_memory().unwrap();
+
+        // Seed a scoped agent token and a human token directly in the store.
+        let agent_token = generate_token();
+        store
+            .upsert_principal(&Principal {
+                id: "agent://test/coder".to_string(),
+                kind: "agent".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_agent".to_string(),
+                principal: "agent://test/coder".to_string(),
+                token_hash: hash_token(&agent_token),
+                read_scopes: vec!["_agent.coder.**".to_string()],
+                write_scopes: vec!["_agent.coder.**".to_string()],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
+
+        let state = test_state(store, true);
+        let app = create_router(state);
+        let port = 40011;
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let base = format!("http://127.0.0.1:{port}");
+        let http = reqwest::Client::new();
+
+        // No token → 401 (except open endpoints)
+        let resp = http.get(format!("{base}/tasks")).send().await.unwrap();
+        assert_eq!(resp.status(), 401);
+        let resp = http.get(format!("{base}/health")).send().await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Wrong token → 401
+        let resp = http
+            .get(format!("{base}/tasks"))
+            .bearer_auth("mm_bogus")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // Valid token → 200
+        let resp = http
+            .get(format!("{base}/tasks"))
+            .bearer_auth(&agent_token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Publishing outside the token's write scope → 403
+        let msg = serde_json::json!({
+            "id": "", "topic": "_forum.general", "from": "agent://test/coder",
+            "timestamp": chrono::Utc::now(), "content_type": "text/plain",
+            "body": "should be rejected"
+        });
+        let resp = http
+            .post(format!("{base}/publish"))
+            .bearer_auth(&agent_token)
+            .json(&msg)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+
+        // Publishing inside the scope → 200
+        let msg = serde_json::json!({
+            "id": "", "topic": "_agent.coder.status", "from": "agent://test/coder",
+            "timestamp": chrono::Utc::now(), "content_type": "text/plain",
+            "body": "allowed"
+        });
+        let resp = http
+            .post(format!("{base}/publish"))
+            .bearer_auth(&agent_token)
+            .json(&msg)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Agents may not respond to decisions → 403
+        let resp = http
+            .post(format!("{base}/decisions/dec_x/respond"))
+            .bearer_auth(&agent_token)
+            .json(&serde_json::json!({ "option_id": "yes" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+    }
+
     #[tokio::test]
     async fn test_identity_mapping_rest_api() {
         let store = Store::new_in_memory().unwrap();
@@ -226,6 +383,8 @@ mod tests {
             wikis: Arc::new(std::collections::HashMap::new()),
             node_id: "test-node".to_string(),
             shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
+            require_auth: false,
+            owner: "human://test".to_string(),
         };
 
         let app = create_router(state);
@@ -290,6 +449,8 @@ mod tests {
             wikis: Arc::new(std::collections::HashMap::new()),
             node_id: "test-node".to_string(),
             shutdown_trigger: Arc::new(tokio::sync::Notify::new()),
+            require_auth: false,
+            owner: "human://test".to_string(),
         };
 
         let app = create_router(state);

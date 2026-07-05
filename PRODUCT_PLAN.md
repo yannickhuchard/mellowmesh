@@ -106,7 +106,7 @@ user within 15 minutes of `winget install mellowmesh` / `brew install mellowmesh
 Four phases, roughly six months. Phases 2 and 3 deliberately overlap. Each phase lists
 the concrete codebase changes mapped to the existing workspace.
 
-### Phase 0 — Reposition & Harden (weeks 1–3)
+### Phase 0 — Reposition & Harden (weeks 1–3) — ✅ SHIPPED (July 2026)
 *Goal: the story matches this plan and the core loop survives real users.*
 
 | Change | Where |
@@ -117,8 +117,10 @@ the concrete codebase changes mapped to the existing workspace.
 | **Test debt**: integration tests for full task lifecycle (incl. lease expiry), decision flow, wildcard matcher edge cases, mention routing. Target: every MCP tool has at least one test. | all crates; CI in `.github/workflows` |
 | **`mellowmesh demo`**: CLI command that spawns two mock agents dividing tasks, publishing progress, and blocking on a decision — the 5-minute aha moment with zero setup. | `crates/mellowmesh-cli` |
 
-### Phase 1 — Trust Layer (weeks 3–8)
+### Phase 1 — Trust Layer (weeks 3–8) — ✅ SHIPPED (July 2026)
 *Goal: governance with teeth; the prerequisite for opening the hub to the world.*
+*Note: shipped with random bearer tokens (SHA-256 hashed at rest) instead of a
+keypair; the owner keypair moves to Phase 2 where the relay actually needs it.*
 
 | Change | Where |
 | :--- | :--- |
@@ -127,8 +129,10 @@ the concrete codebase changes mapped to the existing workspace.
 | **Decision integrity**: only authenticated `human://` principals may call `respond_decision`; responses recorded with principal + timestamp for audit. An agent can no longer approve its own proposal. | `handlers/decision.rs`, `mcp.rs` |
 | **SDK updates**: token support in Rust client, WASM client, MCP server env (`MELLOWMESH_TOKEN`). | `crates/mellowmesh-client`, `crates/mellowmesh-wasm` |
 
-### Phase 2 — Reach Layer (weeks 8–16) — *the universality bet*
+### Phase 2 — Reach Layer (weeks 8–16) — *the universality bet* — 🔨 IN PROGRESS
 *Goal: the café approval works.*
+*Shipped so far: desktop notification pipeline (decisions requiring a human,
+expired-lease task reclaims). Next: relay crate, remote MCP, Telegram ramp.*
 
 | Change | Where |
 | :--- | :--- |

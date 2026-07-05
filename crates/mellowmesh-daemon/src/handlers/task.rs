@@ -48,10 +48,24 @@ pub async fn list_tasks(
 
 pub async fn claim_task(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Path(task_id): Path<String>,
     Json(payload): Json<ClaimPayload>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     use mellowmesh_store::task_store::ClaimOutcome;
+
+    // An authenticated agent may only claim as itself — no impersonation.
+    if let Some(p) = &ctx.principal {
+        if p.kind == "agent" && p.id != payload.claimed_by {
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!(
+                    "Agent {} cannot claim a task as {}",
+                    p.id, payload.claimed_by
+                ),
+            ));
+        }
+    }
     match state
         .store
         .claim_task(&task_id, &payload.claimed_by, payload.lease_seconds)

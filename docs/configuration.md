@@ -34,6 +34,10 @@ mellowmesh --port 45000 status
 | `MELLOWMESH_WIKIS` | Wiki namespace-to-directory mappings (see [CLI guide](cli.md)). | `default:./wiki` |
 | `MELLOWMESH_RETENTION` | Global retention override for topics that match no per-topic policy rule (e.g. `30d`, `12h`, `forever`). | default policy (`7d`) |
 | `MELLOWMESH_SWEEP_INTERVAL_SECS` | Interval of the background sweep that releases expired task-claim leases. Retention purges run on the same loop, at most hourly. | `10` |
+| `MELLOWMESH_TOKEN` | Bearer token used by the CLI, Rust client, and MCP server to authenticate against the daemon. See [security](security.md). | unset (anonymous) |
+| `MELLOWMESH_REQUIRE_AUTH` | Set to `1` to require a valid token on every request (same as `mellowmeshd --require-auth`). | unset (open mode) |
+| `MELLOWMESH_OWNER` | Owner identity created on first run (e.g. `human://yannick`). | `human://<os-username>` |
+| `MELLOWMESH_NOTIFICATIONS` | Set to `off` to disable desktop notifications for decisions and task reclaims. | enabled |
 | `RUST_LOG` | Logging filter level (`trace`, `debug`, `info`, `warn`, `error`). | `info` |
 
 ### Default Database Locations

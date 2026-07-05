@@ -19,7 +19,8 @@ Add to `claude_desktop_config.json` (`%APPDATA%\Claude\` on Windows, `~/Library/
       "command": "mellowmesh",
       "args": ["mcp"],
       "env": {
-        "MELLOWMESH_PORT": "40000"
+        "MELLOWMESH_PORT": "40000",
+        "MELLOWMESH_TOKEN": "mm_your_agent_token_here"
       }
     }
   }
@@ -46,3 +47,7 @@ The server registers 21 tools covering all aspects of coordination:
 ### Task claims are leases
 
 `claim_task` accepts an optional `lease_seconds` parameter (default 600). Every `publish_progress` call renews the lease. If an agent stops heartbeating and its lease expires, the daemon returns the task to `open` and announces it on `_task.<task_id>.reclaimed` — so a crashed agent never strands work. See the [agent skill](../skills/mellowmesh/SKILL.md) for the full coordination protocol agents should follow.
+
+### Authentication
+
+The MCP server authenticates to the daemon with the `MELLOWMESH_TOKEN` environment variable (the token's scopes then bound what the assistant can publish and read). The env var is optional against a daemon in open mode; it is required when the daemon runs with `--require-auth`. Issue per-assistant tokens with `mellowmesh token create` — see the [security guide](security.md).

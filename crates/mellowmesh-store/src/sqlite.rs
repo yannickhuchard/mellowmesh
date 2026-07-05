@@ -205,6 +205,37 @@ impl Store {
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN lease_seconds INTEGER", []);
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN claim_expires_at TEXT", []);
 
+        // Auth: principals, bearer tokens, and decision audit trail
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS principals (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                display_name TEXT,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tokens (
+                id TEXT PRIMARY KEY,
+                principal TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                read_scopes TEXT NOT NULL,
+                write_scopes TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+        let _ = conn.execute("ALTER TABLE decisions ADD COLUMN responded_by TEXT", []);
+
         // Table for Topic Schema Contracts
         conn.execute(
             "CREATE TABLE IF NOT EXISTS topic_schemas (
@@ -673,6 +704,7 @@ mod tests {
             }],
             response_option_id: None,
             response_timestamp: None,
+            responded_by: None,
         };
 
         store.insert_decision(&dec).unwrap();
@@ -680,11 +712,14 @@ mod tests {
         let retrieved = store.get_decision("decision_1").unwrap().unwrap();
         assert_eq!(retrieved.title, "Test Decision");
 
-        store.respond_decision("decision_1", "option_1").unwrap();
+        store
+            .respond_decision("decision_1", "option_1", Some("human://yannick"))
+            .unwrap();
         let responded = store.get_decision("decision_1").unwrap().unwrap();
         assert_eq!(responded.status, "approved");
         assert_eq!(responded.response_option_id, Some("option_1".to_string()));
         assert!(responded.response_timestamp.is_some());
+        assert_eq!(responded.responded_by, Some("human://yannick".to_string()));
     }
 
     #[test]

@@ -33,9 +33,13 @@ ulid = { version = "1.1", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio-tungstenite = "0.21"
 url = "2.5"
+notify-rust = "4"
 
 # Vendored OpenSSL keeps Unix packages (.deb/.dmg) self-contained; Windows
 # uses SChannel via native-tls and needs no OpenSSL (and no Perl to build it).
 [target.'cfg(unix)'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
 

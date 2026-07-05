@@ -56,6 +56,7 @@ export interface DecisionOption {
 }
 
 export interface Decision {
+  responded_by?: string | null;
   id?: string;
   title: string;
   question: string;

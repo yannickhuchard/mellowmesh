@@ -24,4 +24,7 @@ pub struct Decision {
     pub response_option_id: Option<String>, // Chosen option ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_timestamp: Option<DateTime<Utc>>,
+    /// Authenticated principal that answered the decision (audit trail).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responded_by: Option<String>,
 }

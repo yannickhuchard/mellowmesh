@@ -333,21 +333,41 @@ pub fn handle_publish(
 
 pub async fn publish_message(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Json(msg): Json<Message>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if !ctx.can_write(&msg.topic) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Principal is not authorized to publish on topic '{}'",
+                msg.topic
+            ),
+        ));
+    }
     match handle_publish(std::sync::Arc::new(state), msg).await {
         Ok(m) => Ok((StatusCode::OK, Json(m))),
         Err(e) => Err((StatusCode::BAD_REQUEST, e)),
     }
 }
 
+fn filter_readable(msgs: Vec<Message>, ctx: &crate::auth::AuthContext) -> Vec<Message> {
+    if ctx.principal.is_none() {
+        return msgs;
+    }
+    msgs.into_iter()
+        .filter(|m| ctx.can_read(&m.topic))
+        .collect()
+}
+
 pub async fn get_history(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<HistoryParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(100);
     match state.store.get_history(limit) {
-        Ok(msgs) => Ok(Json(msgs)),
+        Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to fetch history: {e}"),
@@ -357,10 +377,11 @@ pub async fn get_history(
 
 pub async fn search_messages(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<SearchParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     match state.store.search_messages(&params.query) {
-        Ok(msgs) => Ok(Json(msgs)),
+        Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to search messages: {e}"),
@@ -382,6 +403,7 @@ pub async fn list_topics(
 
 pub async fn get_forum(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<ForumParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let pat = params.pattern.unwrap_or_else(|| "**".to_string());
@@ -395,7 +417,9 @@ pub async fn get_forum(
                         && !m.topic.contains(".scratch.")
                         && !m.topic.contains(".heartbeat")
                         && !m.topic.contains(".stream");
-                    is_eligible && mellowmesh_core::topic::match_topic(&pat, &m.topic)
+                    is_eligible
+                        && mellowmesh_core::topic::match_topic(&pat, &m.topic)
+                        && ctx.can_read(&m.topic)
                 })
                 .collect();
             Ok(Json(filtered))

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod auth;
 pub mod decision;
 pub mod hot_buffer;
 pub mod identity;

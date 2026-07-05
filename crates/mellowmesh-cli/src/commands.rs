@@ -492,6 +492,7 @@ pub async fn run_decision_create(
         options: dec_options,
         response_option_id: None,
         response_timestamp: None,
+        responded_by: None,
     };
     client.create_decision(&decision).await?;
     println!("Decision request created successfully.");
@@ -822,6 +823,86 @@ pub async fn run_schema_list(client: &MellowMeshClient) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn run_token_create(
+    client: &MellowMeshClient,
+    principal: &str,
+    name: Option<String>,
+    read_scopes: Vec<String>,
+    write_scopes: Vec<String>,
+) -> anyhow::Result<()> {
+    let read = if read_scopes.is_empty() {
+        None
+    } else {
+        Some(read_scopes)
+    };
+    let write = if write_scopes.is_empty() {
+        None
+    } else {
+        Some(write_scopes)
+    };
+    let result = client
+        .create_token(principal, name.as_deref(), read, write)
+        .await?;
+    println!("Token created for {principal}:");
+    println!(
+        "  id:     {}",
+        result.get("id").and_then(|v| v.as_str()).unwrap_or("?")
+    );
+    println!(
+        "  token:  {}",
+        result.get("token").and_then(|v| v.as_str()).unwrap_or("?")
+    );
+    println!();
+    println!("This token is shown ONCE and never stored in plaintext.");
+    println!("Give it to the agent via the MELLOWMESH_TOKEN environment variable.");
+    Ok(())
+}
+
+pub async fn run_token_list(client: &MellowMeshClient) -> anyhow::Result<()> {
+    let tokens = client.list_tokens().await?;
+    let mut rows = Vec::new();
+    for t in tokens {
+        rows.push(vec![
+            t.get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+            t.get("principal")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+            t.get("read_scopes")
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            t.get("write_scopes")
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            t.get("revoked")
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { "revoked" } else { "active" })
+                .unwrap_or("?")
+                .to_string(),
+        ]);
+    }
+    print_table(
+        &[
+            "Token ID",
+            "Principal",
+            "Read Scopes",
+            "Write Scopes",
+            "Status",
+        ],
+        &rows,
+    );
+    Ok(())
+}
+
+pub async fn run_token_revoke(client: &MellowMeshClient, id: &str) -> anyhow::Result<()> {
+    client.revoke_token(id).await?;
+    println!("Token {id} revoked.");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Guided demo: two simulated agents divide tasks, survive a crash via claim
 // leases, and pause for a human decision — the core MellowMesh loop in ~2 min.
@@ -1024,6 +1105,7 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
             ],
             response_option_id: None,
             response_timestamp: None,
+            responded_by: None,
         })
         .await?;
     println!("      The agent is now blocked, waiting for a human. That is the point.");

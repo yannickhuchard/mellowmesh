@@ -27,6 +27,11 @@ struct Args {
 
     #[arg(long)]
     node_id: Option<String>,
+
+    /// Require a valid bearer token on every request (except health and
+    /// dashboard). Also enabled by MELLOWMESH_REQUIRE_AUTH=1.
+    #[arg(long)]
+    require_auth: bool,
 }
 
 #[tokio::main]
@@ -43,7 +48,24 @@ async fn main() -> anyhow::Result<()> {
 
     let db_path = args.db.unwrap_or_else(default_db_path);
     tracing::info!("Initializing SQLite storage at: {:?}", db_path);
-    let store = Store::new(db_path)?;
+    let store = Store::new(&db_path)?;
+
+    // First-run identity bootstrap: owner principal + full-access token.
+    let owner = mellowmesh_daemon::auth::bootstrap_owner(&store, &db_path);
+    let require_auth = args.require_auth
+        || matches!(
+            std::env::var("MELLOWMESH_REQUIRE_AUTH")
+                .unwrap_or_default()
+                .as_str(),
+            "1" | "true" | "yes"
+        );
+    if require_auth {
+        tracing::info!("Authentication REQUIRED: all requests must present a bearer token");
+    } else {
+        tracing::info!(
+            "Running in open mode: localhost clients are trusted (enable --require-auth to enforce tokens)"
+        );
+    }
 
     let metrics = Arc::new(mellowmesh_daemon::metrics::DaemonMetrics::default());
     let pipeline = Arc::new(mellowmesh_daemon::pipeline::PersistencePipeline::new(
@@ -225,6 +247,8 @@ async fn main() -> anyhow::Result<()> {
         wikis: wikis.clone(),
         node_id,
         shutdown_trigger: shutdown_trigger.clone(),
+        require_auth,
+        owner,
     };
 
     // Background maintenance: lease reclaim + retention purge

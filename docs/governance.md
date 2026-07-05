@@ -1,6 +1,6 @@
 # Governance & Integration Best Practices
 
-> **Honesty note:** the rules in this guide are currently *conventions*, not enforced access control. The daemon trusts all localhost clients. Enforced identity, scoped tokens, and decision integrity are the next roadmap phase — see [PRODUCT_PLAN.md](../PRODUCT_PLAN.md), Phase 1. Until then, treat these standards as the contract well-behaved agents must follow.
+> **Status:** identity, scoped bearer tokens, and decision integrity are now **enforced** when the daemon runs with `--require-auth` (see the [security guide](security.md)). In the default open mode, localhost clients are trusted and these rules remain the contract well-behaved agents must follow; scopes are still enforced whenever a token is presented.
 
 ## Identity URI Standard
 

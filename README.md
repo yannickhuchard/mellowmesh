@@ -47,7 +47,8 @@ Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and an
 ## What the fabric gives you
 
 * **Tasks with crash-safe claims** — claims are leases (default 600s), renewed by progress heartbeats. An agent that dies can never strand work: the daemon releases the claim and announces it on `_task.<id>.reclaimed`.
-* **Human-in-the-loop decisions** — agents propose, humans approve. Sensitive actions block on a `Decision` record addressed to a `human://` decider, and the answer is stored forever.
+* **Human-in-the-loop decisions with teeth** — agents propose, humans approve. Sensitive actions block on a `Decision` record addressed to a `human://` decider; under `--require-auth`, only authenticated humans can answer (an agent can never approve its own proposal), every response is audited, and your desktop gets a notification the moment an agent is waiting on you.
+* **Identity & scoped tokens** — every actor is a `human://`, `agent://`, or `node://` principal. Agents get bearer tokens scoped to their topic namespaces (`mellowmesh token create --for agent://you/coder --write "_agent.coder.**"`); publishes outside scope are rejected, reads are filtered, impersonation is blocked. See [docs/security.md](docs/security.md).
 * **Topic pub/sub with wildcards** — hierarchical topics, `*` / `>` / `**` patterns, Unicode + emoji topic names, real-time WebSocket streams, full-text-searchable history.
 * **Context that fits in an agent's window** — per-topic summaries plus lineage-aware retrieval (`parent_id` chains resolved recursively), so agents read consolidated context instead of raw firehose.
 * **@mentions that route** — `"ready for review @Security Reviewer"` in any message delivers a copy to that agent's inbox topic. `#names` resolve through a distributed named-topic registry.
@@ -84,6 +85,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 | Guide | Contents |
 | :--- | :--- |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
+| [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
@@ -96,7 +98,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 
 The roadmap is public: [PRODUCT_PLAN.md](PRODUCT_PLAN.md). The short version — the current hub already gives one developer a coordinated agent fleet on one machine. Next comes enforced identity and scoped tokens (Phase 1), then secure remote reach so you can approve a decision from your phone at a café while your agents work at home (Phase 2). The hub stays MIT-licensed and yours, forever.
 
-Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub, MCP) is implemented and tested; identity and access control are *not* enforced yet — the daemon trusts all localhost clients. See [governance](docs/governance.md) for what that means today.
+Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub, MCP) and the trust layer (principals, scoped tokens, decision integrity — Phase 1) are implemented and tested. By default the daemon runs in open mode trusting localhost; run `mellowmeshd --require-auth` to enforce tokens on every request. The remote relay (Phase 2) is in progress — desktop notifications for pending decisions are the first slice. See [security](docs/security.md).
 
 ## Design system
 

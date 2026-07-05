@@ -104,11 +104,43 @@ enum Commands {
     /// Schema management (Contracts)
     Schema(SchemaCmd),
 
+    /// Bearer token management (authentication)
+    Token(TokenCmd),
+
     /// Run a guided two-agent coordination demo on the local fabric
     Demo,
 
     /// Start Model Context Protocol (MCP) server
     Mcp,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TokenCmd {
+    #[command(subcommand)]
+    pub action: TokenAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum TokenAction {
+    /// Create a scoped bearer token for a principal
+    Create {
+        /// Principal URI the token authenticates as (e.g. agent://yannick/coder)
+        #[arg(long = "for")]
+        principal: String,
+        /// Optional display name for the principal
+        #[arg(long)]
+        name: Option<String>,
+        /// Topic patterns the token may read (repeatable; default: **)
+        #[arg(long = "read", short = 'r')]
+        read_scopes: Vec<String>,
+        /// Topic patterns the token may write (repeatable; default: **)
+        #[arg(long = "write", short = 'w')]
+        write_scopes: Vec<String>,
+    },
+    /// List issued tokens (hashes are never shown)
+    List,
+    /// Revoke a token by its id (tok_...)
+    Revoke { id: String },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -560,6 +592,23 @@ async fn main() -> anyhow::Result<()> {
             }
             SchemaAction::List => {
                 commands::run_schema_list(&client).await?;
+            }
+        },
+        Commands::Token(TokenCmd { action }) => match action {
+            TokenAction::Create {
+                principal,
+                name,
+                read_scopes,
+                write_scopes,
+            } => {
+                commands::run_token_create(&client, &principal, name, read_scopes, write_scopes)
+                    .await?;
+            }
+            TokenAction::List => {
+                commands::run_token_list(&client).await?;
+            }
+            TokenAction::Revoke { id } => {
+                commands::run_token_revoke(&client, &id).await?;
             }
         },
         Commands::Demo => {
