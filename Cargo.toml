@@ -8,6 +8,7 @@ members = [
     "crates/mellowmesh-cli",
     "crates/mellowmesh-bench",
     "crates/mellowmesh-connectors",
+    "crates/mellowmesh-relay",
     "crates/mellowmesh-wasm"
 ]
 

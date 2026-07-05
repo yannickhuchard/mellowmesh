@@ -30,6 +30,16 @@ fn build_http(token: &Option<String>) -> reqwest::Client {
         .unwrap_or_default()
 }
 
+/// Remote base URL override (e.g. `https://relay.example.com/hub/<hub_id>`),
+/// letting the same client and CLI drive a hub through a relay from any
+/// machine. When set, the daemon autostart is skipped.
+fn remote_base_url() -> Option<String> {
+    std::env::var("MELLOWMESH_URL")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+}
+
 impl MellowMeshClient {
     pub fn new(port: u16) -> Self {
         // Token resolution: explicit env var wins; otherwise anonymous
@@ -38,8 +48,9 @@ impl MellowMeshClient {
             .ok()
             .filter(|t| !t.trim().is_empty());
         let http = build_http(&token);
+        let base_url = remote_base_url().unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
         Self {
-            base_url: format!("http://127.0.0.1:{port}"),
+            base_url,
             port,
             token,
             http,
@@ -58,7 +69,8 @@ impl MellowMeshClient {
     }
 
     pub async fn connect_with_port(port: u16) -> anyhow::Result<Self> {
-        if !autostart::is_daemon_running(port) {
+        // A remote hub URL means there is no local daemon to autostart.
+        if remote_base_url().is_none() && !autostart::is_daemon_running(port) {
             autostart::spawn_daemon(port)?;
         }
         Ok(Self::new(port))
@@ -89,6 +101,11 @@ impl MellowMeshClient {
         pattern: &str,
         case_insensitive: bool,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Message>>> {
+        if !self.base_url.starts_with("http://127.0.0.1") {
+            anyhow::bail!(
+                "Live subscriptions are not yet supported through a relay — poll with read/history instead"
+            );
+        }
         let mut url = url::Url::parse(&format!("ws://127.0.0.1:{}/ws", self.port))?;
         url.query_pairs_mut().append_pair("pattern", pattern);
         if case_insensitive {

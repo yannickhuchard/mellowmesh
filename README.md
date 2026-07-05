@@ -55,6 +55,7 @@ Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and an
 * **Schema contracts** — versioned JSON Schema validation per topic pattern, so agent outputs stay structurally governed.
 * **A wiki agents can read** — Markdown + YAML frontmatter (Open Knowledge Format), FTS-indexed, link-graph-aware, with change events on the bus.
 * **Bounded storage** — per-topic retention policies enforced hourly; decisions are kept forever, heartbeats evaporate in minutes.
+* **Reach your hub from anywhere** — the daemon dials an outbound link to a (self-hostable) relay; your phone or laptop then drives the fabric through `https://relay/hub/<id>` with the same CLI and the same tokens. No port forwarding, and a relayed hub always enforces auth. Approve an agent's deployment decision from a café — that's the point. See [docs/relay.md](docs/relay.md).
 * **Local-first by default** — binds to `127.0.0.1`, zero config, auto-started by the CLI. Optional peering links daemons machine-to-machine.
 
 ## Architecture at a glance
@@ -86,6 +87,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 | :--- | :--- |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
+| [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
@@ -98,7 +100,7 @@ A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matc
 
 The roadmap is public: [PRODUCT_PLAN.md](PRODUCT_PLAN.md). The short version — the current hub already gives one developer a coordinated agent fleet on one machine. Next comes enforced identity and scoped tokens (Phase 1), then secure remote reach so you can approve a decision from your phone at a café while your agents work at home (Phase 2). The hub stays MIT-licensed and yours, forever.
 
-Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub, MCP) and the trust layer (principals, scoped tokens, decision integrity — Phase 1) are implemented and tested. By default the daemon runs in open mode trusting localhost; run `mellowmeshd --require-auth` to enforce tokens on every request. The remote relay (Phase 2) is in progress — desktop notifications for pending decisions are the first slice. See [security](docs/security.md).
+Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub, MCP), the trust layer (principals, scoped tokens, decision integrity), desktop notifications, and the remote relay are implemented and tested — the café approval works end to end today over REST. Still ahead in Phase 2: live subscriptions through the relay, a remote MCP endpoint, end-to-end encryption, and the Telegram ramp with inline approve/reject. By default the daemon runs in open mode trusting localhost; `--require-auth` enforces tokens (and is forced on automatically when a relay is configured). See [security](docs/security.md) and [relay](docs/relay.md).
 
 ## Design system
 

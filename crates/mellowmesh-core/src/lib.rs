@@ -8,6 +8,7 @@ pub mod message;
 pub mod okf;
 pub mod persistence;
 pub mod priority;
+pub mod relay;
 pub mod task;
 pub mod telemetry;
 pub mod topic;

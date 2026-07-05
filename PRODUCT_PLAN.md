@@ -131,8 +131,12 @@ keypair; the owner keypair moves to Phase 2 where the relay actually needs it.*
 
 ### Phase 2 — Reach Layer (weeks 8–16) — *the universality bet* — 🔨 IN PROGRESS
 *Goal: the café approval works.*
-*Shipped so far: desktop notification pipeline (decisions requiring a human,
-expired-lease task reclaims). Next: relay crate, remote MCP, Telegram ramp.*
+*Shipped so far: desktop notification pipeline; the `mellowmesh-relay` crate
+(outbound-only dial, stable hub URLs, link-key hijack protection, forced
+require-auth on relayed hubs); client/CLI remote mode via `MELLOWMESH_URL` —
+the café approval works today over REST through the relay. Remaining: live
+subscriptions through the relay, remote MCP endpoint, E2E encryption,
+Telegram ramp with inline approve/reject, the demo video.*
 
 | Change | Where |
 | :--- | :--- |

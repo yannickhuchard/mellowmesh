@@ -38,6 +38,8 @@ mellowmesh --port 45000 status
 | `MELLOWMESH_REQUIRE_AUTH` | Set to `1` to require a valid token on every request (same as `mellowmeshd --require-auth`). | unset (open mode) |
 | `MELLOWMESH_OWNER` | Owner identity created on first run (e.g. `human://yannick`). | `human://<os-username>` |
 | `MELLOWMESH_NOTIFICATIONS` | Set to `off` to disable desktop notifications for decisions and task reclaims. | enabled |
+| `MELLOWMESH_RELAY_URL` | Relay server to dial for remote reachability (e.g. `https://relay.example.com`). Enabling this **forces `--require-auth`**. See [relay](relay.md). | unset |
+| `MELLOWMESH_URL` | Client-side: full base URL of a remote hub (`https://relay.example.com/hub/<id>`), used by the CLI/SDK instead of `127.0.0.1`. | unset (local) |
 | `RUST_LOG` | Logging filter level (`trace`, `debug`, `info`, `warn`, `error`). | `info` |
 
 ### Default Database Locations

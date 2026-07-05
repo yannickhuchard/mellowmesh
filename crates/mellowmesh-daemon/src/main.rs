@@ -52,13 +52,22 @@ async fn main() -> anyhow::Result<()> {
 
     // First-run identity bootstrap: owner principal + full-access token.
     let owner = mellowmesh_daemon::auth::bootstrap_owner(&store, &db_path);
-    let require_auth = args.require_auth
+    let relay_config = mellowmesh_daemon::relay_link::load_config(&store);
+    let mut require_auth = args.require_auth
         || matches!(
             std::env::var("MELLOWMESH_REQUIRE_AUTH")
                 .unwrap_or_default()
                 .as_str(),
             "1" | "true" | "yes"
         );
+    // A relayed hub is reachable from outside this machine: token auth is
+    // not optional in that configuration, so it is forced on.
+    if relay_config.is_some() && !require_auth {
+        tracing::warn!(
+            "Relay link is configured — forcing --require-auth so remote requests must present tokens"
+        );
+        require_auth = true;
+    }
     if require_auth {
         tracing::info!("Authentication REQUIRED: all requests must present a bearer token");
     } else {
@@ -253,6 +262,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Background maintenance: lease reclaim + retention purge
     mellowmesh_daemon::sweeper::start(state.clone());
+
+    // Outbound relay link (Phase 2 reach layer)
+    if let Some(config) = relay_config {
+        mellowmesh_daemon::relay_link::start(state.clone(), config, args.port);
+    }
 
     let peer_manager = Arc::new(mellowmesh_daemon::peer::PeerManager::new(
         state.node_id.clone(),

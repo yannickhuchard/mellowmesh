@@ -4,6 +4,7 @@ pub mod metrics;
 pub mod notify;
 pub mod peer;
 pub mod pipeline;
+pub mod relay_link;
 pub mod server;
 pub mod state;
 pub mod subscription;

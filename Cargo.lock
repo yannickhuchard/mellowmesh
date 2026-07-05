@@ -1518,6 +1518,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "mellowmesh-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "futures-util",
+ "mellowmesh-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.21.0",
+ "tracing",
+ "tracing-subscriber",
+ "ulid",
+]
+
+[[package]]
 name = "mellowmesh-store"
 version = "0.1.0"
 dependencies = [

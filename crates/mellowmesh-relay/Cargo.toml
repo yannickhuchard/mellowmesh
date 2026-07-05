@@ -1,0 +1,29 @@
+[package]
+name = "mellowmesh-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "mellowmesh-relay"
+path = "src/main.rs"
+
+[dependencies]
+mellowmesh-core = { path = "../mellowmesh-core" }
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1.38", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+futures-util = "0.3"
+ulid = "1.1"
+
+[dev-dependencies]
+tokio-tungstenite = "0.21"
+reqwest = { version = "0.12", features = ["json"] }
