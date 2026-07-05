@@ -9,6 +9,8 @@
 use crate::state::AppState;
 use futures_util::{SinkExt, StreamExt};
 use mellowmesh_core::relay::RelayFrame;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
@@ -113,6 +115,9 @@ async fn run_link(
 
     let http = reqwest::Client::new();
     let base = format!("http://127.0.0.1:{local_port}");
+    // Live subscription bridges opened on behalf of remote clients.
+    let streams: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     let reader_result: anyhow::Result<()> = async {
         while let Some(msg) = ws_rx.next().await {
@@ -167,6 +172,26 @@ async fn run_link(
                                 let _ = out.send(frame).await;
                             });
                         }
+                        RelayFrame::StreamOpen { stream_id, query } => {
+                            let out = out_tx.clone();
+                            let streams_map = streams.clone();
+                            let sid = stream_id.clone();
+                            let handle = tokio::spawn(async move {
+                                run_stream_bridge(local_port, sid.clone(), query, out.clone())
+                                    .await;
+                                streams_map.lock().unwrap().remove(&sid);
+                                let _ = out.send(RelayFrame::StreamClose { stream_id: sid }).await;
+                            });
+                            streams
+                                .lock()
+                                .unwrap()
+                                .insert(stream_id, handle.abort_handle());
+                        }
+                        RelayFrame::StreamClose { stream_id } => {
+                            if let Some(handle) = streams.lock().unwrap().remove(&stream_id) {
+                                handle.abort();
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -180,7 +205,52 @@ async fn run_link(
 
     writer.abort();
     let _ = (&mut writer).await;
+    // The relay link is gone: tear down every local subscription bridge.
+    for (_, handle) in streams.lock().unwrap().drain() {
+        handle.abort();
+    }
     reader_result
+}
+
+/// Bridge one remote subscription: open a local WebSocket (the query carries
+/// the pattern and the remote client's token, so daemon auth applies) and
+/// forward every delivered message up the relay link.
+async fn run_stream_bridge(
+    local_port: u16,
+    stream_id: String,
+    query: Option<String>,
+    out: tokio::sync::mpsc::Sender<RelayFrame>,
+) {
+    let url = format!(
+        "ws://127.0.0.1:{local_port}/ws{}",
+        query.map(|q| format!("?{q}")).unwrap_or_default()
+    );
+    let ws = match tokio_tungstenite::connect_async(&url).await {
+        Ok((ws, _)) => ws,
+        Err(e) => {
+            tracing::debug!("Stream bridge {} failed to open: {}", stream_id, e);
+            return;
+        }
+    };
+    let (_ws_tx, mut ws_rx) = ws.split();
+    while let Some(Ok(msg)) = ws_rx.next().await {
+        match msg {
+            WsMessage::Text(text) => {
+                if out
+                    .send(RelayFrame::StreamData {
+                        stream_id: stream_id.clone(),
+                        text,
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            WsMessage::Close(_) => break,
+            _ => {}
+        }
+    }
 }
 
 async fn execute_local(

@@ -57,7 +57,13 @@ mellowmesh decisions               # see what your agents are waiting on
 mellowmesh respond decision_01k... option_1   # the café approval
 mellowmesh tasks
 mellowmesh publish _forum.general "checking in from my phone"
+mellowmesh tail "_task.**"         # live stream, through the relay
 ```
+
+Live subscriptions work end to end: the relay forwards your WebSocket to the
+daemon as a framed stream, the daemon opens a matching local subscription
+under your token (read scopes filter deliveries as usual), and every message
+is relayed back in real time.
 
 Any HTTP client works too:
 
@@ -68,9 +74,6 @@ curl -H "Authorization: Bearer mm_..." \
 
 ## Current limitations
 
-* **No live subscriptions through the relay yet** — `mellowmesh tail` and
-  WebSocket subscriptions require a local connection; poll with `read` /
-  `decisions` / `tasks` remotely. Streaming pass-through is planned.
 * **TLS is your reverse proxy's job** — the relay itself speaks plain HTTP.
 * **End-to-end encryption** (relay cannot read payloads) is the planned v2;
   today the relay operator can observe traffic, which is why self-hosting is

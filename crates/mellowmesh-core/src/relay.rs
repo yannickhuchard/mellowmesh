@@ -41,6 +41,20 @@ pub enum RelayFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         body: Option<String>,
     },
+    /// Relay → daemon: a remote client opened a live subscription stream.
+    /// The daemon opens a matching local WebSocket (the query carries the
+    /// pattern and the client's token, so auth applies as usual).
+    StreamOpen {
+        stream_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<String>,
+    },
+    /// Daemon → relay: one message for a live stream, forwarded verbatim to
+    /// the remote subscriber.
+    StreamData { stream_id: String, text: String },
+    /// Either direction: the stream ended (client left, daemon closed, or
+    /// the local subscription failed).
+    StreamClose { stream_id: String },
     /// Either direction: registration or forwarding error.
     Error { message: String },
 }

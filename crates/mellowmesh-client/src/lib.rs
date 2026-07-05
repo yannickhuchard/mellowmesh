@@ -12,7 +12,6 @@ pub use mellowmesh_core::topic::NamedTopic;
 #[derive(Clone)]
 pub struct MellowMeshClient {
     base_url: String,
-    port: u16,
     token: Option<String>,
     http: reqwest::Client,
 }
@@ -51,7 +50,6 @@ impl MellowMeshClient {
         let base_url = remote_base_url().unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
         Self {
             base_url,
-            port,
             token,
             http,
         }
@@ -101,12 +99,13 @@ impl MellowMeshClient {
         pattern: &str,
         case_insensitive: bool,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Message>>> {
-        if !self.base_url.starts_with("http://127.0.0.1") {
-            anyhow::bail!(
-                "Live subscriptions are not yet supported through a relay — poll with read/history instead"
-            );
-        }
-        let mut url = url::Url::parse(&format!("ws://127.0.0.1:{}/ws", self.port))?;
+        // Local hubs expose /ws directly; relayed hubs expose it at
+        // <relay>/hub/<id>/ws with the same query parameters.
+        let ws_base = self
+            .base_url
+            .replacen("https://", "wss://", 1)
+            .replacen("http://", "ws://", 1);
+        let mut url = url::Url::parse(&format!("{ws_base}/ws"))?;
         url.query_pairs_mut().append_pair("pattern", pattern);
         if case_insensitive {
             url.query_pairs_mut()

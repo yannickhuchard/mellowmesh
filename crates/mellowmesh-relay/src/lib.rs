@@ -14,7 +14,7 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        Path, State,
+        Path, RawQuery, State,
     },
     http::{HeaderMap, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
@@ -32,12 +32,20 @@ use ulid::Ulid;
 /// How long a forwarded request may wait for the daemon's answer.
 const FORWARD_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// One event for a live subscription stream held open by a remote client.
+enum StreamEvent {
+    Data(String),
+    Close,
+}
+
 struct Hub {
     link_key: String,
     /// Frames to send down the daemon link.
     to_daemon: mpsc::Sender<RelayFrame>,
     /// In-flight forwarded requests awaiting a response frame.
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<RelayFrame>>>>,
+    /// Live subscription streams: stream id → events for the remote client.
+    streams: Arc<Mutex<HashMap<String, mpsc::Sender<StreamEvent>>>>,
 }
 
 #[derive(Clone, Default)]
@@ -51,6 +59,7 @@ pub fn create_router(state: RelayState) -> Router {
         .route("/link", get(link_handler))
         .route("/hub/:hub_id", any(forward_handler_root))
         .route("/hub/:hub_id/", any(forward_handler_root))
+        .route("/hub/:hub_id/ws", get(hub_stream_handler))
         .route("/hub/:hub_id/*path", any(forward_handler))
         .with_state(state)
 }
@@ -87,6 +96,8 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
     let (to_daemon_tx, mut to_daemon_rx) = mpsc::channel::<RelayFrame>(256);
     let pending: Arc<Mutex<HashMap<String, oneshot::Sender<RelayFrame>>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let streams: Arc<Mutex<HashMap<String, mpsc::Sender<StreamEvent>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // Claim (or re-claim) the hub id. A different link key is rejected so a
     // stranger cannot hijack an established hub id.
@@ -103,6 +114,7 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
                     link_key,
                     to_daemon: to_daemon_tx,
                     pending: pending.clone(),
+                    streams: streams.clone(),
                 }),
             );
         }
@@ -142,18 +154,38 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
         }
     });
 
-    // Reader: response frames from the daemon → waiting HTTP handlers.
+    // Reader: response and stream frames from the daemon → waiting HTTP
+    // handlers and open subscription streams.
     let pending_reader = pending.clone();
+    let streams_reader = streams.clone();
     let mut reader = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_rx.next().await {
             match msg {
                 WsMessage::Text(text) => {
                     if let Ok(frame) = serde_json::from_str::<RelayFrame>(&text) {
-                        if let RelayFrame::Response { ref id, .. } = frame {
-                            let waiter = pending_reader.lock().unwrap().remove(id);
-                            if let Some(tx) = waiter {
-                                let _ = tx.send(frame);
+                        match frame {
+                            RelayFrame::Response { ref id, .. } => {
+                                let waiter = pending_reader.lock().unwrap().remove(id);
+                                if let Some(tx) = waiter {
+                                    let _ = tx.send(frame);
+                                }
                             }
+                            RelayFrame::StreamData { stream_id, text } => {
+                                let sender = {
+                                    let streams = streams_reader.lock().unwrap();
+                                    streams.get(&stream_id).cloned()
+                                };
+                                if let Some(tx) = sender {
+                                    let _ = tx.send(StreamEvent::Data(text)).await;
+                                }
+                            }
+                            RelayFrame::StreamClose { stream_id } => {
+                                let sender = streams_reader.lock().unwrap().remove(&stream_id);
+                                if let Some(tx) = sender {
+                                    let _ = tx.send(StreamEvent::Close).await;
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -177,6 +209,76 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
             tracing::info!("Hub '{}' unlinked", hub_id);
         }
     }
+    drop(hubs);
+    // Dropping the senders ends every live stream attached to this link.
+    streams.lock().unwrap().clear();
+}
+
+/// Remote client opening a live subscription stream through the relay.
+/// The raw query (pattern, case_insensitive, token) is passed to the daemon,
+/// which opens a matching local subscription under its own authentication.
+async fn hub_stream_handler(
+    ws: WebSocketUpgrade,
+    Path(hub_id): Path<String>,
+    RawQuery(query): RawQuery,
+    State(state): State<RelayState>,
+) -> Response {
+    let hub = {
+        let hubs = state.hubs.lock().unwrap();
+        hubs.get(&hub_id).cloned()
+    };
+    let Some(hub) = hub else {
+        return (
+            StatusCode::BAD_GATEWAY,
+            format!("Hub '{hub_id}' is not connected to this relay"),
+        )
+            .into_response();
+    };
+    ws.on_upgrade(move |socket| handle_hub_stream(socket, hub, query))
+}
+
+async fn handle_hub_stream(socket: WebSocket, hub: Arc<Hub>, query: Option<String>) {
+    let stream_id = format!("str_{}", Ulid::new().to_string().to_lowercase());
+    let (ev_tx, mut ev_rx) = mpsc::channel::<StreamEvent>(256);
+    hub.streams.lock().unwrap().insert(stream_id.clone(), ev_tx);
+
+    if hub
+        .to_daemon
+        .send(RelayFrame::StreamOpen {
+            stream_id: stream_id.clone(),
+            query,
+        })
+        .await
+        .is_err()
+    {
+        hub.streams.lock().unwrap().remove(&stream_id);
+        return;
+    }
+
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    loop {
+        tokio::select! {
+            event = ev_rx.recv() => match event {
+                Some(StreamEvent::Data(text)) => {
+                    if ws_tx.send(WsMessage::Text(text)).await.is_err() {
+                        break;
+                    }
+                }
+                Some(StreamEvent::Close) | None => break,
+            },
+            msg = ws_rx.next() => match msg {
+                Some(Ok(WsMessage::Close(_))) | Some(Err(_)) | None => break,
+                _ => {}
+            },
+        }
+    }
+
+    // Tell the daemon to tear down its local subscription (best-effort).
+    hub.streams.lock().unwrap().remove(&stream_id);
+    let _ = hub
+        .to_daemon
+        .send(RelayFrame::StreamClose { stream_id })
+        .await;
 }
 
 async fn forward_handler_root(

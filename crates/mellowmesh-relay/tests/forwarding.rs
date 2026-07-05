@@ -127,3 +127,82 @@ async fn test_forwarding_roundtrip_and_hub_security() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 }
+
+#[tokio::test]
+async fn test_live_stream_through_relay() {
+    let port = 40022;
+    start_relay(port).await;
+
+    // Link a fake hub that answers StreamOpen with two data frames.
+    let (ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/link"))
+        .await
+        .unwrap();
+    let (mut tx, mut rx) = ws.split();
+    tx.send(WsMessage::Text(
+        serde_json::to_string(&RelayFrame::Register {
+            hub_id: "hub2".to_string(),
+            link_key: "key2".to_string(),
+        })
+        .unwrap(),
+    ))
+    .await
+    .unwrap();
+    let _ack = rx.next().await.unwrap().unwrap();
+
+    let (seen_close_tx, seen_close_rx) = tokio::sync::oneshot::channel::<String>();
+    tokio::spawn(async move {
+        let mut close_tx = Some(seen_close_tx);
+        while let Some(Ok(msg)) = rx.next().await {
+            if let WsMessage::Text(text) = msg {
+                match serde_json::from_str::<RelayFrame>(&text) {
+                    Ok(RelayFrame::StreamOpen { stream_id, query }) => {
+                        // Echo the query back, then a payload frame.
+                        for body in [
+                            format!("query:{}", query.unwrap_or_default()),
+                            "payload".to_string(),
+                        ] {
+                            tx.send(WsMessage::Text(
+                                serde_json::to_string(&RelayFrame::StreamData {
+                                    stream_id: stream_id.clone(),
+                                    text: body,
+                                })
+                                .unwrap(),
+                            ))
+                            .await
+                            .unwrap();
+                        }
+                    }
+                    Ok(RelayFrame::StreamClose { stream_id }) => {
+                        if let Some(tx) = close_tx.take() {
+                            let _ = tx.send(stream_id);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    // Remote subscriber connects through the relay with a pattern + token.
+    let (sub_ws, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/hub/hub2/ws?pattern=_task.%2A%2A&token=mm_sub"
+    ))
+    .await
+    .unwrap();
+    let (mut sub_tx, mut sub_rx) = sub_ws.split();
+
+    let first = sub_rx.next().await.unwrap().unwrap();
+    let first = first.to_text().unwrap();
+    assert!(first.contains("pattern="), "query passthrough: {first}");
+    assert!(first.contains("token=mm_sub"), "token passthrough: {first}");
+    let second = sub_rx.next().await.unwrap().unwrap();
+    assert_eq!(second.to_text().unwrap(), "payload");
+
+    // Closing the remote subscription tells the hub to tear down.
+    sub_tx.send(WsMessage::Close(None)).await.unwrap();
+    let closed_stream = tokio::time::timeout(tokio::time::Duration::from_secs(3), seen_close_rx)
+        .await
+        .expect("hub should receive StreamClose")
+        .unwrap();
+    assert!(closed_stream.starts_with("str_"));
+}
