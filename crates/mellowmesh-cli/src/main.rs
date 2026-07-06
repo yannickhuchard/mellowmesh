@@ -107,6 +107,17 @@ enum Commands {
     /// Bearer token management (authentication)
     Token(TokenCmd),
 
+    /// Send an end-to-end encrypted request through a relay (relay sees only
+    /// ciphertext). Requires MELLOWMESH_URL and MELLOWMESH_TOKEN.
+    E2e {
+        /// HTTP method (GET, POST, DELETE, ...)
+        method: String,
+        /// Path with optional query, e.g. /decisions or /tasks
+        path: String,
+        /// Optional JSON body for POST/PUT
+        body: Option<String>,
+    },
+
     /// Run a guided two-agent coordination demo on the local fabric
     Demo,
 
@@ -611,6 +622,9 @@ async fn main() -> anyhow::Result<()> {
                 commands::run_token_revoke(&client, &id).await?;
             }
         },
+        Commands::E2e { method, path, body } => {
+            commands::run_e2e(&client, &method, &path, body).await?;
+        }
         Commands::Demo => {
             commands::run_demo(&client).await?;
         }

@@ -55,9 +55,15 @@ impl AuthContext {
     }
 }
 
-/// Endpoints reachable without a token even under `--require-auth`.
+/// Endpoints reachable without a bearer token even under `--require-auth`.
+/// `/e2e/request` authenticates via the sealed envelope (key possession
+/// proven by decryption + the inner Authorization header), not the outer
+/// header, so the middleware lets it through to its own handler.
 fn is_open_path(path: &str) -> bool {
-    matches!(path, "/health" | "/" | "/ui" | "/favicon.ico")
+    matches!(
+        path,
+        "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request"
+    )
 }
 
 fn extract_bearer(req: &Request<Body>) -> Option<String> {
@@ -190,6 +196,9 @@ pub async fn create_token(
         revoked: false,
     };
     state.store.insert_token(&record).map_err(internal)?;
+    // Register the derived end-to-end key so this token can also be used
+    // for encrypted relay traffic.
+    let _ = state.store.register_e2e_key(&plaintext);
 
     // The plaintext token is returned exactly once and never stored.
     Ok(Json(serde_json::json!({
@@ -291,6 +300,7 @@ pub fn bootstrap_owner(store: &mellowmesh_store::Store, db_path: &std::path::Pat
     let result = store
         .upsert_principal(&principal)
         .and_then(|_| store.insert_token(&record))
+        .and_then(|_| store.register_e2e_key(&plaintext))
         .and_then(|_| store.set_config("owner_principal", &owner_uri));
     if let Err(e) = result {
         tracing::error!("Owner bootstrap failed: {}", e);

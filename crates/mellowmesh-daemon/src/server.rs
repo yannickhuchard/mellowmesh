@@ -91,6 +91,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/wiki/:wiki/graph", get(handlers::wiki::get_wiki_graph))
         .route("/shutdown", post(shutdown_handler))
         .route("/mcp", post(handlers::mcp::handle_mcp))
+        .route("/e2e/request", post(handlers::e2e::handle_e2e_request))
         .route(
             "/auth/tokens",
             post(crate::auth::create_token).get(crate::auth::list_tokens),
@@ -449,6 +450,107 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 403);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_encrypted_request() {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        use mellowmesh_core::e2e::{
+            derive_key, derive_key_id, open, seal, Envelope, SealedRequest, SealedResponse,
+        };
+
+        let store = Store::new_in_memory().unwrap();
+
+        // Mint an owner token and register its e2e key (as the daemon does).
+        let token = generate_token();
+        store
+            .upsert_principal(&Principal {
+                id: "human://owner".to_string(),
+                kind: "human".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_owner".to_string(),
+                principal: "human://owner".to_string(),
+                token_hash: hash_token(&token),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec!["**".to_string()],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
+        store.register_e2e_key(&token).unwrap();
+
+        let port = 40014;
+        let mut state = test_state(store, true); // require_auth ON
+        state.port = port;
+        state.owner = "human://owner".to_string();
+        let app = create_router(state);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let http = reqwest::Client::new();
+        let key = derive_key(&token);
+        let key_id = derive_key_id(&token);
+
+        // Seal a GET /tasks and send it through /e2e/request.
+        let sealed = SealedRequest {
+            ts: chrono::Utc::now().timestamp(),
+            method: "GET".to_string(),
+            path_and_query: "/tasks".to_string(),
+            authorization: Some(format!("Bearer {token}")),
+            body: None,
+        };
+        let envelope = seal(&key, &key_id, &serde_json::to_vec(&sealed).unwrap()).unwrap();
+
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/e2e/request"))
+            .json(&envelope)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let reply: Envelope = resp.json().await.unwrap();
+        let opened = open(&key, &reply).unwrap();
+        let sealed_resp: SealedResponse = serde_json::from_slice(&opened).unwrap();
+        assert_eq!(sealed_resp.status, 200); // inner GET /tasks succeeded under auth
+
+        // Tampered ciphertext → decryption fails at the daemon → 401.
+        let mut bad = envelope.clone();
+        let mut ct = bad.ciphertext.clone().into_bytes();
+        ct[0] = if ct[0] == b'0' { b'1' } else { b'0' };
+        bad.ciphertext = String::from_utf8(ct).unwrap();
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/e2e/request"))
+            .json(&bad)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // Replay outside the window → rejected.
+        let stale = SealedRequest {
+            ts: chrono::Utc::now().timestamp() - 10_000,
+            method: "GET".to_string(),
+            path_and_query: "/tasks".to_string(),
+            authorization: Some(format!("Bearer {token}")),
+            body: None,
+        };
+        let stale_env = seal(&key, &key_id, &serde_json::to_vec(&stale).unwrap()).unwrap();
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/e2e/request"))
+            .json(&stale_env)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
     }
 
     #[tokio::test]

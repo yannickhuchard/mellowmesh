@@ -236,6 +236,17 @@ impl Store {
         )?;
         let _ = conn.execute("ALTER TABLE decisions ADD COLUMN responded_by TEXT", []);
 
+        // End-to-end encryption keys, keyed by the token's derived key id.
+        // Stored so the daemon can decrypt relayed envelopes without ever
+        // holding the plaintext token or transmitting the key over the wire.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS e2e_keys (
+                key_id TEXT PRIMARY KEY,
+                e2e_key TEXT NOT NULL
+            )",
+            [],
+        )?;
+
         // Table for Topic Schema Contracts
         conn.execute(
             "CREATE TABLE IF NOT EXISTS topic_schemas (

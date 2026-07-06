@@ -63,6 +63,56 @@ impl MellowMeshClient {
         self
     }
 
+    /// Send an end-to-end encrypted request through the relay: the method,
+    /// path, bearer token, and body are sealed with a key derived from the
+    /// token, POSTed to `<base>/e2e/request` as opaque ciphertext, and the
+    /// response is unsealed. A relay in the middle sees only ciphertext.
+    ///
+    /// Requires a token (the shared secret). Returns `(status, body)`.
+    pub async fn e2e_request(
+        &self,
+        method: &str,
+        path_and_query: &str,
+        body: Option<String>,
+    ) -> anyhow::Result<(u16, String)> {
+        use mellowmesh_core::e2e::{
+            derive_key, derive_key_id, open, seal, Envelope, SealedRequest, SealedResponse,
+        };
+        let token = self
+            .token
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("End-to-end encryption requires a bearer token"))?;
+        let key = derive_key(token);
+        let key_id = derive_key_id(token);
+
+        let sealed = SealedRequest {
+            ts: chrono::Utc::now().timestamp(),
+            method: method.to_string(),
+            path_and_query: path_and_query.to_string(),
+            authorization: Some(format!("Bearer {token}")),
+            body,
+        };
+        let envelope = seal(&key, &key_id, &serde_json::to_vec(&sealed)?)?;
+
+        let resp = self
+            .http
+            .post(format!("{}/e2e/request", self.base_url))
+            .json(&envelope)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "E2E transport failed ({}): {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            ));
+        }
+        let reply: Envelope = resp.json().await?;
+        let opened = open(&key, &reply)?;
+        let sealed_resp: SealedResponse = serde_json::from_slice(&opened)?;
+        Ok((sealed_resp.status, sealed_resp.body.unwrap_or_default()))
+    }
+
     pub async fn connect() -> anyhow::Result<Self> {
         Self::connect_with_port(40000).await
     }

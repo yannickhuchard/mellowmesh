@@ -823,6 +823,31 @@ pub async fn run_schema_list(client: &MellowMeshClient) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn run_e2e(
+    client: &MellowMeshClient,
+    method: &str,
+    path: &str,
+    body: Option<String>,
+) -> anyhow::Result<()> {
+    let path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    let (status, response) = client
+        .e2e_request(&method.to_uppercase(), &path, body)
+        .await?;
+    println!("Status: {status}");
+    if !response.is_empty() {
+        // Pretty-print JSON when possible.
+        match serde_json::from_str::<serde_json::Value>(&response) {
+            Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+            Err(_) => println!("{response}"),
+        }
+    }
+    Ok(())
+}
+
 pub async fn run_token_create(
     client: &MellowMeshClient,
     principal: &str,

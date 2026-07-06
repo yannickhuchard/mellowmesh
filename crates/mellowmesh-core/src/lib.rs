@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod auth;
 pub mod decision;
+pub mod e2e;
 pub mod hot_buffer;
 pub mod identity;
 pub mod mentions;

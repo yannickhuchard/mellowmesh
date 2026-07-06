@@ -312,6 +312,7 @@ async fn main() -> anyhow::Result<()> {
                 created_at: chrono::Utc::now(),
             })
             .and_then(|_| state.store.insert_token(&record))
+            .and_then(|_| state.store.register_e2e_key(&plaintext))
             .and_then(|_| state.store.set_config("connectors_token_id", &record.id));
         match minted {
             Ok(_) => client = client.with_token(plaintext),

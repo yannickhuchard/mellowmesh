@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod decision;
+pub mod e2e;
 pub mod identity;
 pub mod mcp;
 pub mod message;

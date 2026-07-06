@@ -76,9 +76,36 @@ curl -H "Authorization: Bearer mm_..." \
   https://relay.example.com/hub/<hub_id>/decisions
 ```
 
+## End-to-end encryption (relay can't read your traffic)
+
+By default the relay operator can observe the traffic it forwards (which is
+why self-hosting is a first-class option). For a stronger guarantee, use the
+**end-to-end encrypted transport**: your bearer token doubles as a shared
+secret, and requests are sealed with ChaCha20-Poly1305 before they reach the
+relay. The relay forwards opaque ciphertext and a key id that is useless
+without your hub's database.
+
+```bash
+export MELLOWMESH_URL="https://relay.example.com/hub/<hub_id>"
+export MELLOWMESH_TOKEN="mm_..."
+
+mellowmesh e2e GET decisions
+mellowmesh e2e POST decisions/decision_01k.../respond '{"option_id":"option_1"}'
+```
+
+The daemon stores the key (derived at token-mint time) and decrypts inside
+the hub; the sealed request carries your token in the ciphertext, so the same
+scope and decision-integrity checks apply. Sealed requests are timestamped
+and rejected outside a ±120s window.
+
+This is currently an **explicit transport** (`mellowmesh e2e <METHOD> <path>
+[body]` and `client.e2e_request(...)`); transparent per-method E2E across the
+whole SDK is the next step. Live subscriptions are not yet E2E-encrypted.
+
 ## Current limitations
 
-* **TLS is your reverse proxy's job** — the relay itself speaks plain HTTP.
-* **End-to-end encryption** (relay cannot read payloads) is the planned v2;
-  today the relay operator can observe traffic, which is why self-hosting is
-  a first-class option.
+* **TLS is still worthwhile** — the relay speaks plain HTTP; terminate TLS in
+  front of it. E2E protects payloads from the relay operator; TLS protects
+  metadata (which hub, request timing) from the network.
+* **Live subscriptions** (`mellowmesh tail`) are relayed but not yet
+  E2E-encrypted.

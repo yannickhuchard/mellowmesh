@@ -138,9 +138,12 @@ live subscriptions through the relay (`mellowmesh tail` works remotely);
 remote MCP over Streamable HTTP (`/hub/<id>/mcp`), with the tool logic
 shared between the stdio server and the daemon endpoint; the Telegram ramp
 (decision cards with inline approve/reject buttons, audited interface
-relaying) plus a Discord `!approve` flow — the café approval works today
-over REST, streaming, MCP, and chat. Remaining: E2E encryption, native
-Discord buttons (needs gateway), the demo video.*
+relaying) plus a Discord `!approve` flow; end-to-end encryption
+(ChaCha20-Poly1305, token-derived key, `mellowmesh e2e` transport — the
+relay operator sees only ciphertext, verified live). The café approval works
+today over REST, streaming, MCP, chat, and E2E. Remaining: transparent
+per-SDK-method E2E + encrypted subscriptions, native Discord buttons (needs
+gateway), the demo video.*
 
 | Change | Where |
 | :--- | :--- |

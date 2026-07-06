@@ -70,10 +70,24 @@ Decisions requiring a human and expired-lease task reclaims raise OS desktop
 notifications so the human-in-the-loop actually finds out. Disable with
 `MELLOWMESH_NOTIFICATIONS=off`.
 
+## End-to-end encryption
+
+For remote traffic through a relay you don't control, the
+`mellowmesh e2e <METHOD> <path> [body]` transport seals requests with
+ChaCha20-Poly1305 under a key derived from your bearer token. The relay sees
+only ciphertext and an opaque key id. The daemon stores the derived key at
+token-mint time (never the plaintext token), decrypts internally, and applies
+the same auth/scope/decision-integrity checks to the inner request. Sealed
+requests carry a timestamp and are rejected outside a ±120s replay window.
+See [relay](relay.md#end-to-end-encryption-relay-cant-read-your-traffic).
+
 ## Current limitations (honest list)
 
-* Transport is plain HTTP on `127.0.0.1` — fine locally; the Phase 2 relay
-  will carry remote traffic over TLS.
+* Transport is plain HTTP on `127.0.0.1` — fine locally. Remote traffic runs
+  through the relay; terminate TLS in front of it, and/or use the E2E
+  transport above to hide payloads from the relay operator.
+* E2E currently covers the explicit request transport; transparent
+  per-SDK-method encryption and encrypted live subscriptions are follow-ups.
 * Wiki and schema endpoints are gated by authentication (401 without a token
   under `--require-auth`) but not yet by per-topic scopes.
 * Agent registration is open to any authenticated client; registry

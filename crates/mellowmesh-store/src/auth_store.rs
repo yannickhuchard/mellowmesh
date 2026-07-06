@@ -93,6 +93,38 @@ impl Store {
         Ok(updated > 0)
     }
 
+    /// Persist the end-to-end encryption key for a freshly minted token.
+    /// Called at mint time, the only moment the plaintext token exists.
+    pub fn register_e2e_key(&self, token: &str) -> anyhow::Result<()> {
+        use mellowmesh_core::e2e::{derive_key, derive_key_id, hex_encode};
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO e2e_keys (key_id, e2e_key) VALUES (?1, ?2)
+             ON CONFLICT(key_id) DO UPDATE SET e2e_key = excluded.e2e_key",
+            params![derive_key_id(token), hex_encode(&derive_key(token))],
+        )?;
+        Ok(())
+    }
+
+    /// Look up an end-to-end key by its public key id (from an envelope).
+    pub fn find_e2e_key(&self, key_id: &str) -> anyhow::Result<Option<[u8; 32]>> {
+        use mellowmesh_core::e2e::hex_decode;
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT e2e_key FROM e2e_keys WHERE key_id = ?1")?;
+        let mut rows = stmt.query(params![key_id])?;
+        if let Some(row) = rows.next()? {
+            let hex: String = row.get(0)?;
+            if let Some(bytes) = hex_decode(&hex) {
+                if bytes.len() == 32 {
+                    let mut key = [0u8; 32];
+                    key.copy_from_slice(&bytes);
+                    return Ok(Some(key));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub fn get_config(&self, key: &str) -> anyhow::Result<Option<String>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare("SELECT value FROM app_config WHERE key = ?1")?;

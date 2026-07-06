@@ -39,7 +39,7 @@ mellowmesh --port 45000 status
 | `MELLOWMESH_OWNER` | Owner identity created on first run (e.g. `human://yannick`). | `human://<os-username>` |
 | `MELLOWMESH_NOTIFICATIONS` | Set to `off` to disable desktop notifications for decisions and task reclaims. | enabled |
 | `MELLOWMESH_RELAY_URL` | Relay server to dial for remote reachability (e.g. `https://relay.example.com`). Enabling this **forces `--require-auth`**. See [relay](relay.md). | unset |
-| `MELLOWMESH_URL` | Client-side: full base URL of a remote hub (`https://relay.example.com/hub/<id>`), used by the CLI/SDK instead of `127.0.0.1`. | unset (local) |
+| `MELLOWMESH_URL` | Client-side: full base URL of a remote hub (`https://relay.example.com/hub/<id>`), used by the CLI/SDK instead of `127.0.0.1`. Combine with `mellowmesh e2e` for end-to-end encryption past the relay. | unset (local) |
 | `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram connector: decision cards with inline approve/reject buttons + message bridging. See [connectors](connectors.md). | unset (idle) |
 | `DISCORD_TOKEN`, `DISCORD_CHANNEL_ID` | Discord connector: decision announcements with `!approve` + message bridging. | unset (idle) |
 | `TEAMS_WEBHOOK_URL`, `TEAMS_OUTGOING_WEBHOOK_KEY` | Teams webhook bridge. | unset (idle) |
