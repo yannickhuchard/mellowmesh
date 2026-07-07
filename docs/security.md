@@ -75,10 +75,12 @@ notifications so the human-in-the-loop actually finds out. Disable with
 For remote traffic through a relay you don't control, the
 `mellowmesh e2e <METHOD> <path> [body]` transport seals requests with
 ChaCha20-Poly1305 under a key derived from your bearer token. The relay sees
-only ciphertext and an opaque key id. The daemon stores the derived key at
-token-mint time (never the plaintext token), decrypts internally, and applies
-the same auth/scope/decision-integrity checks to the inner request. Sealed
-requests carry a timestamp and are rejected outside a ±120s replay window.
+only ciphertext and an opaque key id — the bearer token travels *inside* the
+sealed payload and is never sent as an HTTP header on the E2E path, so the
+relay cannot read it. The daemon stores the derived key at token-mint time
+(never the plaintext token), decrypts internally, and applies the same
+auth/scope/decision-integrity checks to the inner request. Sealed requests
+carry a timestamp and are rejected outside a ±120s replay window.
 See [relay](relay.md#end-to-end-encryption-relay-cant-read-your-traffic).
 
 ## Current limitations (honest list)

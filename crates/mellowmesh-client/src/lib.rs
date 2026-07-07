@@ -15,6 +15,10 @@ pub struct MellowMeshClient {
     base_url: String,
     token: Option<String>,
     http: reqwest::Client,
+    /// A client with NO default Authorization header, used to POST E2E
+    /// envelopes. The bearer token travels sealed *inside* the ciphertext,
+    /// so it must never appear as a header the relay can read.
+    plain_http: reqwest::Client,
 }
 
 fn build_http(token: &Option<String>) -> reqwest::Client {
@@ -53,6 +57,7 @@ impl MellowMeshClient {
             base_url,
             token,
             http,
+            plain_http: reqwest::Client::new(),
         }
     }
 
@@ -60,6 +65,13 @@ impl MellowMeshClient {
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
         self.http = build_http(&self.token);
+        self
+    }
+
+    /// Point the client at an explicit base URL (e.g. a relay hub URL or a
+    /// test server), bypassing the `MELLOWMESH_URL` env var.
+    pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
+        self.base_url = url.into().trim_end_matches('/').to_string();
         self
     }
 
@@ -94,8 +106,10 @@ impl MellowMeshClient {
         };
         let envelope = seal(&key, &key_id, &serde_json::to_vec(&sealed)?)?;
 
+        // Use the header-less client: the token is inside the ciphertext and
+        // must never leak to the relay as an Authorization header.
         let resp = self
-            .http
+            .plain_http
             .post(format!("{}/e2e/request", self.base_url))
             .json(&envelope)
             .send()
