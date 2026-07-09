@@ -72,24 +72,26 @@ notifications so the human-in-the-loop actually finds out. Disable with
 
 ## End-to-end encryption
 
-For remote traffic through a relay you don't control, the
-`mellowmesh e2e <METHOD> <path> [body]` transport seals requests with
-ChaCha20-Poly1305 under a key derived from your bearer token. The relay sees
-only ciphertext and an opaque key id — the bearer token travels *inside* the
-sealed payload and is never sent as an HTTP header on the E2E path, so the
-relay cannot read it. The daemon stores the derived key at token-mint time
-(never the plaintext token), decrypts internally, and applies the same
-auth/scope/decision-integrity checks to the inner request. Sealed requests
-carry a timestamp and are rejected outside a ±120s replay window.
+For remote traffic through a relay you don't control, set `MELLOWMESH_E2E=1`:
+every SDK method and CLI command — including live subscriptions — is then
+sealed with ChaCha20-Poly1305 under a key derived from your bearer token,
+through a single dispatch point that cannot fall back to plaintext. The relay
+sees only ciphertext and an opaque key id — the bearer token travels *inside*
+the sealed payload and is never sent as an HTTP header or query parameter on
+the E2E path, so the relay cannot read it. The daemon stores the derived key
+at token-mint time (never the plaintext token), decrypts internally, and
+applies the same auth/scope/decision-integrity checks to the inner request.
+Sealed requests and subscription proofs carry a timestamp and are rejected
+outside a ±120s replay window.
 See [relay](relay.md#end-to-end-encryption-relay-cant-read-your-traffic).
 
 ## Current limitations (honest list)
 
 * Transport is plain HTTP on `127.0.0.1` — fine locally. Remote traffic runs
-  through the relay; terminate TLS in front of it, and/or use the E2E
-  transport above to hide payloads from the relay operator.
-* E2E currently covers the explicit request transport; transparent
-  per-SDK-method encryption and encrypted live subscriptions are follow-ups.
+  through the relay; terminate TLS in front of it, and/or enable
+  `MELLOWMESH_E2E=1` to hide payloads and tokens from the relay operator.
+* Even under E2E, the relay observes traffic shape: hub id, request timing
+  and sizes, and subscription topic patterns.
 * Wiki and schema endpoints are gated by authentication (401 without a token
   under `--require-auth`) but not yet by per-topic scopes.
 * Agent registration is open to any authenticated client; registry

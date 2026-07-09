@@ -88,24 +88,33 @@ without your hub's database.
 ```bash
 export MELLOWMESH_URL="https://relay.example.com/hub/<hub_id>"
 export MELLOWMESH_TOKEN="mm_..."
+export MELLOWMESH_E2E=1
 
-mellowmesh e2e GET decisions
-mellowmesh e2e POST decisions/decision_01k.../respond '{"option_id":"option_1"}'
+mellowmesh decisions        # every command now travels sealed
+mellowmesh respond decision_01k... option_1
+mellowmesh tail "_task.**"  # live subscriptions too: sealed proof in,
+                            # sealed deliveries out
 ```
+
+With `MELLOWMESH_E2E=1`, **every** CLI command and SDK method routes through
+one sealed dispatch point — nothing can accidentally fall back to plaintext,
+and the bearer token itself travels only inside the ciphertext (never as an
+HTTP header or query parameter). Live subscriptions authenticate with a
+sealed proof and every delivered message arrives as a sealed envelope,
+decrypted client-side.
 
 The daemon stores the key (derived at token-mint time) and decrypts inside
 the hub; the sealed request carries your token in the ciphertext, so the same
-scope and decision-integrity checks apply. Sealed requests are timestamped
-and rejected outside a ±120s window.
+scope and decision-integrity checks apply. Sealed requests and subscription
+proofs are timestamped and rejected outside a ±120s window.
 
-This is currently an **explicit transport** (`mellowmesh e2e <METHOD> <path>
-[body]` and `client.e2e_request(...)`); transparent per-method E2E across the
-whole SDK is the next step. Live subscriptions are not yet E2E-encrypted.
+For raw access there is also an explicit escape hatch:
+`mellowmesh e2e <METHOD> <path> [body]` / `client.e2e_request(...)`.
 
 ## Current limitations
 
 * **TLS is still worthwhile** — the relay speaks plain HTTP; terminate TLS in
-  front of it. E2E protects payloads from the relay operator; TLS protects
-  metadata (which hub, request timing) from the network.
-* **Live subscriptions** (`mellowmesh tail`) are relayed but not yet
-  E2E-encrypted.
+  front of it. E2E protects payloads and tokens from the relay operator; TLS
+  protects transport metadata (which hub, request timing) from the network.
+* The relay can still see **traffic shape**: the hub id, request timing and
+  sizes, and (for subscriptions) the topic pattern in the query.

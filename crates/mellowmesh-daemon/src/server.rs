@@ -123,6 +123,7 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::Extension(stream_e2e): axum::Extension<crate::auth::StreamE2e>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     let pattern = params.pattern.unwrap_or_else(|| "**".to_string());
@@ -131,7 +132,14 @@ async fn ws_handler(
     // filtered message-by-message against these patterns.
     let read_scopes = ctx.principal.map(|p| p.read_scopes);
     ws.on_upgrade(move |socket| {
-        handle_socket(socket, pattern, case_insensitive, read_scopes, state)
+        handle_socket(
+            socket,
+            pattern,
+            case_insensitive,
+            read_scopes,
+            stream_e2e.0,
+            state,
+        )
     })
 }
 
@@ -140,6 +148,7 @@ async fn handle_socket(
     pattern: String,
     case_insensitive: bool,
     read_scopes: Option<Vec<String>>,
+    stream_e2e: Option<([u8; 32], String)>,
     state: AppState,
 ) {
     let conn_id = format!("conn_{}", Ulid::new().to_string().to_lowercase());
@@ -175,7 +184,19 @@ async fn handle_socket(
                     }
                 }
                 if let Ok(text) = serde_json::to_string(&msg) {
-                    if ws_sender.send(WsMessage::Text(text)).await.is_err() {
+                    // Encrypted subscription: seal every delivered message so
+                    // a relay in the middle sees only ciphertext.
+                    let out = if let Some((key, key_id)) = &stream_e2e {
+                        match mellowmesh_core::e2e::seal(key, key_id, text.as_bytes())
+                            .and_then(|e| Ok(serde_json::to_string(&e)?))
+                        {
+                            Ok(sealed) => sealed,
+                            Err(_) => continue,
+                        }
+                    } else {
+                        text
+                    };
+                    if ws_sender.send(WsMessage::Text(out)).await.is_err() {
                         break;
                     }
                 }
@@ -551,6 +572,106 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn test_e2e_encrypted_subscription() {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        use mellowmesh_core::e2e::{
+            derive_key, derive_key_id, open, seal, Envelope, SealedRequest,
+        };
+
+        let store = Store::new_in_memory().unwrap();
+        let token = generate_token();
+        store
+            .upsert_principal(&Principal {
+                id: "human://owner".to_string(),
+                kind: "human".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_owner".to_string(),
+                principal: "human://owner".to_string(),
+                token_hash: hash_token(&token),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec!["**".to_string()],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
+        store.register_e2e_key(&token).unwrap();
+
+        let port = 40015;
+        let state = test_state(store, true); // require_auth ON
+        let app = create_router(state);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let key = derive_key(&token);
+        let key_id = derive_key_id(&token);
+
+        // Subscribe with a sealed proof instead of a raw token in the query.
+        let proof = SealedRequest {
+            ts: chrono::Utc::now().timestamp(),
+            method: "SUBSCRIBE".to_string(),
+            path_and_query: "/ws".to_string(),
+            authorization: Some(format!("Bearer {token}")),
+            body: None,
+        };
+        let envelope = seal(&key, &key_id, &serde_json::to_vec(&proof).unwrap()).unwrap();
+        let ws_url = format!(
+            "ws://127.0.0.1:{port}/ws?pattern=_task.%2A%2A&e2e_kid={}&e2e_nonce={}&e2e_ct={}",
+            envelope.key_id, envelope.nonce, envelope.ciphertext
+        );
+        let (ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+        let (mut _tx, mut rx) = ws.split();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Publish a matching message over authenticated HTTP.
+        let http = reqwest::Client::new();
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/publish"))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({
+                "id": "", "topic": "_task.demo.progress", "from": "human://owner",
+                "timestamp": chrono::Utc::now(), "content_type": "text/plain",
+                "body": "sealed delivery"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // The delivered frame must be a sealed envelope, not plaintext.
+        let frame = tokio::time::timeout(tokio::time::Duration::from_secs(3), rx.next())
+            .await
+            .expect("should receive a frame")
+            .unwrap()
+            .unwrap();
+        let text = frame.to_text().unwrap();
+        assert!(
+            !text.contains("sealed delivery"),
+            "delivered frame leaked plaintext: {text}"
+        );
+        let delivered: Envelope = serde_json::from_str(text).unwrap();
+        let opened = open(&key, &delivered).unwrap();
+        let msg: mellowmesh_core::message::Message = serde_json::from_slice(&opened).unwrap();
+        assert_eq!(msg.topic, "_task.demo.progress");
+        assert_eq!(msg.body, "sealed delivery");
+
+        // A tampered proof is rejected at the handshake.
+        let bad_url = format!(
+            "ws://127.0.0.1:{port}/ws?pattern=**&e2e_kid={}&e2e_nonce={}&e2e_ct={}00",
+            envelope.key_id, envelope.nonce, envelope.ciphertext
+        );
+        assert!(tokio_tungstenite::connect_async(&bad_url).await.is_err());
     }
 
     #[tokio::test]

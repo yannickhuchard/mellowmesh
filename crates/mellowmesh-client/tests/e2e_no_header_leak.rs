@@ -73,3 +73,43 @@ async fn e2e_envelope_carries_no_authorization_header() {
         "E2E envelope POST leaked an Authorization header to the relay"
     );
 }
+
+#[tokio::test]
+async fn transparent_e2e_routes_sdk_methods_through_sealed_envelopes() {
+    let token = "mm_transparent_mode_token".to_string();
+    let captured = Captured {
+        auth_header: Arc::new(Mutex::new(None)),
+        token: token.clone(),
+    };
+
+    let app = Router::new()
+        .route("/e2e/request", post(e2e_handler))
+        .with_state(captured.clone());
+    let addr = SocketAddr::from(([127, 0, 0, 1], 40032));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // With transparent E2E on, an ordinary SDK call must arrive at the
+    // /e2e/request endpoint as a sealed envelope with no auth header —
+    // the server above ONLY serves /e2e/request, so reaching it at all
+    // proves the call did not go out as plain HTTP to /decisions.
+    let client = MellowMeshClient::new(40032)
+        .with_base_url("http://127.0.0.1:40032")
+        .with_token(token)
+        .with_e2e(true);
+
+    let decisions = client
+        .list_decisions()
+        .await
+        .expect("list_decisions should tunnel through the sealed transport");
+    assert!(decisions.is_empty()); // the capture server replies sealed "[]"
+
+    assert_eq!(
+        *captured.auth_header.lock().unwrap(),
+        None,
+        "Transparent E2E leaked an Authorization header to the relay"
+    );
+}

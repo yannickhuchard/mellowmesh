@@ -85,6 +85,36 @@ fn extract_bearer(req: &Request<Body>) -> Option<String> {
     None
 }
 
+/// End-to-end encryption context for a live subscription: when a WebSocket
+/// client authenticated with a sealed proof, this carries the key (and its
+/// id, bound as AEAD associated data) under which every delivered message
+/// must be sealed. Inserted for every request; `None` on plain connections.
+#[derive(Clone)]
+pub struct StreamE2e(pub Option<([u8; 32], String)>);
+
+/// Sealed subscription proof carried as query parameters (WebSocket clients
+/// cannot send bodies with the upgrade request).
+fn extract_e2e_proof(req: &Request<Body>) -> Option<mellowmesh_core::e2e::Envelope> {
+    let query = req.uri().query()?;
+    let mut key_id = None;
+    let mut nonce = None;
+    let mut ciphertext = None;
+    for (k, v) in url::form_urlencoded::parse(query.as_bytes()) {
+        match k.as_ref() {
+            "e2e_kid" => key_id = Some(v.into_owned()),
+            "e2e_nonce" => nonce = Some(v.into_owned()),
+            "e2e_ct" => ciphertext = Some(v.into_owned()),
+            _ => {}
+        }
+    }
+    Some(mellowmesh_core::e2e::Envelope {
+        v: 1,
+        key_id: key_id?,
+        nonce: nonce?,
+        ciphertext: ciphertext?,
+    })
+}
+
 pub async fn auth_middleware(
     State(state): State<AppState>,
     mut req: Request<Body>,
@@ -92,7 +122,48 @@ pub async fn auth_middleware(
 ) -> Response {
     let mut ctx = AuthContext::default();
 
-    if let Some(token) = extract_bearer(&req) {
+    // Sealed subscription proof: authenticates the subscriber without the
+    // raw token ever crossing the relay, and switches the connection into
+    // sealed-delivery mode.
+    let mut bearer = extract_bearer(&req);
+    let mut stream_e2e = StreamE2e(None);
+    if bearer.is_none() {
+        if let Some(envelope) = extract_e2e_proof(&req) {
+            use mellowmesh_core::e2e::{open, SealedRequest, REPLAY_WINDOW_SECS};
+            let key = match state.store.find_e2e_key(&envelope.key_id) {
+                Ok(Some(k)) => k,
+                Ok(None) => {
+                    return (StatusCode::UNAUTHORIZED, "Unknown e2e key id").into_response()
+                }
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Key lookup failed: {e}"),
+                    )
+                        .into_response()
+                }
+            };
+            let proof = open(&key, &envelope)
+                .ok()
+                .and_then(|pt| serde_json::from_slice::<SealedRequest>(&pt).ok());
+            match proof {
+                Some(p) if (Utc::now().timestamp() - p.ts).abs() <= REPLAY_WINDOW_SECS => {
+                    bearer = p
+                        .authorization
+                        .as_deref()
+                        .and_then(|a| a.strip_prefix("Bearer "))
+                        .map(|t| t.trim().to_string());
+                    stream_e2e = StreamE2e(Some((key, envelope.key_id.clone())));
+                }
+                _ => {
+                    return (StatusCode::UNAUTHORIZED, "Invalid e2e subscription proof")
+                        .into_response()
+                }
+            }
+        }
+    }
+
+    if let Some(token) = bearer {
         match state.store.find_token_by_hash(&hash_token(&token)) {
             Ok(Some(record)) => {
                 let kind = state
@@ -131,6 +202,7 @@ pub async fn auth_middleware(
     }
 
     req.extensions_mut().insert(ctx);
+    req.extensions_mut().insert(stream_e2e);
     next.run(req).await
 }
 

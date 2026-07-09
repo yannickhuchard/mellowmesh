@@ -9,16 +9,46 @@ use mellowmesh_core::message::Message;
 use mellowmesh_core::task::Task;
 use mellowmesh_core::telemetry::TraceSession;
 pub use mellowmesh_core::topic::NamedTopic;
+use reqwest::Method;
 
 #[derive(Clone)]
 pub struct MellowMeshClient {
     base_url: String,
     token: Option<String>,
+    /// Transparent end-to-end encryption: when enabled (and a token is
+    /// present), every API call is sealed and sent through `/e2e/request`
+    /// instead of plain HTTP — a relay in the middle sees only ciphertext.
+    e2e: bool,
     http: reqwest::Client,
     /// A client with NO default Authorization header, used to POST E2E
     /// envelopes. The bearer token travels sealed *inside* the ciphertext,
     /// so it must never appear as a header the relay can read.
     plain_http: reqwest::Client,
+}
+
+/// Response from the single dispatch point, uniform across the plain and
+/// sealed transports.
+struct ApiResponse {
+    status: u16,
+    body: String,
+}
+
+impl ApiResponse {
+    fn is_success(&self) -> bool {
+        (200..300).contains(&self.status)
+    }
+
+    fn ensure(self, context: &str) -> anyhow::Result<Self> {
+        if self.is_success() {
+            Ok(self)
+        } else {
+            Err(anyhow::anyhow!("{context} failed: {}", self.body))
+        }
+    }
+
+    fn json<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
+        Ok(serde_json::from_str(&self.body)?)
+    }
 }
 
 fn build_http(token: &Option<String>) -> reqwest::Client {
@@ -44,6 +74,18 @@ fn remote_base_url() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+fn e2e_env_enabled() -> bool {
+    matches!(
+        std::env::var("MELLOWMESH_E2E").unwrap_or_default().as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
+/// Percent-encode a query-string value.
+fn enc(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
 impl MellowMeshClient {
     pub fn new(port: u16) -> Self {
         // Token resolution: explicit env var wins; otherwise anonymous
@@ -56,6 +98,7 @@ impl MellowMeshClient {
         Self {
             base_url,
             token,
+            e2e: e2e_env_enabled(),
             http,
             plain_http: reqwest::Client::new(),
         }
@@ -73,6 +116,45 @@ impl MellowMeshClient {
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into().trim_end_matches('/').to_string();
         self
+    }
+
+    /// Enable or disable transparent end-to-end encryption explicitly,
+    /// overriding the `MELLOWMESH_E2E` env var.
+    pub fn with_e2e(mut self, enabled: bool) -> Self {
+        self.e2e = enabled;
+        self
+    }
+
+    fn e2e_enabled(&self) -> bool {
+        self.e2e && self.token.is_some()
+    }
+
+    /// The single dispatch point every API method goes through. In E2E mode
+    /// the entire request is sealed and tunneled via `/e2e/request`; nothing
+    /// can accidentally fall back to plaintext.
+    async fn send(
+        &self,
+        method: Method,
+        path_and_query: &str,
+        body: Option<serde_json::Value>,
+    ) -> anyhow::Result<ApiResponse> {
+        if self.e2e_enabled() {
+            let (status, text) = self
+                .e2e_request(method.as_str(), path_and_query, body.map(|b| b.to_string()))
+                .await?;
+            return Ok(ApiResponse { status, body: text });
+        }
+        let mut req = self
+            .http
+            .request(method, format!("{}{}", self.base_url, path_and_query));
+        if let Some(b) = &body {
+            req = req.json(b);
+        }
+        let resp = req.send().await?;
+        Ok(ApiResponse {
+            status: resp.status().as_u16(),
+            body: resp.text().await?,
+        })
     }
 
     /// Send an end-to-end encrypted request through the relay: the method,
@@ -140,15 +222,9 @@ impl MellowMeshClient {
     }
 
     pub async fn publish(&self, msg: &Message) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/publish", self.base_url))
-            .json(msg)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Publish failed: {}", resp.text().await?));
-        }
+        self.send(Method::POST, "/publish", Some(serde_json::to_value(msg)?))
+            .await?
+            .ensure("Publish")?;
         Ok(())
     }
 
@@ -164,6 +240,10 @@ impl MellowMeshClient {
         pattern: &str,
         case_insensitive: bool,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Message>>> {
+        use mellowmesh_core::e2e::{
+            derive_key, derive_key_id, open, seal, Envelope, SealedRequest,
+        };
+
         // Local hubs expose /ws directly; relayed hubs expose it at
         // <relay>/hub/<id>/ws with the same query parameters.
         let ws_base = self
@@ -176,17 +256,49 @@ impl MellowMeshClient {
             url.query_pairs_mut()
                 .append_pair("case_insensitive", "true");
         }
-        if let Some(token) = &self.token {
-            url.query_pairs_mut().append_pair("token", token);
-        }
+
+        // Encrypted subscriptions: instead of the raw token, the query
+        // carries a sealed proof (which authenticates the subscriber), and
+        // every delivered message arrives as a sealed envelope.
+        let e2e_key = if self.e2e_enabled() {
+            let token = self.token.as_ref().unwrap();
+            let key = derive_key(token);
+            let key_id = derive_key_id(token);
+            let proof = SealedRequest {
+                ts: chrono::Utc::now().timestamp(),
+                method: "SUBSCRIBE".to_string(),
+                path_and_query: "/ws".to_string(),
+                authorization: Some(format!("Bearer {token}")),
+                body: None,
+            };
+            let envelope = seal(&key, &key_id, &serde_json::to_vec(&proof)?)?;
+            url.query_pairs_mut()
+                .append_pair("e2e_kid", &envelope.key_id);
+            url.query_pairs_mut()
+                .append_pair("e2e_nonce", &envelope.nonce);
+            url.query_pairs_mut()
+                .append_pair("e2e_ct", &envelope.ciphertext);
+            Some(key)
+        } else {
+            if let Some(token) = &self.token {
+                url.query_pairs_mut().append_pair("token", token);
+            }
+            None
+        };
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(url.as_str()).await?;
 
-        let stream = ws_stream.map(|msg_res| match msg_res {
+        let stream = ws_stream.map(move |msg_res| match msg_res {
             Ok(msg) => {
                 if msg.is_text() {
                     let text = msg.to_text().unwrap();
-                    let m: Message = serde_json::from_str(text)?;
+                    let payload = if let Some(key) = &e2e_key {
+                        let envelope: Envelope = serde_json::from_str(text)?;
+                        String::from_utf8(open(key, &envelope)?)?
+                    } else {
+                        text.to_string()
+                    };
+                    let m: Message = serde_json::from_str(&payload)?;
                     Ok(m)
                 } else {
                     Err(anyhow::anyhow!("Non-text websocket message received"))
@@ -198,163 +310,85 @@ impl MellowMeshClient {
     }
 
     pub async fn get_history(&self, limit: usize) -> anyhow::Result<Vec<Message>> {
-        let client = &self.http;
-        let resp = client
-            .get(format!("{}/history", self.base_url))
-            .query(&[("limit", limit)])
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Get history failed: {}",
-                resp.text().await?
-            ));
-        }
-        let history: Vec<Message> = resp.json().await?;
-        Ok(history)
+        self.send(Method::GET, &format!("/history?limit={limit}"), None)
+            .await?
+            .ensure("Get history")?
+            .json()
     }
 
     pub async fn search_messages(&self, query: &str) -> anyhow::Result<Vec<Message>> {
-        let client = &self.http;
-        let resp = client
-            .get(format!("{}/search", self.base_url))
-            .query(&[("query", query)])
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Search failed: {}", resp.text().await?));
-        }
-        let msgs: Vec<Message> = resp.json().await?;
-        Ok(msgs)
+        self.send(Method::GET, &format!("/search?query={}", enc(query)), None)
+            .await?
+            .ensure("Search")?
+            .json()
     }
 
     pub async fn list_topics(&self) -> anyhow::Result<Vec<String>> {
-        let resp = self
-            .http
-            .get(format!("{}/topics", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List topics failed: {}",
-                resp.text().await?
-            ));
-        }
-        let topics: Vec<String> = resp.json().await?;
-        Ok(topics)
+        self.send(Method::GET, "/topics", None)
+            .await?
+            .ensure("List topics")?
+            .json()
     }
 
     pub async fn register_agent(&self, agent: &AgentRegistration) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/agents", self.base_url))
-            .json(agent)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Agent registration failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::POST, "/agents", Some(serde_json::to_value(agent)?))
+            .await?
+            .ensure("Agent registration")?;
         Ok(())
     }
 
     pub async fn list_agents(&self) -> anyhow::Result<Vec<AgentRegistration>> {
-        let resp = self
-            .http
-            .get(format!("{}/agents", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List agents failed: {}",
-                resp.text().await?
-            ));
-        }
-        let agents: Vec<AgentRegistration> = resp.json().await?;
-        Ok(agents)
+        self.send(Method::GET, "/agents", None)
+            .await?
+            .ensure("List agents")?
+            .json()
     }
 
     pub async fn register_named_topic(&self, name: &str, topic: &str) -> anyhow::Result<()> {
-        let client = &self.http;
         let payload = NamedTopic {
             name: name.to_string(),
             topic: topic.to_string(),
         };
-        let resp = client
-            .post(format!("{}/named-topics", self.base_url))
-            .json(&payload)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Named topic registration failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::POST,
+            "/named-topics",
+            Some(serde_json::to_value(&payload)?),
+        )
+        .await?
+        .ensure("Named topic registration")?;
         Ok(())
     }
 
     pub async fn list_named_topics(&self) -> anyhow::Result<Vec<NamedTopic>> {
-        let resp = self
-            .http
-            .get(format!("{}/named-topics", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List named topics failed: {}",
-                resp.text().await?
-            ));
-        }
-        let topics: Vec<NamedTopic> = resp.json().await?;
-        Ok(topics)
+        self.send(Method::GET, "/named-topics", None)
+            .await?
+            .ensure("List named topics")?
+            .json()
     }
 
     pub async fn remove_named_topic(&self, name: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let encoded_name: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
-        let resp = client
-            .delete(format!("{}/named-topics/{}", self.base_url, encoded_name))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Remove named topic failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::DELETE,
+            &format!("/named-topics/{}", enc(name)),
+            None,
+        )
+        .await?
+        .ensure("Remove named topic")?;
         Ok(())
     }
 
     pub async fn create_task(&self, task: &Task) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/tasks", self.base_url))
-            .json(task)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Task creation failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::POST, "/tasks", Some(serde_json::to_value(task)?))
+            .await?
+            .ensure("Task creation")?;
         Ok(())
     }
 
     pub async fn list_tasks(&self) -> anyhow::Result<Vec<Task>> {
-        let resp = self
-            .http
-            .get(format!("{}/tasks", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("List tasks failed: {}", resp.text().await?));
-        }
-        let tasks: Vec<Task> = resp.json().await?;
-        Ok(tasks)
+        self.send(Method::GET, "/tasks", None)
+            .await?
+            .ensure("List tasks")?
+            .json()
     }
 
     pub async fn claim_task(&self, task_id: &str, agent_id: &str) -> anyhow::Result<()> {
@@ -370,67 +404,43 @@ impl MellowMeshClient {
         agent_id: &str,
         lease_seconds: Option<u64>,
     ) -> anyhow::Result<()> {
-        let client = &self.http;
         let mut payload = serde_json::json!({ "claimed_by": agent_id });
         if let Some(lease) = lease_seconds {
             payload["lease_seconds"] = serde_json::json!(lease);
         }
-        let resp = client
-            .post(format!("{}/tasks/{}/claim", self.base_url, task_id))
-            .json(&payload)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Claim task failed: {}", resp.text().await?));
-        }
+        self.send(
+            Method::POST,
+            &format!("/tasks/{task_id}/claim"),
+            Some(payload),
+        )
+        .await?
+        .ensure("Claim task")?;
         Ok(())
     }
 
     pub async fn complete_task(&self, task_id: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/tasks/{}/complete", self.base_url, task_id))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Complete task failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::POST, &format!("/tasks/{task_id}/complete"), None)
+            .await?
+            .ensure("Complete task")?;
         Ok(())
     }
 
     pub async fn create_decision(&self, decision: &Decision) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/decisions", self.base_url))
-            .json(decision)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Decision creation failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::POST,
+            "/decisions",
+            Some(serde_json::to_value(decision)?),
+        )
+        .await?
+        .ensure("Decision creation")?;
         Ok(())
     }
 
     pub async fn list_decisions(&self) -> anyhow::Result<Vec<Decision>> {
-        let resp = self
-            .http
-            .get(format!("{}/decisions", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List decisions failed: {}",
-                resp.text().await?
-            ));
-        }
-        let decisions: Vec<Decision> = resp.json().await?;
-        Ok(decisions)
+        self.send(Method::GET, "/decisions", None)
+            .await?
+            .ensure("List decisions")?
+            .json()
     }
 
     pub async fn respond_decision(&self, decision_id: &str, option_id: &str) -> anyhow::Result<()> {
@@ -447,25 +457,17 @@ impl MellowMeshClient {
         option_id: &str,
         responded_by: Option<&str>,
     ) -> anyhow::Result<()> {
-        let client = &self.http;
         let mut payload = serde_json::json!({ "option_id": option_id });
         if let Some(by) = responded_by {
             payload["responded_by"] = serde_json::json!(by);
         }
-        let resp = client
-            .post(format!(
-                "{}/decisions/{}/respond",
-                self.base_url, decision_id
-            ))
-            .json(&payload)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Respond to decision failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::POST,
+            &format!("/decisions/{decision_id}/respond"),
+            Some(payload),
+        )
+        .await?
+        .ensure("Respond to decision")?;
         Ok(())
     }
 
@@ -478,103 +480,63 @@ impl MellowMeshClient {
         reason: Option<String>,
         enabled_by: &str,
     ) -> anyhow::Result<TraceSession> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/traces", self.base_url))
-            .json(&serde_json::json!({
+        self.send(
+            Method::POST,
+            "/traces",
+            Some(serde_json::json!({
                 "target_type": target_type,
                 "target": target,
                 "level": level,
                 "duration": duration,
                 "reason": reason,
                 "enabled_by": enabled_by,
-            }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Enable trace failed: {}",
-                resp.text().await?
-            ));
-        }
-        let ts = resp.json().await?;
-        Ok(ts)
+            })),
+        )
+        .await?
+        .ensure("Enable trace")?
+        .json()
     }
 
     pub async fn disable_trace(&self, id: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .delete(format!("{}/traces/{}", self.base_url, id))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Disable trace failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::DELETE, &format!("/traces/{id}"), None)
+            .await?
+            .ensure("Disable trace")?;
         Ok(())
     }
 
     pub async fn list_traces(&self) -> anyhow::Result<Vec<TraceSession>> {
-        let resp = self
-            .http
-            .get(format!("{}/traces", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List traces failed: {}",
-                resp.text().await?
-            ));
-        }
-        let sessions = resp.json().await?;
-        Ok(sessions)
+        self.send(Method::GET, "/traces", None)
+            .await?
+            .ensure("List traces")?
+            .json()
     }
 
     pub async fn get_metrics(&self) -> anyhow::Result<serde_json::Value> {
-        let resp = self
-            .http
-            .get(format!("{}/metrics", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Get metrics failed: {}",
-                resp.text().await?
-            ));
-        }
-        let metrics = resp.json().await?;
-        Ok(metrics)
+        self.send(Method::GET, "/metrics", None)
+            .await?
+            .ensure("Get metrics")?
+            .json()
     }
 
     pub async fn get_forum(&self, pattern: Option<String>) -> anyhow::Result<Vec<Message>> {
-        let client = &self.http;
-        let mut req = client.get(format!("{}/forum", self.base_url));
-        if let Some(pat) = pattern {
-            req = req.query(&[("pattern", pat)]);
-        }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Get forum failed: {}", resp.text().await?));
-        }
-        let msgs = resp.json().await?;
-        Ok(msgs)
+        let path = match pattern {
+            Some(pat) => format!("/forum?pattern={}", enc(&pat)),
+            None => "/forum".to_string(),
+        };
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure("Get forum")?
+            .json()
     }
 
     pub async fn store_summary(&self, topic: &str, summary: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/summaries", self.base_url))
-            .json(&serde_json::json!({ "topic": topic, "summary": summary }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Store summary failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::POST,
+            "/summaries",
+            Some(serde_json::json!({ "topic": topic, "summary": summary })),
+        )
+        .await?
+        .ensure("Store summary")?;
         Ok(())
     }
 
@@ -583,37 +545,24 @@ impl MellowMeshClient {
         topic: &str,
         limit: Option<usize>,
     ) -> anyhow::Result<mellowmesh_core::persistence::ContextResult> {
-        let client = &self.http;
-        let mut req = client
-            .get(format!("{}/context", self.base_url))
-            .query(&[("topic", topic)]);
+        let mut path = format!("/context?topic={}", enc(topic));
         if let Some(lim) = limit {
-            req = req.query(&[("limit", lim)]);
+            path.push_str(&format!("&limit={lim}"));
         }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Get context failed: {}",
-                resp.text().await?
-            ));
-        }
-        let res = resp.json().await?;
-        Ok(res)
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure("Get context")?
+            .json()
     }
 
     pub async fn add_identity_mapping(&self, ext_id: &str, fm_id: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/identity-mappings", self.base_url))
-            .json(&serde_json::json!({ "external_id": ext_id, "mellowmesh_id": fm_id }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Add identity mapping failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::POST,
+            "/identity-mappings",
+            Some(serde_json::json!({ "external_id": ext_id, "mellowmesh_id": fm_id })),
+        )
+        .await?
+        .ensure("Add identity mapping")?;
         Ok(())
     }
 
@@ -623,18 +572,11 @@ impl MellowMeshClient {
             external_id: String,
             mellowmesh_id: String,
         }
-        let resp = self
-            .http
-            .get(format!("{}/identity-mappings", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List identity mappings failed: {}",
-                resp.text().await?
-            ));
-        }
-        let mappings: Vec<MappingItem> = resp.json().await?;
+        let mappings: Vec<MappingItem> = self
+            .send(Method::GET, "/identity-mappings", None)
+            .await?
+            .ensure("List identity mappings")?
+            .json()?;
         Ok(mappings
             .into_iter()
             .map(|m| (m.external_id, m.mellowmesh_id))
@@ -642,14 +584,9 @@ impl MellowMeshClient {
     }
 
     pub async fn shutdown_daemon(&self) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/shutdown", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Shutdown failed: {}", resp.text().await?));
-        }
+        self.send(Method::POST, "/shutdown", None)
+            .await?
+            .ensure("Shutdown")?;
         Ok(())
     }
 
@@ -660,30 +597,25 @@ impl MellowMeshClient {
         doc_type: Option<&str>,
         tag: Option<&str>,
     ) -> anyhow::Result<Vec<mellowmesh_core::okf::OKFDocument>> {
-        let client = &self.http;
-        let mut req = client.get(format!("{}/wiki/{}/pages", self.base_url, wiki));
-        let mut query_params = Vec::new();
+        let mut params = Vec::new();
         if let Some(q) = query {
-            query_params.push(("query", q.to_string()));
+            params.push(format!("query={}", enc(q)));
         }
         if let Some(dt) = doc_type {
-            query_params.push(("doc_type", dt.to_string()));
+            params.push(format!("doc_type={}", enc(dt)));
         }
         if let Some(t) = tag {
-            query_params.push(("tag", t.to_string()));
+            params.push(format!("tag={}", enc(t)));
         }
-        if !query_params.is_empty() {
-            req = req.query(&query_params);
+        let mut path = format!("/wiki/{wiki}/pages");
+        if !params.is_empty() {
+            path.push('?');
+            path.push_str(&params.join("&"));
         }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List wiki pages failed: {}",
-                resp.text().await?
-            ));
-        }
-        let docs = resp.json().await?;
-        Ok(docs)
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure("List wiki pages")?
+            .json()
     }
 
     pub async fn get_wiki_page(
@@ -691,19 +623,10 @@ impl MellowMeshClient {
         wiki: &str,
         path: &str,
     ) -> anyhow::Result<mellowmesh_core::okf::OKFDocument> {
-        let resp = self
-            .http
-            .get(format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Get wiki page failed: {}",
-                resp.text().await?
-            ));
-        }
-        let doc = resp.json().await?;
-        Ok(doc)
+        self.send(Method::GET, &format!("/wiki/{wiki}/pages/{path}"), None)
+            .await?
+            .ensure("Get wiki page")?
+            .json()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -718,70 +641,42 @@ impl MellowMeshClient {
         resource: Option<&str>,
         body: &str,
     ) -> anyhow::Result<mellowmesh_core::okf::OKFDocument> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
-            .json(&serde_json::json!({
+        self.send(
+            Method::POST,
+            &format!("/wiki/{wiki}/pages/{path}"),
+            Some(serde_json::json!({
                 "doc_type": doc_type,
                 "title": title,
                 "description": description,
                 "tags": tags,
                 "resource": resource,
                 "body": body,
-            }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Write wiki page failed: {}",
-                resp.text().await?
-            ));
-        }
-        let doc = resp.json().await?;
-        Ok(doc)
+            })),
+        )
+        .await?
+        .ensure("Write wiki page")?
+        .json()
     }
 
     pub async fn delete_wiki_page(&self, wiki: &str, path: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .delete(format!("{}/wiki/{}/pages/{}", self.base_url, wiki, path))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Delete wiki page failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::DELETE, &format!("/wiki/{wiki}/pages/{path}"), None)
+            .await?
+            .ensure("Delete wiki page")?;
         Ok(())
     }
 
     pub async fn sync_wiki(&self, wiki: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/wiki/{}/sync", self.base_url, wiki))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Sync wiki failed: {}", resp.text().await?));
-        }
+        self.send(Method::POST, &format!("/wiki/{wiki}/sync"), None)
+            .await?
+            .ensure("Sync wiki")?;
         Ok(())
     }
 
     pub async fn get_wiki_graph(&self, wiki: &str) -> anyhow::Result<serde_json::Value> {
-        let resp = self
-            .http
-            .get(format!("{}/wiki/{}/graph", self.base_url, wiki))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Get wiki graph failed: {}",
-                resp.text().await?
-            ));
-        }
-        let graph = resp.json().await?;
-        Ok(graph)
+        self.send(Method::GET, &format!("/wiki/{wiki}/graph"), None)
+            .await?
+            .ensure("Get wiki graph")?
+            .json()
     }
 
     pub async fn add_schema(
@@ -790,38 +685,27 @@ impl MellowMeshClient {
         version: &str,
         schema_content: &str,
     ) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/schemas", self.base_url))
-            .json(&serde_json::json!({
+        self.send(
+            Method::POST,
+            "/schemas",
+            Some(serde_json::json!({
                 "topic_pattern": topic_pattern,
                 "version": version,
                 "schema_content": schema_content,
-            }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Add schema failed: {}", resp.text().await?));
-        }
+            })),
+        )
+        .await?
+        .ensure("Add schema")?;
         Ok(())
     }
 
     pub async fn list_schemas(
         &self,
     ) -> anyhow::Result<Vec<mellowmesh_core::persistence::TopicSchema>> {
-        let resp = self
-            .http
-            .get(format!("{}/schemas", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List schemas failed: {}",
-                resp.text().await?
-            ));
-        }
-        let schemas = resp.json().await?;
-        Ok(schemas)
+        self.send(Method::GET, "/schemas", None)
+            .await?
+            .ensure("List schemas")?
+            .json()
     }
 
     pub async fn set_schema_status(
@@ -830,22 +714,17 @@ impl MellowMeshClient {
         version: &str,
         status: &str,
     ) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .post(format!("{}/schemas/status", self.base_url))
-            .json(&serde_json::json!({
+        self.send(
+            Method::POST,
+            "/schemas/status",
+            Some(serde_json::json!({
                 "topic_pattern": topic_pattern,
                 "version": version,
                 "status": status,
-            }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Set schema status failed: {}",
-                resp.text().await?
-            ));
-        }
+            })),
+        )
+        .await?
+        .ensure("Set schema status")?;
         Ok(())
     }
 
@@ -858,69 +737,47 @@ impl MellowMeshClient {
         read_scopes: Option<Vec<String>>,
         write_scopes: Option<Vec<String>>,
     ) -> anyhow::Result<serde_json::Value> {
-        let resp = self
-            .http
-            .post(format!("{}/auth/tokens", self.base_url))
-            .json(&serde_json::json!({
+        self.send(
+            Method::POST,
+            "/auth/tokens",
+            Some(serde_json::json!({
                 "principal": principal,
                 "display_name": display_name,
                 "read_scopes": read_scopes,
                 "write_scopes": write_scopes,
-            }))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Create token failed: {}",
-                resp.text().await?
-            ));
-        }
-        Ok(resp.json().await?)
+            })),
+        )
+        .await?
+        .ensure("Create token")?
+        .json()
     }
 
     pub async fn list_tokens(&self) -> anyhow::Result<Vec<serde_json::Value>> {
-        let resp = self
-            .http
-            .get(format!("{}/auth/tokens", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "List tokens failed: {}",
-                resp.text().await?
-            ));
-        }
-        Ok(resp.json().await?)
+        self.send(Method::GET, "/auth/tokens", None)
+            .await?
+            .ensure("List tokens")?
+            .json()
     }
 
     pub async fn revoke_token(&self, id: &str) -> anyhow::Result<()> {
-        let resp = self
-            .http
-            .delete(format!("{}/auth/tokens/{}", self.base_url, id))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Revoke token failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(Method::DELETE, &format!("/auth/tokens/{id}"), None)
+            .await?
+            .ensure("Revoke token")?;
         Ok(())
     }
 
     pub async fn remove_schema(&self, topic_pattern: &str, version: &str) -> anyhow::Result<()> {
-        let client = &self.http;
-        let resp = client
-            .delete(format!("{}/schemas", self.base_url))
-            .query(&[("topic_pattern", topic_pattern), ("version", version)])
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Remove schema failed: {}",
-                resp.text().await?
-            ));
-        }
+        self.send(
+            Method::DELETE,
+            &format!(
+                "/schemas?topic_pattern={}&version={}",
+                enc(topic_pattern),
+                enc(version)
+            ),
+            None,
+        )
+        .await?
+        .ensure("Remove schema")?;
         Ok(())
     }
 }
