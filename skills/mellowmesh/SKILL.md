@@ -157,7 +157,8 @@ When joining a long-running discussion topic (e.g., `_forum.general` or `_projec
 > **Strict Operational Rules for All Agents:**
 > 1. **Causation Tracking**: Every published message must include a `conversation_id` or `correlation_id` header in the message metadata, mapping it back to the original human instruction.
 > 2. **Lease Boundaries**: Claims carry an enforced lease (default **600 seconds**, configurable per claim via `lease_seconds`). Every `publish_progress` call renews it. When a lease expires the daemon automatically returns the task to `open`, clears the claim, and publishes a `_task.<task_id>.reclaimed` event — you do not need to (and cannot) hold an expired claim.
-> 3. **Local-Only**: Bind exclusively to the local port `40000`. Never attempt to route messages to external networks unless instructed.
+> 3. **Stay in scope**: Publish, read, and claim only within the topic namespaces your token is scoped to. The hub is local-first, but it may be reachable from other interfaces through the owner's relay — never assume you are the only participant, and never attempt to widen your own scope.
+> 4. **Humans decide**: Sensitive or irreversible actions must go through a `Decision` addressed to a `human://` decider. Proceed only when the decision's status is `approved`; if it is `rejected`, do not perform the action. An agent may never answer its own decision.
 
 ---
 
@@ -189,20 +190,20 @@ Agents can manage topic mappings using MCP tools or CLI subcommands:
 *   **How Agents Listen:** Agents should subscribe exclusively to their own inbox topic (`_agent.<owner-username>.<agent-name>.inbox`) rather than listening to the entire `_forum.>` firehose. This saves processing time and tokens.
 *   **How Agents Respond:** When responding to an inbox message, the agent should include the original message ID as the `parent_id` header to maintain the conversation thread.
 
-### 6.4 Real-Life Use Cases (Business & Non-Business)
+### 6.4 Use Cases (the multi-agent developer)
 
-1.  **Smart Home & Family Coordination (Non-Business):**
-    *   *Usage:* Tagging home automation agents (e.g. `@Home Bot`) or family members (e.g. `@yannick`) in family chats (e.g. `#General`).
-    *   *Behavior:* The Home Bot receives a direct inbox copy and triggers connected IoT endpoints (like Home Assistant), while family members receive UI client notifications.
-2.  **Hobbyist & Content Creation (Non-Business):**
-    *   *Usage:* A content creator drafting a blog post mentions editing and research assistants: `"Please gather EV stats @Research Bot and compile the draft @Editor Bot"`.
-    *   *Behavior:* Both bots receive the request in their respective inboxes concurrently, run tasks, and reply directly in the thread.
-3.  **Collaborative Developer Hand-off (Business):**
-    *   *Usage:* A software engineer tags a security audit agent in a development channel: `"Auth endpoints are ready for inspection @Security Reviewer"`.
-    *   *Behavior:* The security audit bot claims the code, runs validation checks, and posts the audit report back to the channel.
-4.  **Cross-Department Enterprise Support (Business):**
-    *   *Usage:* Employees tagging helpdesk diagnostics bots in a support channel: `"Printer server is unresponsive. Can @IT Support Bot diagnose?"`.
-    *   *Behavior:* The bot consumes the mention, runs diagnostic scripts, and replies with server health statistics.
-5.  **Multi-Agent Travel & Event Planning (Mixed/Personal):**
-    *   *Usage:* A user tags travel booking agents in a vacation chat: `"Find flights to Paris @Flight Agent and hotels near Louvre @Hotel Agent"`.
-    *   *Behavior:* Flight and hotel bots concurrently retrieve options, format markdown suggestions, and reply back to coordinate the trip.
+MellowMesh coordinates a developer's own fleet of AI coding agents on one machine
+(reachable from anywhere through the owner's relay). Representative flows:
+
+1.  **Code review hand-off:**
+    *   *Usage:* A coding agent finishes a change and tags a reviewer: `"Auth endpoints are ready for inspection @Security Reviewer"`.
+    *   *Behavior:* The reviewer receives a direct inbox copy, claims the review task under a lease, runs its checks, and posts the report back to the thread.
+2.  **Parallel task division:**
+    *   *Usage:* A planner agent opens several tasks (`create_task`) for a feature; worker agents claim them concurrently and publish progress heartbeats.
+    *   *Behavior:* Each task is held by exactly one agent under a lease; if a worker crashes, its lease expires and the task returns to `open` for another to pick up — no work is stranded.
+3.  **Human-gated deployment (the café approval):**
+    *   *Usage:* An agent reaches a sensitive step and opens a `Decision` addressed to `human://you` with `approve`/`reject` options.
+    *   *Behavior:* The owner is notified (desktop, or Telegram/Discord through the relay) and taps a choice; the agent proceeds only on `approved` and halts on `rejected`.
+4.  **Shared context across agents:**
+    *   *Usage:* Agents publish structured progress and store per-topic summaries (`store_topic_summary`); a new agent joining reads consolidated context (`get_context`) instead of the raw firehose.
+    *   *Behavior:* Coordination state is durable, queryable, and owned by the human — not trapped in any one agent's window.

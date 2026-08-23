@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 21 tools covering tasks, decisions, pub/sub, context summaries, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 28 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -67,7 +67,7 @@ graph TD
         A[Claude Code / Codex / Antigravity via MCP] <--> D
         B[CLI Client] <--> D
         C[Web / WASM SDK] <--> D
-        X[Discord / Teams / Slack connectors] <--> D
+        X[Telegram / Discord / Teams connectors] <--> D
     end
 
     subgraph Core ["Your Local Core"]
@@ -80,7 +80,7 @@ graph TD
     D <--> E
 ```
 
-A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matcher), `mellowmesh-store` (SQLite persistence), `mellowmesh-daemon` (Axum HTTP/WS server + sweeper), `mellowmesh-client` (Rust SDK), `mellowmesh-cli` (CLI + MCP server), `mellowmesh-connectors` (Discord/Teams/Slack webhooks), `mellowmesh-wasm` (browser SDK), `mellowmesh-bench` (load tests). Full blueprint: [DESIGN.md](DESIGN.md).
+A Cargo workspace of nine crates: `mellowmesh-core` (domain models + topic matcher), `mellowmesh-store` (SQLite persistence), `mellowmesh-daemon` (Axum HTTP/WS server + sweeper), `mellowmesh-client` (Rust SDK), `mellowmesh-cli` (CLI + MCP server), `mellowmesh-connectors` (Telegram/Discord/Teams connectors), `mellowmesh-relay` (outbound-dial rendezvous relay), `mellowmesh-wasm` (browser SDK), `mellowmesh-bench` (load tests). Full blueprint: [DESIGN.md](DESIGN.md).
 
 ## Documentation
 

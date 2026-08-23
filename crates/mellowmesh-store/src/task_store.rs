@@ -130,7 +130,7 @@ impl Store {
              WHERE id = ?1 AND (
                  status = 'open'
                  OR claimed_by = ?2
-                 OR (status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?5)
+                 OR (status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?5)
              ) AND status NOT IN ('completed', 'cancelled', 'failed')",
             params![id, claimed_by, lease as i64, expires_at, now],
         )?;
@@ -182,7 +182,7 @@ impl Store {
         let expired: Vec<Task> = {
             let mut stmt = conn.prepare(&format!(
                 "SELECT {TASK_COLUMNS} FROM tasks
-                 WHERE status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?1"
+                 WHERE status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?1"
             ))?;
             let rows = stmt.query_map(params![now], task_from_row)?;
             let mut tasks = Vec::new();
@@ -192,22 +192,33 @@ impl Store {
             tasks
         };
 
-        for task in &expired {
-            conn.execute(
+        // Only report a task as reclaimed if this UPDATE actually released it.
+        // A concurrent heartbeat may renew the lease between the SELECT above
+        // and the UPDATE below; the row-count guard prevents announcing a
+        // reclaim (and firing a notification) for a task still validly held.
+        let mut released = Vec::with_capacity(expired.len());
+        for task in expired {
+            let n = conn.execute(
                 "UPDATE tasks SET status = 'open', claimed_by = NULL, claim_expires_at = NULL
-                 WHERE id = ?1 AND status = 'claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < ?2",
+                 WHERE id = ?1 AND status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?2",
                 params![task.id, now],
             )?;
+            if n > 0 {
+                released.push(task);
+            }
         }
-        Ok(expired)
+        Ok(released)
     }
 
-    pub fn complete_task(&self, id: &str) -> anyhow::Result<()> {
+    /// Mark a task completed. Only a task that is not already in a terminal
+    /// state is affected; returns `true` when this call completed it.
+    pub fn complete_task(&self, id: &str) -> anyhow::Result<bool> {
         let conn = self.conn()?;
-        conn.execute(
-            "UPDATE tasks SET status = 'completed', claim_expires_at = NULL WHERE id = ?1",
+        let updated = conn.execute(
+            "UPDATE tasks SET status = 'completed', claim_expires_at = NULL
+             WHERE id = ?1 AND status NOT IN ('completed', 'cancelled', 'failed')",
             params![id],
         )?;
-        Ok(())
+        Ok(updated > 0)
     }
 }

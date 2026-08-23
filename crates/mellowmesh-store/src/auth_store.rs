@@ -88,9 +88,39 @@ impl Store {
     }
 
     pub fn revoke_token(&self, id: &str) -> anyhow::Result<bool> {
+        // All statements run on one connection — do not call other `self`
+        // methods that acquire a connection while holding this one, or a
+        // single-connection pool (the in-memory store) would deadlock.
         let conn = self.conn()?;
+        // Delete the token's derived e2e key so revoked key material does not
+        // linger (and can't act as an existence oracle for retired tokens).
+        let key_id: Option<String> = {
+            let mut stmt = conn.prepare("SELECT e2e_key_id FROM tokens WHERE id = ?1")?;
+            let mut rows = stmt.query(params![id])?;
+            match rows.next()? {
+                Some(row) => row.get(0)?,
+                None => None,
+            }
+        };
+        if let Some(key_id) = key_id {
+            let _ = conn.execute("DELETE FROM e2e_keys WHERE key_id = ?1", params![key_id]);
+        }
         let updated = conn.execute("UPDATE tokens SET revoked = 1 WHERE id = ?1", params![id])?;
         Ok(updated > 0)
+    }
+
+    /// Register a token's e2e key and record the link on the token row, so
+    /// [`revoke_token`] can later delete the key. Use this instead of the bare
+    /// [`Self::register_e2e_key`] whenever the token id is known.
+    pub fn register_e2e_key_for_token(&self, token_id: &str, token: &str) -> anyhow::Result<()> {
+        use mellowmesh_core::e2e::derive_key_id;
+        self.register_e2e_key(token)?;
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE tokens SET e2e_key_id = ?2 WHERE id = ?1",
+            params![token_id, derive_key_id(token)],
+        )?;
+        Ok(())
     }
 
     /// Persist the end-to-end encryption key for a freshly minted token.
@@ -220,6 +250,34 @@ mod tests {
         let all = store.list_tokens().unwrap();
         assert_eq!(all.len(), 1);
         assert!(all[0].revoked);
+    }
+
+    #[test]
+    fn test_revoke_deletes_linked_e2e_key() {
+        let store = Store::new_in_memory().unwrap();
+        let plaintext = generate_token();
+        let key_id = mellowmesh_core::e2e::derive_key_id(&plaintext);
+        let record = TokenRecord {
+            id: "tok_e2e".to_string(),
+            principal: "agent://a".to_string(),
+            token_hash: hash_token(&plaintext),
+            read_scopes: vec!["**".to_string()],
+            write_scopes: vec!["**".to_string()],
+            created_at: Utc::now(),
+            revoked: false,
+        };
+        store.insert_token(&record).unwrap();
+        store
+            .register_e2e_key_for_token(&record.id, &plaintext)
+            .unwrap();
+        assert!(store.find_e2e_key(&key_id).unwrap().is_some());
+
+        // Revoking the token also removes its e2e key material.
+        assert!(store.revoke_token("tok_e2e").unwrap());
+        assert!(
+            store.find_e2e_key(&key_id).unwrap().is_none(),
+            "revoked token's e2e key must be deleted"
+        );
     }
 
     #[test]

@@ -6,7 +6,7 @@ This directory contains definitions and guidance for MellowMesh system schemas t
 
 ## 1. Topic
 
-Topics categorize messages. In MellowMesh, topics are case-insensitive, dot-separated lowercase names, using the regex: `^[a-z0-9._-]+$`.
+Topics categorize messages. In MellowMesh, topics are case-insensitive, dot-separated names. Segments are Unicode (letters, digits, `.`, `_`, `-`, and emoji are all accepted); matching folds case, including for non-ASCII characters.
 
 ### Topic Namespaces
 * `_system.presence.**` - ephemeral heartbeats and node/agent status.

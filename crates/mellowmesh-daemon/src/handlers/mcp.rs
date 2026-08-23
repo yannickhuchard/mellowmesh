@@ -59,9 +59,11 @@ pub async fn handle_mcp(
                 .cloned()
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
-            // Dispatch against our own API with the caller's token, so the
-            // caller's scopes bound what the tools can do.
-            let mut client = MellowMeshClient::new(state.port);
+            // Dispatch against our own loopback API with the caller's token,
+            // so the caller's scopes bound what the tools can do. Loopback
+            // (not `new`) so a MELLOWMESH_URL in the daemon's env can't bounce
+            // this back out through the relay.
+            let mut client = MellowMeshClient::loopback(state.port);
             if let Some(token) = headers
                 .get(axum::http::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())

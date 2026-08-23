@@ -128,6 +128,81 @@ async fn test_forwarding_roundtrip_and_hub_security() {
     assert_eq!(resp.status(), 200);
 }
 
+/// Regression: a hub id cannot be hijacked while its legitimate hub is
+/// briefly OFFLINE. The relay keeps a durable id→key binding, so a stranger
+/// who connects with a different key after a disconnect is rejected, and the
+/// real owner can still reconnect with the correct key.
+#[tokio::test]
+async fn test_hijack_after_disconnect_is_rejected() {
+    let port = 40023;
+    start_relay(port).await;
+
+    // First registration binds the key (trust-on-first-use).
+    let (ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/link"))
+        .await
+        .unwrap();
+    let (mut tx, mut rx) = ws.split();
+    tx.send(WsMessage::Text(
+        serde_json::to_string(&RelayFrame::Register {
+            hub_id: "hubX".to_string(),
+            link_key: "goodkey".to_string(),
+        })
+        .unwrap(),
+    ))
+    .await
+    .unwrap();
+    let ack = rx.next().await.unwrap().unwrap();
+    let ack: RelayFrame = serde_json::from_str(ack.to_text().unwrap()).unwrap();
+    assert!(matches!(ack, RelayFrame::Registered { .. }));
+
+    // The hub goes offline (drop both halves of the socket).
+    drop(tx);
+    drop(rx);
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+    // A stranger tries to claim the now-offline id with a different key.
+    let (ws2, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/link"))
+        .await
+        .unwrap();
+    let (mut tx2, mut rx2) = ws2.split();
+    tx2.send(WsMessage::Text(
+        serde_json::to_string(&RelayFrame::Register {
+            hub_id: "hubX".to_string(),
+            link_key: "attacker-key".to_string(),
+        })
+        .unwrap(),
+    ))
+    .await
+    .unwrap();
+    let reply = rx2.next().await.unwrap().unwrap();
+    let reply: RelayFrame = serde_json::from_str(reply.to_text().unwrap()).unwrap();
+    assert!(
+        matches!(reply, RelayFrame::Error { .. }),
+        "a wrong key must be rejected even while the hub is offline"
+    );
+
+    // The legitimate owner can still reconnect with the correct key.
+    let (ws3, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/link"))
+        .await
+        .unwrap();
+    let (mut tx3, mut rx3) = ws3.split();
+    tx3.send(WsMessage::Text(
+        serde_json::to_string(&RelayFrame::Register {
+            hub_id: "hubX".to_string(),
+            link_key: "goodkey".to_string(),
+        })
+        .unwrap(),
+    ))
+    .await
+    .unwrap();
+    let reply = rx3.next().await.unwrap().unwrap();
+    let reply: RelayFrame = serde_json::from_str(reply.to_text().unwrap()).unwrap();
+    assert!(
+        matches!(reply, RelayFrame::Registered { .. }),
+        "the real owner must be able to reconnect with the correct key"
+    );
+}
+
 #[tokio::test]
 async fn test_live_stream_through_relay() {
     let port = 40022;

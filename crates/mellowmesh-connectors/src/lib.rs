@@ -469,6 +469,17 @@ impl TelegramConnector {
                                 // Inline button tap: relay the human's answer.
                                 if update["callback_query"].is_object() {
                                     let cb = &update["callback_query"];
+                                    // Only taps from the configured chat may
+                                    // answer decisions — otherwise any stranger
+                                    // who finds the bot could approve.
+                                    let cb_chat = cb["message"]["chat"]["id"].as_i64();
+                                    if cb_chat.map(|c| c.to_string()) != Some(chat_id.to_string()) {
+                                        warn!(
+                                            "Ignoring Telegram callback from unauthorized chat {:?}",
+                                            cb_chat
+                                        );
+                                        continue;
+                                    }
                                     let data = cb["data"].as_str().unwrap_or("");
                                     if let Some((dec_id, opt_id)) = parse_callback_data(data) {
                                         let from_id = cb["from"]["id"].as_i64().unwrap_or(0);
@@ -540,11 +551,21 @@ impl TelegramConnector {
                                 }
 
                                 if let Some(message) = update["message"].as_object() {
-                                    if let (Some(_chat), Some(from_user), Some(text)) = (
+                                    if let (Some(chat), Some(from_user), Some(text)) = (
                                         message.get("chat"),
                                         message.get("from"),
                                         message.get("text").and_then(|t| t.as_str()),
                                     ) {
+                                        // Only bridge messages from the
+                                        // configured chat into the fabric.
+                                        let cid = chat["id"].as_i64();
+                                        if cid.map(|c| c.to_string()) != Some(chat_id.to_string()) {
+                                            warn!(
+                                                "Ignoring Telegram message from unauthorized chat {:?}",
+                                                cid
+                                            );
+                                            continue;
+                                        }
                                         let from_id = from_user["id"].as_i64().unwrap_or(0);
                                         let username =
                                             from_user["username"].as_str().unwrap_or("unknown");
@@ -917,12 +938,14 @@ mod tests {
                     label: "Ship it".to_string(),
                     pros: vec![],
                     cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Approve),
                 },
                 DecisionOption {
                     id: "option_2".to_string(),
                     label: "Hold".to_string(),
                     pros: vec![],
                     cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Reject),
                 },
             ],
             response_option_id: None,

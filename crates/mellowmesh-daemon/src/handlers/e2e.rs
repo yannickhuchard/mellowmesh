@@ -15,19 +15,20 @@ use crate::state::AppState;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use mellowmesh_core::e2e::{
-    open, seal, Envelope, SealedRequest, SealedResponse, REPLAY_WINDOW_SECS,
+    open, seal, Envelope, SealedRequest, SealedResponse, CTX_REQUEST, CTX_RESPONSE,
+    REPLAY_WINDOW_SECS,
 };
 
 pub async fn handle_e2e_request(
     State(state): State<AppState>,
     Json(envelope): Json<Envelope>,
 ) -> impl IntoResponse {
-    // Resolve the key by the envelope's key id.
+    // Resolve the key by the envelope's key id. Unknown-key and
+    // decryption-failure return the SAME response, so the endpoint is not an
+    // oracle for which key ids exist.
     let key = match state.store.find_e2e_key(&envelope.key_id) {
         Ok(Some(k)) => k,
-        Ok(None) => {
-            return (StatusCode::UNAUTHORIZED, "Unknown e2e key id".to_string()).into_response()
-        }
+        Ok(None) => return (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()).into_response(),
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -38,11 +39,9 @@ pub async fn handle_e2e_request(
     };
 
     // Decrypt. Failure means tampering or a wrong key.
-    let plaintext = match open(&key, &envelope) {
+    let plaintext = match open(&key, CTX_REQUEST, &envelope) {
         Ok(p) => p,
-        Err(_) => {
-            return (StatusCode::UNAUTHORIZED, "Decryption failed".to_string()).into_response()
-        }
+        Err(_) => return (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()).into_response(),
     };
     let sealed: SealedRequest = match serde_json::from_slice(&plaintext) {
         Ok(s) => s,
@@ -56,10 +55,35 @@ pub async fn handle_e2e_request(
     };
 
     // Replay window.
-    if (Utc::now().timestamp() - sealed.ts).abs() > REPLAY_WINDOW_SECS {
+    let now = Utc::now().timestamp();
+    if (now - sealed.ts).abs() > REPLAY_WINDOW_SECS {
         return (
             StatusCode::UNAUTHORIZED,
             "Sealed request outside replay window".to_string(),
+        )
+            .into_response();
+    }
+
+    // Single-use id: reject a replayed envelope within the window. A missing
+    // id is rejected outright — every current client sends one.
+    match &sealed.jti {
+        Some(jti) if crate::auth::register_jti(jti, now) => {}
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "Sealed request replay detected or missing id".to_string(),
+            )
+                .into_response()
+        }
+    }
+
+    // SSRF guard: the sealed path is joined onto the loopback origin, so it
+    // must be an absolute path. Without this, a value like `@evil.example`
+    // would redirect the daemon's own request to an external host.
+    if !sealed.path_and_query.starts_with('/') {
+        return (
+            StatusCode::BAD_REQUEST,
+            "Sealed path_and_query must start with '/'".to_string(),
         )
             .into_response();
     }
@@ -87,7 +111,7 @@ pub async fn handle_e2e_request(
                 .into_response()
         }
     };
-    match seal(&key, &envelope.key_id, &payload) {
+    match seal(&key, &envelope.key_id, CTX_RESPONSE, &payload) {
         Ok(reply) => Json(reply).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

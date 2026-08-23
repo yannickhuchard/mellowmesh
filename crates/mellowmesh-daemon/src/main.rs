@@ -286,7 +286,9 @@ async fn main() -> anyhow::Result<()> {
     // Initialize and start connectors. Under required auth they get their
     // own interface token (rotated each boot) so they can publish, subscribe,
     // and relay human decision responses.
-    let mut client = mellowmesh_client::MellowMeshClient::new(args.port);
+    // Loopback client: the daemon talks to itself, never through the relay,
+    // regardless of any MELLOWMESH_URL/MELLOWMESH_E2E set in its environment.
+    let mut client = mellowmesh_client::MellowMeshClient::loopback(args.port);
     if require_auth {
         use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
         let principal_id = "interface://local/connectors".to_string();
@@ -294,12 +296,16 @@ async fn main() -> anyhow::Result<()> {
             let _ = state.store.revoke_token(&old_id);
         }
         let plaintext = generate_token();
+        // Scoped to exactly what the connectors need: read the forum and
+        // pending decisions, write forum messages. They relay human decision
+        // answers through the kind-checked /respond endpoint, not a broad
+        // write scope — so this token is not a root credential.
         let record = TokenRecord {
             id: format!("tok_{}", ulid::Ulid::new().to_string().to_lowercase()),
             principal: principal_id.clone(),
             token_hash: hash_token(&plaintext),
-            read_scopes: vec!["**".to_string()],
-            write_scopes: vec!["**".to_string()],
+            read_scopes: vec!["_forum.**".to_string(), "_decision.**".to_string()],
+            write_scopes: vec!["_forum.**".to_string()],
             created_at: chrono::Utc::now(),
             revoked: false,
         };
@@ -312,7 +318,11 @@ async fn main() -> anyhow::Result<()> {
                 created_at: chrono::Utc::now(),
             })
             .and_then(|_| state.store.insert_token(&record))
-            .and_then(|_| state.store.register_e2e_key(&plaintext))
+            .and_then(|_| {
+                state
+                    .store
+                    .register_e2e_key_for_token(&record.id, &plaintext)
+            })
             .and_then(|_| state.store.set_config("connectors_token_id", &record.id));
         match minted {
             Ok(_) => client = client.with_token(plaintext),

@@ -29,7 +29,9 @@ pub async fn create_decision(
     if decision.id.is_empty() {
         decision.id = format!("decision_{}", Ulid::new().to_string().to_lowercase());
     }
-    if decision.status.is_empty() {
+    // A freshly created decision must be awaiting an answer. Reject a terminal
+    // status at birth so a proposer can't ship a pre-"approved" decision.
+    if !matches!(decision.status.as_str(), "requested" | "discussed") {
         decision.status = "requested".to_string();
     }
     match state.store.insert_decision(&decision) {
@@ -84,20 +86,71 @@ pub async fn respond_decision(
     Path(decision_id): Path<String>,
     Json(payload): Json<ResponsePayload>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Decision integrity:
-    // - humans answer directly;
-    // - interface principals (Telegram/Discord connectors, ...) may relay a
-    //   human's answer, recording who tapped through which interface;
+    // Decision integrity gate, applied BEFORE any decision lookup so an agent
+    // learns nothing about which decisions exist:
     // - agents and nodes can NEVER answer — an agent cannot approve its own
     //   proposal.
+    if let Some(p) = &ctx.principal {
+        if p.kind != "human" && p.kind != "interface" {
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!(
+                    "Only human principals (or interfaces relaying them) may respond to decisions ({} is a {})",
+                    p.id, p.kind
+                ),
+            ));
+        }
+    }
+
+    // Load the decision so we can validate the option, resolve the
+    // approve/reject outcome, and enforce answer-once + no-self-approval.
+    let decision = match state.store.get_decision(&decision_id) {
+        Ok(Some(d)) => d,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("No decision with id {decision_id}"),
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Decision lookup failed: {e}"),
+            ))
+        }
+    };
+
+    // Resolve who is answering:
+    // - humans answer directly;
+    // - interface principals (Telegram/Discord connectors, ...) may relay a
+    //   human's answer, but ONLY for an external id that maps to a real
+    //   `human://` principal — the human identity is never taken at face value
+    //   from the request body;
+    // - in open mode the response is recorded as unauthenticated and is never
+    //   attributed to a caller-supplied human, so an agent cannot forge one.
     let responded_by = match &ctx.principal {
         Some(p) if p.kind == "human" => p.id.clone(),
         Some(p) if p.kind == "interface" => {
-            let human = payload
-                .responded_by
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
-            format!("{} (via {})", human, p.id)
+            let ext = payload.responded_by.clone().unwrap_or_default();
+            let human = state
+                .store
+                .get_mellowmesh_id(&ext)
+                .ok()
+                .flatten()
+                .filter(|h| h.starts_with("human://"))
+                .or_else(|| ext.starts_with("human://").then(|| ext.clone()));
+            match human {
+                Some(h) => format!("{} (via {})", h, p.id),
+                None => {
+                    return Err((
+                        StatusCode::FORBIDDEN,
+                        format!(
+                            "Interface {} may only relay a human:// identity that maps to a known principal (got {:?})",
+                            p.id, payload.responded_by
+                        ),
+                    ))
+                }
+            }
         }
         Some(p) => {
             return Err((
@@ -108,22 +161,84 @@ pub async fn respond_decision(
                 ),
             ));
         }
-        // Open mode: localhost is trusted, but the audit trail records that
-        // the response was unauthenticated.
-        None => payload
-            .responded_by
-            .clone()
-            .unwrap_or_else(|| "human://local-unauthenticated".to_string()),
+        None => "human://local-unauthenticated".to_string(),
     };
 
-    match state
-        .store
-        .respond_decision(&decision_id, &payload.option_id, Some(&responded_by))
-    {
-        Ok(_) => Ok(StatusCode::OK),
+    // No principal may answer its own proposal, in any auth mode.
+    let responder_core = responded_by.split(" (via ").next().unwrap_or(&responded_by);
+    if responder_core == decision.created_by {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "A principal cannot answer its own decision proposal".to_string(),
+        ));
+    }
+
+    // Resolve the terminal status from the chosen option. An unknown option is
+    // rejected rather than recorded, and a "reject" option resolves to
+    // `rejected` — never silently to `approved`.
+    let status = match decision.status_for_option(&payload.option_id) {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Unknown option '{}' for decision {}",
+                    payload.option_id, decision_id
+                ),
+            ))
+        }
+    };
+
+    match state.store.respond_decision(
+        &decision_id,
+        &payload.option_id,
+        status,
+        Some(&responded_by),
+    ) {
+        Ok(true) => {
+            announce_decision_result(&state, &decision, &payload.option_id, status, &responded_by)
+                .await;
+            Ok(StatusCode::OK)
+        }
+        Ok(false) => Err((
+            StatusCode::CONFLICT,
+            format!("Decision {decision_id} has already been answered"),
+        )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to respond to decision: {e}"),
         )),
+    }
+}
+
+/// Announce a decision's resolved outcome on `_decision.<id>.responded` so
+/// agents waiting on the answer learn the status (approved/rejected/answered),
+/// the chosen option, and who decided.
+async fn announce_decision_result(
+    state: &AppState,
+    decision: &Decision,
+    option_id: &str,
+    status: &str,
+    responded_by: &str,
+) {
+    let event = Message {
+        id: String::new(),
+        topic: format!("_decision.{}.responded", decision.id),
+        from: responded_by.to_string(),
+        owner: Some(decision.created_by.clone()),
+        timestamp: Utc::now(),
+        content_type: "application/json".to_string(),
+        body: format!("Decision {} {}", decision.id, status),
+        headers: None,
+        payload: Some(serde_json::json!({
+            "decision_id": decision.id,
+            "status": status,
+            "option_id": option_id,
+            "responded_by": responded_by,
+        })),
+        parent_id: None,
+    };
+    if let Err(e) = crate::handlers::message::handle_publish(Arc::new(state.clone()), event).await {
+        tracing::warn!("Failed to announce decision result {}: {}", decision.id, e);
     }
 }

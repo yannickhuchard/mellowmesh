@@ -6,6 +6,40 @@ examples, presentation, packaging, and CI, assessed against `PRODUCT_PLAN.md` an
 
 ---
 
+## Remediation status (applied 2026-08-23)
+
+The findings below were the point-in-time audit. The high- and medium-severity items
+have since been fixed on this branch; the test suite grew from 65 to 79 passing tests
+(`cargo fmt --check` and `cargo clippy -D warnings` both clean). Summary:
+
+| Finding | Fix | Test |
+| :--- | :--- | :--- |
+| **A1** reject recorded as approved | option-level `DecisionOutcome`; store writes the resolved status and answers once | `decision.rs` unit tests, `test_reject_is_recorded_as_rejected`, `test_open_mode_reject_and_no_forged_human` |
+| **A2** open-mode self-approval + forged `responded_by` | agent/node rejected before lookup; `responded_by` never taken from the body; self-approval guard; answer-once (409) | `test_open_mode_reject_and_no_forged_human`, `concurrent_decisions_answered_once_with_correct_outcome` |
+| **A3** ACL breadth; `/shutdown` unauthenticated | owner-only `/shutdown`; scope-filtered `/topics`; `complete_task` claimant check; status/priority validation | daemon tests |
+| **A4** interface relay + Telegram auth | interface must relay a mapped `human://`; Telegram enforces `TELEGRAM_CHAT_ID`; connectors token scoped, not `**` | connectors + daemon tests |
+| **A5** peer link bypass | peer dial carries a token; inbound bounded to the subscribed pattern | — |
+| **A6** human `@mention` notify; forgeable `from` | human-mention desktop notify; provenance + heartbeat identity bound to the principal | — |
+| **B1** unbound/replayable sealed proof | proof bound to `/ws` + method + single-use `jti`; accepted only on `/ws` | `test_e2e_encrypted_subscription`, `test_e2e_encrypted_request` (replay→401) |
+| **B2/B3** hub hijack; plaintext link key | durable hub-id→hashed-key registry, constant-time compare | `test_hijack_after_disconnect_is_rejected` |
+| **B4** silent E2E→plaintext downgrade | hard error when E2E is set without a token | client guard |
+| **B5** SSRF via `path_and_query` | reject a sealed path that is not absolute | `test_e2e_encrypted_request` (SSRF→400) |
+| **B6** raw token in relay URL | remote non-E2E subscription refused | client guard |
+| **B7** crypto hardening | XChaCha20-Poly1305 (192-bit nonce), per-direction subkeys, revoke deletes the e2e key, merged error bodies | `test_context_separation`, `test_revoke_deletes_linked_e2e_key` |
+| **C** docs outrun code | tool count 21→28 (pinned by a test), crate count, Slack removed, phantom CLI + ASCII-topic + `cli.md` gaps fixed | `assert_eq!(tools.len(), 28)` |
+| **D1/D2/D3** lease defects | sweeper acts on the row count; heartbeat bound to principal; `in_progress` handled consistently | store tests, `lease_reclaim_hands_work_to_another_agent` |
+| **E** breadth trap | dead code deleted (`priority`, `hot_buffer`, `identity`); `SKILL.md` non-targets + "never route externally" removed | — |
+| **F1** in-memory pool migrated one connection | single-connection in-memory pool | enables the concurrency tests |
+| **New** multi-agent collaboration | 2/5/10/20-agent competitive-claim tests asserting exclusive ownership, full completion, no double-work | `collaborate_{2,5,10,20}_agents` |
+
+Deliberately **not** changed: the daemon still defaults to open mode (flipping it would
+break the zero-config demo and the unauthenticated dashboard; the honest fix was to make
+decision *integrity* hold even in open mode). Forward secrecy for E2E (an ephemeral
+handshake) remains future work, as does durable relay-restart persistence of the hub-key
+registry — both noted here rather than silently skipped.
+
+---
+
 ## Verdict
 
 MellowMesh has a **real, working core** and a **clean architecture** — and a **story that

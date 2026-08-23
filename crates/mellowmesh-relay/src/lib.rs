@@ -39,7 +39,6 @@ enum StreamEvent {
 }
 
 struct Hub {
-    link_key: String,
     /// Frames to send down the daemon link.
     to_daemon: mpsc::Sender<RelayFrame>,
     /// In-flight forwarded requests awaiting a response frame.
@@ -51,6 +50,25 @@ struct Hub {
 #[derive(Clone, Default)]
 pub struct RelayState {
     hubs: Arc<Mutex<HashMap<String, Arc<Hub>>>>,
+    /// Durable hub-id → SHA-256(link_key) binding. Unlike `hubs`, this
+    /// survives a hub disconnecting, so a hub id cannot be hijacked with a
+    /// different key while the legitimate hub is briefly offline (laptop
+    /// sleep, daemon restart, network blip). Trust-on-first-use: the first
+    /// registration of an id binds the key; later registrations must match.
+    known_keys: Arc<Mutex<HashMap<String, String>>>,
+}
+
+/// Constant-time comparison of two hex hashes of equal length.
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 pub fn create_router(state: RelayState) -> Router {
@@ -99,19 +117,27 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
     let streams: Arc<Mutex<HashMap<String, mpsc::Sender<StreamEvent>>>> =
         Arc::new(Mutex::new(HashMap::new()));
 
-    // Claim (or re-claim) the hub id. A different link key is rejected so a
-    // stranger cannot hijack an established hub id.
+    // Claim (or re-claim) the hub id. The key is checked against a DURABLE
+    // binding that outlives disconnects, so a stranger cannot grab a hub id
+    // while its owner is briefly offline. Only the SHA-256 of the key is kept,
+    // so the relay never holds the link key in the clear.
+    let key_hash = mellowmesh_core::auth::hash_token(&link_key);
     let accepted = {
-        let mut hubs = state.hubs.lock().unwrap();
-        let key_matches = hubs
-            .get(&hub_id)
-            .map(|existing| existing.link_key == link_key)
-            .unwrap_or(true);
+        let mut known = state.known_keys.lock().unwrap();
+        let key_matches = match known.get(&hub_id) {
+            Some(stored) => ct_eq(stored, &key_hash),
+            None => {
+                // Trust-on-first-use: first registration binds the key.
+                known.insert(hub_id.clone(), key_hash.clone());
+                true
+            }
+        };
+        drop(known);
         if key_matches {
+            let mut hubs = state.hubs.lock().unwrap();
             hubs.insert(
                 hub_id.clone(),
                 Arc::new(Hub {
-                    link_key,
                     to_daemon: to_daemon_tx,
                     pending: pending.clone(),
                     streams: streams.clone(),

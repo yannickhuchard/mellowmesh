@@ -74,10 +74,16 @@ responded_by: human://yannick (via interface://local/connectors)
 ```
 
 The human identity comes from the platform's user id (`telegram://12345`,
-`discord://...`), resolved through identity mappings when configured:
+`discord://...`), resolved through identity mappings. A relayed answer is only
+attributed to a human when the external id maps to a `human://` principal (or
+the connector already supplies a `human://` id) — otherwise the response is
+refused, so an interface can't attribute an approval to an arbitrary person.
+Create a mapping via the REST API:
 
 ```bash
-mellowmesh identity add telegram://123456789 human://yannick   # via REST: POST /identity-mappings
+curl -X POST http://127.0.0.1:40000/identity-mappings \
+  -H 'Content-Type: application/json' \
+  -d '{"external_id":"telegram://123456789","mellowmesh_id":"human://yannick"}'
 ```
 
 ## Mock mode

@@ -79,19 +79,27 @@ impl Store {
         Ok(decisions)
     }
 
-    /// Record a decision response, including which principal answered it.
+    /// Record a decision response, including the resolved `status`
+    /// (`"approved"` / `"rejected"` / `"answered"`) and which principal
+    /// answered it. The update only applies while the decision is still
+    /// awaiting an answer, so a decision can be answered exactly once and a
+    /// human's rejection can never be silently overwritten by a later call.
+    /// Returns `true` if this call recorded the answer.
     pub fn respond_decision(
         &self,
         id: &str,
         option_id: &str,
+        status: &str,
         responded_by: Option<&str>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let conn = self.conn()?;
         let now = Utc::now().to_rfc3339();
-        conn.execute(
-            "UPDATE decisions SET response_option_id = ?2, response_timestamp = ?3, status = 'approved', responded_by = ?4 WHERE id = ?1",
-            params![id, option_id, now, responded_by],
+        let updated = conn.execute(
+            "UPDATE decisions
+             SET response_option_id = ?2, response_timestamp = ?3, status = ?4, responded_by = ?5
+             WHERE id = ?1 AND status NOT IN ('approved', 'rejected', 'answered')",
+            params![id, option_id, now, status, responded_by],
         )?;
-        Ok(())
+        Ok(updated > 0)
     }
 }

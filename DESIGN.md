@@ -47,7 +47,7 @@ graph TD
     *   **Key components**: Command parsing (via `clap`), terminal formatting/table output, and the Model Context Protocol (MCP) server integration (`mellowmesh mcp`).
 6.  **[`mellowmesh-connectors`](file:///d:/development/mellowmesh/crates/mellowmesh-connectors)**:
     *   **Role**: Third-party webhook handlers.
-    *   **Key components**: Endpoints and HMAC authentication handlers for platforms like Microsoft Teams, Slack, and Discord.
+    *   **Key components**: Endpoints and HMAC authentication handlers for platforms like Telegram, Microsoft Teams, and Discord.
 7.  **[`mellowmesh-wasm`](file:///d:/development/mellowmesh/crates/mellowmesh-wasm)**:
     *   **Role**: Browser-native runtime.
     *   **Key components**: WebAssembly bindings for `mellowmesh-core` and Javascript client library wrappers to run MellowMesh entirely inside browser engines.
