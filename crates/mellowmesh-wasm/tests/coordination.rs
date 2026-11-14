@@ -173,9 +173,30 @@ fn test_decision_consensus() {
     assert_eq!(decs.len(), 1);
     assert_eq!(decs[0].status, "requested");
 
+    // Unknown option ids are refused and leave the decision untouched
+    let responded = node
+        .respond_decision("dec_test".to_string(), "maybe".to_string(), None)
+        .unwrap();
+    assert!(!responded);
+
+    // The creator cannot answer its own decision
+    let responded = node
+        .respond_decision(
+            "dec_test".to_string(),
+            "yes".to_string(),
+            Some("agent://tester".to_string()),
+        )
+        .unwrap();
+    assert!(!responded);
+
+    let decs_val = node.list_decisions().unwrap();
+    let decs: Vec<Decision> = serde_wasm_bindgen::from_value(decs_val).unwrap();
+    assert_eq!(decs[0].status, "requested");
+    assert_eq!(decs[0].response_option_id, None);
+
     // Respond to decision
     let responded = node
-        .respond_decision("dec_test".to_string(), "yes".to_string())
+        .respond_decision("dec_test".to_string(), "yes".to_string(), None)
         .unwrap();
     assert!(responded);
 
@@ -183,7 +204,109 @@ fn test_decision_consensus() {
     let decs: Vec<Decision> = serde_wasm_bindgen::from_value(decs_val).unwrap();
     assert_eq!(decs[0].status, "approved");
     assert_eq!(decs[0].response_option_id, Some("yes".to_string()));
+    assert_eq!(decs[0].responded_by, Some("human://yannick".to_string()));
     assert!(decs[0].response_timestamp.is_some());
+
+    // An answered decision cannot be answered again
+    let responded = node
+        .respond_decision("dec_test".to_string(), "no".to_string(), None)
+        .unwrap();
+    assert!(!responded);
+
+    let decs_val = node.list_decisions().unwrap();
+    let decs: Vec<Decision> = serde_wasm_bindgen::from_value(decs_val).unwrap();
+    assert_eq!(decs[0].status, "approved");
+    assert_eq!(decs[0].response_option_id, Some("yes".to_string()));
+}
+
+#[wasm_bindgen_test]
+fn test_decision_reject_and_neutral_outcomes() {
+    let node = WasmMellowMeshNode::new();
+
+    let make = |id: &str| Decision {
+        id: id.to_string(),
+        title: "Outcome".to_string(),
+        question: "Proceed?".to_string(),
+        created_by: "agent://tester".to_string(),
+        required_decider: "human://yannick".to_string(),
+        status: "requested".to_string(),
+        options: vec![
+            DecisionOption {
+                id: "no".to_string(),
+                label: "No".to_string(),
+                pros: vec![],
+                cons: vec![],
+                outcome: Some(mellowmesh_core::decision::DecisionOutcome::Reject),
+            },
+            DecisionOption {
+                id: "later".to_string(),
+                label: "Later".to_string(),
+                pros: vec![],
+                cons: vec![],
+                outcome: None,
+            },
+        ],
+        response_option_id: None,
+        response_timestamp: None,
+        responded_by: None,
+    };
+
+    node.create_decision(serde_wasm_bindgen::to_value(&make("dec_reject")).unwrap())
+        .unwrap();
+    node.create_decision(serde_wasm_bindgen::to_value(&make("dec_neutral")).unwrap())
+        .unwrap();
+
+    assert!(node
+        .respond_decision("dec_reject".to_string(), "no".to_string(), None)
+        .unwrap());
+    assert!(node
+        .respond_decision("dec_neutral".to_string(), "later".to_string(), None)
+        .unwrap());
+
+    let decs_val = node.list_decisions().unwrap();
+    let decs: Vec<Decision> = serde_wasm_bindgen::from_value(decs_val).unwrap();
+    let status = |id: &str| decs.iter().find(|d| d.id == id).unwrap().status.clone();
+    assert_eq!(status("dec_reject"), "rejected");
+    assert_eq!(status("dec_neutral"), "answered");
+}
+
+#[wasm_bindgen_test]
+fn test_claim_conflicts() {
+    let node = WasmMellowMeshNode::new();
+
+    let task = Task {
+        id: "task_conflict".to_string(),
+        title: "Conflict Task".to_string(),
+        created_by: "human://yannick".to_string(),
+        status: "open".to_string(),
+        priority: "medium".to_string(),
+        ..Default::default()
+    };
+    node.create_task(serde_wasm_bindgen::to_value(&task).unwrap())
+        .unwrap();
+
+    assert!(node
+        .claim_task("task_conflict".to_string(), "agent://a".to_string())
+        .unwrap());
+    // Another agent cannot take over an active claim
+    assert!(!node
+        .claim_task("task_conflict".to_string(), "agent://b".to_string())
+        .unwrap());
+    // The holder may re-claim
+    assert!(node
+        .claim_task("task_conflict".to_string(), "agent://a".to_string())
+        .unwrap());
+
+    assert!(node.complete_task("task_conflict".to_string()).unwrap());
+    // Completed tasks cannot be claimed
+    assert!(!node
+        .claim_task("task_conflict".to_string(), "agent://b".to_string())
+        .unwrap());
+
+    let tasks_val = node.list_tasks().unwrap();
+    let tasks: Vec<Task> = serde_wasm_bindgen::from_value(tasks_val).unwrap();
+    assert_eq!(tasks[0].status, "completed");
+    assert_eq!(tasks[0].claimed_by, Some("agent://a".to_string()));
 }
 
 #[wasm_bindgen_test]
