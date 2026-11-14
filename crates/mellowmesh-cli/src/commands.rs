@@ -1,26 +1,51 @@
 use chrono::Utc;
 use futures_util::StreamExt;
+use mellowmesh_client::sanitize::{sanitize_line, sanitize_text};
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::agent::AgentRegistration;
-use mellowmesh_core::decision::{Decision, DecisionOption};
+use mellowmesh_core::decision::{Decision, DecisionOption, DecisionOutcome};
 use mellowmesh_core::message::Message;
 use mellowmesh_core::task::Task;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+/// Print one message (history, tail, search) with every untrusted field
+/// sanitized.
+fn print_message(m: &Message) {
+    println!(
+        "[{}] {} | from: {}",
+        m.timestamp
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d %H:%M:%S"),
+        sanitize_line(&m.topic),
+        sanitize_line(&m.from)
+    );
+    println!("  {}", sanitize_text(&m.body));
+    println!("{}", "-".repeat(60));
+}
+
+/// Render a table. Every cell is sanitized (escape sequences and control
+/// characters removed, newlines flattened) since most cells are untrusted.
 fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     if rows.is_empty() {
         println!("No data available.");
         return;
     }
+    let rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| r.iter().map(|c| sanitize_line(c)).collect())
+        .collect();
 
     let mut widths = vec![0; headers.len()];
     for (i, h) in headers.iter().enumerate() {
-        widths[i] = h.len();
+        widths[i] = h.chars().count();
     }
-    for row in rows {
+    for row in &rows {
         for (i, val) in row.iter().enumerate() {
-            if i < widths.len() && val.len() > widths[i] {
-                widths[i] = val.len();
+            let len = val.chars().count();
+            if i < widths.len() && len > widths[i] {
+                widths[i] = len;
             }
         }
     }
@@ -39,7 +64,7 @@ fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     println!("|");
     print_border();
 
-    for row in rows {
+    for row in &rows {
         for (i, val) in row.iter().enumerate() {
             if i < widths.len() {
                 print!("| {:<width$} ", val, width = widths[i]);
@@ -52,110 +77,155 @@ fn print_table(headers: &[&str], rows: &[Vec<String>]) {
 
 pub async fn run_daemon_start(port: u16) -> anyhow::Result<()> {
     println!("Starting MellowMesh daemon (mellowmeshd) on port {port}...");
-    mellowmesh_client::autostart::spawn_daemon(port)?;
+    mellowmesh_client::autostart::spawn_daemon_async(port).await?;
     println!("Daemon started successfully.");
     Ok(())
 }
 
+/// How long to wait for the daemon's port to close after a stop request.
+const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The directory holding the daemon's database, `owner.token` and
+/// `mellowmeshd.pid`.
+fn daemon_data_dir() -> PathBuf {
+    let db_path = mellowmesh_store::sqlite::default_db_path();
+    match db_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
+/// The owner token the daemon wrote next to its database, if readable.
+fn read_owner_token(dir: &Path) -> Option<String> {
+    std::fs::read_to_string(dir.join("owner.token"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
+/// Parse the contents of `mellowmeshd.pid`. Rejects anything that is not a
+/// plain process id greater than 1.
+fn parse_pid(contents: &str) -> Option<u32> {
+    contents.trim().parse::<u32>().ok().filter(|pid| *pid > 1)
+}
+
+/// True when something accepts TCP connections on the daemon's port.
+async fn port_in_use(port: u16) -> bool {
+    matches!(
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            tokio::net::TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+/// Wait up to `timeout` for the daemon's port to close.
+async fn wait_for_port_closed(port: u16, timeout: Duration) -> bool {
+    let start = tokio::time::Instant::now();
+    loop {
+        if !port_in_use(port).await {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Terminate the process recorded in `mellowmeshd.pid` — and only that one.
+fn kill_daemon_from_pid_file(dir: &Path, force: bool) -> anyhow::Result<()> {
+    let pid_path = dir.join("mellowmeshd.pid");
+    let contents = std::fs::read_to_string(&pid_path).map_err(|_| {
+        anyhow::anyhow!(
+            "No daemon PID file at {}; refusing to kill processes by name. Stop the daemon manually.",
+            pid_path.display()
+        )
+    })?;
+    let pid = parse_pid(&contents)
+        .ok_or_else(|| anyhow::anyhow!("Invalid PID file {}", pid_path.display()))?;
+
+    // On Linux, make sure the PID still belongs to a mellowmeshd process (a
+    // stale PID file could otherwise point at an unrelated, reused PID).
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) {
+            if !comm.trim().starts_with("mellowmeshd") {
+                anyhow::bail!(
+                    "PID {pid} from {} is not a mellowmeshd process (stale PID file?); not killing it",
+                    pid_path.display()
+                );
+            }
+        }
+    }
+
+    println!("Terminating mellowmeshd (PID {pid})...");
+    #[cfg(windows)]
+    let status = {
+        let _ = force; // taskkill needs /F for a windowless background process
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .status()
+    };
+    #[cfg(not(windows))]
+    let status = {
+        let mut cmd = std::process::Command::new("kill");
+        if force {
+            cmd.arg("-KILL");
+        }
+        cmd.arg(pid.to_string()).status()
+    };
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(anyhow::anyhow!("Failed to terminate PID {pid} ({s})")),
+        Err(e) => Err(anyhow::anyhow!("Failed to terminate PID {pid}: {e}")),
+    }
+}
+
+/// Stop the local daemon on `port`: a graceful `/shutdown` over loopback
+/// (authenticated with the owner token), then — only if it is still running
+/// — terminating the PID recorded in `mellowmeshd.pid`. Returns an error if
+/// the daemon is still running afterwards.
 pub async fn run_daemon_stop(port: u16, force: bool) -> anyhow::Result<()> {
-    if !mellowmesh_client::autostart::is_daemon_running(port) {
+    if !port_in_use(port).await {
         println!("MellowMesh daemon is not running on port {port}.");
         return Ok(());
     }
+    let dir = daemon_data_dir();
 
-    if force {
-        println!("Force option specified. Immediately killing mellowmeshd process...");
-        force_kill_daemon();
-        return Ok(());
+    if !force {
+        println!("Stopping MellowMesh daemon on port {port}...");
+        if mellowmesh_client::autostart::is_daemon_running_async(port).await {
+            // Always loopback: MELLOWMESH_URL must never redirect a stop to a
+            // remote hub.
+            let mut client = MellowMeshClient::loopback(port);
+            if let Some(token) = read_owner_token(&dir) {
+                client = client.with_token(token);
+            }
+            match client.shutdown_daemon().await {
+                Ok(_) => println!("Shutdown request sent."),
+                Err(e) => eprintln!("Shutdown request failed: {e}"),
+            }
+            if wait_for_port_closed(port, STOP_TIMEOUT).await {
+                println!("Daemon stopped successfully.");
+                return Ok(());
+            }
+            println!("Daemon did not stop in time.");
+        } else {
+            println!("Port {port} is in use but no MellowMesh daemon answers its health check.");
+        }
     }
 
-    println!("Stopping MellowMesh daemon on port {port}...");
-
-    let client = MellowMeshClient::new(port);
-    match client.shutdown_daemon().await {
-        Ok(_) => {
-            println!("Shutdown request sent successfully.");
-        }
-        Err(e) => {
-            eprintln!("Failed to send shutdown request to daemon: {e}. Attempting force kill...");
-            force_kill_daemon();
-            return Ok(());
-        }
-    }
-
-    // Wait for the daemon to stop
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(3);
-    let mut stopped = false;
-    while start.elapsed() < timeout {
-        if !mellowmesh_client::autostart::is_daemon_running(port) {
-            stopped = true;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    if stopped {
-        println!("Daemon stopped successfully.");
+    kill_daemon_from_pid_file(&dir, force)?;
+    if wait_for_port_closed(port, STOP_TIMEOUT).await {
+        println!("Daemon stopped.");
+        Ok(())
     } else {
-        println!("Daemon did not stop in time. Attempting force kill...");
-        force_kill_daemon();
-    }
-
-    Ok(())
-}
-
-fn force_kill_daemon() {
-    #[cfg(windows)]
-    {
-        println!("Killing mellowmeshd.exe process...");
-        let mut cmd = std::process::Command::new("taskkill");
-        cmd.args(["/F", "/IM", "mellowmeshd.exe"]);
-        match cmd.output() {
-            Ok(output) => {
-                if output.status.success() {
-                    println!("Daemon process killed successfully.");
-                } else {
-                    let err = String::from_utf8_lossy(&output.stderr);
-                    if err.contains("not found") || err.contains("could not be found") {
-                        println!("Daemon process is already stopped.");
-                    } else {
-                        eprintln!("Failed to kill daemon process: {}", err.trim());
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to execute taskkill command: {e}");
-            }
-        }
-    }
-
-    #[cfg(not(windows))]
-    {
-        println!("Killing mellowmeshd process...");
-        let mut cmd = std::process::Command::new("pkill");
-        cmd.args(["-f", "mellowmeshd"]);
-        match cmd.output() {
-            Ok(output) => {
-                if output.status.success() {
-                    println!("Daemon process killed successfully.");
-                } else {
-                    // Try killall as fallback
-                    let mut cmd_fallback = std::process::Command::new("killall");
-                    cmd_fallback.arg("mellowmeshd");
-                    if let Ok(out) = cmd_fallback.output() {
-                        if out.status.success() {
-                            println!("Daemon process killed successfully.");
-                            return;
-                        }
-                    }
-                    eprintln!("Failed to kill daemon process. It may already be stopped.");
-                }
-            }
-            Err(e) => {
-                eprintln!("Failed to execute kill command: {}", e);
-            }
-        }
+        Err(anyhow::anyhow!(
+            "The daemon is still running on port {port}; stop it manually."
+        ))
     }
 }
 
@@ -164,14 +234,20 @@ pub async fn run_daemon_restart(port: u16) -> anyhow::Result<()> {
     // Graceful stop
     run_daemon_stop(port, false).await?;
     // Short wait to ensure port is freed
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     // Start again
     run_daemon_start(port).await
 }
 
 pub async fn run_daemon_clean(port: u16) -> anyhow::Result<()> {
-    // 1. Stop the daemon first (gracefully)
-    run_daemon_stop(port, false).await?;
+    // 1. Stop the daemon first (gracefully). Never delete files under a
+    //    running daemon.
+    run_daemon_stop(port, false)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e} Nothing was deleted."))?;
+    if port_in_use(port).await {
+        anyhow::bail!("The daemon is still running on port {port}. Nothing was deleted.");
+    }
 
     // 2. Locate the database files
     let db_path = mellowmesh_store::sqlite::default_db_path();
@@ -210,7 +286,7 @@ pub async fn run_daemon_clean(port: u16) -> anyhow::Result<()> {
 }
 
 pub async fn run_status(port: u16) -> anyhow::Result<()> {
-    let running = mellowmesh_client::autostart::is_daemon_running(port);
+    let running = mellowmesh_client::autostart::is_daemon_running_async(port).await;
     let db_path = mellowmesh_store::sqlite::default_db_path();
 
     println!("MellowMesh Daemon Status:");
@@ -224,7 +300,7 @@ pub async fn run_topics(client: &MellowMeshClient) -> anyhow::Result<()> {
     let topics = client.list_topics().await?;
     println!("Topics:");
     for t in topics {
-        println!("  - {t}");
+        println!("  - {}", sanitize_line(&t));
     }
     Ok(())
 }
@@ -256,28 +332,19 @@ pub async fn run_read(
     topic: String,
     limit: usize,
 ) -> anyhow::Result<()> {
-    let history = client.get_history(limit).await?;
-    let filtered: Vec<Message> = history
-        .into_iter()
-        .filter(|m| mellowmesh_core::topic::match_topic(&topic, &m.topic))
-        .collect();
+    // Filtered server-side, so `limit` counts matching messages.
+    let messages = client.get_history_matching(&topic, limit).await?;
 
-    if filtered.is_empty() {
-        println!("No messages found matching topic pattern '{topic}'.");
+    if messages.is_empty() {
+        println!(
+            "No messages found matching topic pattern '{}'.",
+            sanitize_line(&topic)
+        );
         return Ok(());
     }
 
-    for m in filtered {
-        println!(
-            "[{}] {} | from: {}",
-            m.timestamp
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S"),
-            m.topic,
-            m.from
-        );
-        println!("  {}", m.body);
-        println!("{}", "-".repeat(60));
+    for m in &messages {
+        print_message(m);
     }
     Ok(())
 }
@@ -287,18 +354,7 @@ pub async fn run_tail(client: &MellowMeshClient, pattern: String) -> anyhow::Res
     let mut stream = client.subscribe(&pattern).await?;
     while let Some(msg_res) = stream.next().await {
         match msg_res {
-            Ok(m) => {
-                println!(
-                    "[{}] {} | from: {}",
-                    m.timestamp
-                        .with_timezone(&chrono::Local)
-                        .format("%Y-%m-%d %H:%M:%S"),
-                    m.topic,
-                    m.from
-                );
-                println!("  {}", m.body);
-                println!("{}", "-".repeat(60));
-            }
+            Ok(m) => print_message(&m),
             Err(e) => {
                 eprintln!("Error receiving message: {e:?}");
                 break;
@@ -463,6 +519,31 @@ pub async fn run_complete(client: &MellowMeshClient, task_id: &str) -> anyhow::R
     Ok(())
 }
 
+/// Parse a `--option` value. An `approve:`, `reject:` or `neutral:` prefix
+/// sets the option's outcome (so answering it resolves the decision to
+/// approved / rejected / answered); a plain label has no outcome.
+fn parse_decision_option(raw: &str) -> anyhow::Result<(String, Option<DecisionOutcome>)> {
+    let prefixes = [
+        ("approve:", DecisionOutcome::Approve),
+        ("reject:", DecisionOutcome::Reject),
+        ("neutral:", DecisionOutcome::Neutral),
+    ];
+    for (prefix, outcome) in prefixes {
+        if let Some(rest) = raw.strip_prefix(prefix) {
+            let label = rest.trim();
+            if label.is_empty() {
+                anyhow::bail!("Option '{raw}' has an empty label after '{prefix}'");
+            }
+            return Ok((label.to_string(), Some(outcome)));
+        }
+    }
+    let label = raw.trim();
+    if label.is_empty() {
+        anyhow::bail!("Option labels must not be empty");
+    }
+    Ok((label.to_string(), None))
+}
+
 pub async fn run_decision_create(
     client: &MellowMeshClient,
     title: String,
@@ -472,16 +553,19 @@ pub async fn run_decision_create(
     options: Vec<String>,
 ) -> anyhow::Result<()> {
     let dec_options = options
-        .into_iter()
+        .iter()
         .enumerate()
-        .map(|(i, label)| DecisionOption {
-            id: format!("option_{}", i + 1),
-            label,
-            pros: vec![],
-            cons: vec![],
-            outcome: None,
+        .map(|(i, raw)| {
+            let (label, outcome) = parse_decision_option(raw)?;
+            Ok(DecisionOption {
+                id: format!("option_{}", i + 1),
+                label,
+                pros: vec![],
+                cons: vec![],
+                outcome,
+            })
         })
-        .collect();
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let decision = Decision {
         id: String::new(),
@@ -556,7 +640,7 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
 
     for topic in topics {
         println!("============================================================");
-        println!("TOPIC: {topic}");
+        println!("TOPIC: {}", sanitize_line(&topic));
         println!("============================================================");
         let mut msgs = grouped.remove(&topic).unwrap();
         // Chronological order
@@ -567,9 +651,9 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
                 m.timestamp
                     .with_timezone(&chrono::Local)
                     .format("%Y-%m-%d %H:%M:%S"),
-                m.from
+                sanitize_line(&m.from)
             );
-            println!("  {}", m.body);
+            println!("  {}", sanitize_text(&m.body));
             println!();
         }
     }
@@ -579,20 +663,14 @@ pub async fn run_forum(client: &MellowMeshClient, pattern: Option<String>) -> an
 pub async fn run_search(client: &MellowMeshClient, query: String) -> anyhow::Result<()> {
     let results = client.search_messages(&query).await?;
     if results.is_empty() {
-        println!("No messages found matching search query '{query}'.");
+        println!(
+            "No messages found matching search query '{}'.",
+            sanitize_line(&query)
+        );
         return Ok(());
     }
-    for m in results {
-        println!(
-            "[{}] {} | from: {}",
-            m.timestamp
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S"),
-            m.topic,
-            m.from
-        );
-        println!("  {}", m.body);
-        println!("{}", "-".repeat(60));
+    for m in &results {
+        print_message(m);
     }
     Ok(())
 }
@@ -610,8 +688,12 @@ pub async fn run_trace_enable(
         .enable_trace(target_type, target, level, duration, reason, enabled_by)
         .await?;
     println!("Trace session enabled successfully:");
-    println!("  ID:          {}", ts.id);
-    println!("  Target:      {} ({})", ts.target, ts.target_type);
+    println!("  ID:          {}", sanitize_line(&ts.id));
+    println!(
+        "  Target:      {} ({})",
+        sanitize_line(&ts.target),
+        sanitize_line(&ts.target_type)
+    );
     println!("  Level:       {:?}", ts.level);
     println!(
         "  Expires At:  {}",
@@ -661,6 +743,8 @@ pub async fn run_metrics(client: &MellowMeshClient) -> anyhow::Result<()> {
     println!("MELLOWMESH SYSTEM METRICS");
     println!("============================================================");
 
+    let mut metrics = metrics;
+    mellowmesh_client::sanitize::sanitize_json(&mut metrics);
     if let Some(obj) = metrics.as_object() {
         for (k, v) in obj {
             println!("  {k:<40} : {v}");
@@ -708,15 +792,19 @@ pub async fn run_wiki_view(
 ) -> anyhow::Result<()> {
     let doc = client.get_wiki_page(wiki, path).await?;
     println!("============================================================");
-    println!("WIKI: {} | PATH: {}", doc.wiki, doc.path);
-    println!("TITLE: {}", doc.title);
-    println!("TYPE: {}", doc.doc_type);
+    println!(
+        "WIKI: {} | PATH: {}",
+        sanitize_line(&doc.wiki),
+        sanitize_line(&doc.path)
+    );
+    println!("TITLE: {}", sanitize_line(&doc.title));
+    println!("TYPE: {}", sanitize_line(&doc.doc_type));
     if let Some(desc) = &doc.description {
-        println!("DESCRIPTION: {desc}");
+        println!("DESCRIPTION: {}", sanitize_line(desc));
     }
-    println!("TAGS: {}", doc.tags.join(", "));
+    println!("TAGS: {}", sanitize_line(&doc.tags.join(", ")));
     if let Some(res) = &doc.resource {
-        println!("RESOURCE: {res}");
+        println!("RESOURCE: {}", sanitize_line(res));
     }
     println!(
         "UPDATED: {}",
@@ -725,10 +813,10 @@ pub async fn run_wiki_view(
             .format("%Y-%m-%d %H:%M:%S")
     );
     println!("============================================================");
-    println!("\n{}\n", doc.body);
+    println!("\n{}\n", sanitize_text(&doc.body));
     println!("============================================================");
     if !doc.links.is_empty() {
-        println!("LINKS: {}", doc.links.join(", "));
+        println!("LINKS: {}", sanitize_line(&doc.links.join(", ")));
     }
     Ok(())
 }
@@ -842,8 +930,11 @@ pub async fn run_e2e(
     if !response.is_empty() {
         // Pretty-print JSON when possible.
         match serde_json::from_str::<serde_json::Value>(&response) {
-            Ok(v) => println!("{}", serde_json::to_string_pretty(&v)?),
-            Err(_) => println!("{response}"),
+            Ok(mut v) => {
+                mellowmesh_client::sanitize::sanitize_json(&mut v);
+                println!("{}", serde_json::to_string_pretty(&v)?)
+            }
+            Err(_) => println!("{}", sanitize_text(&response)),
         }
     }
     Ok(())
@@ -872,11 +963,11 @@ pub async fn run_token_create(
     println!("Token created for {principal}:");
     println!(
         "  id:     {}",
-        result.get("id").and_then(|v| v.as_str()).unwrap_or("?")
+        sanitize_line(result.get("id").and_then(|v| v.as_str()).unwrap_or("?"))
     );
     println!(
         "  token:  {}",
-        result.get("token").and_then(|v| v.as_str()).unwrap_or("?")
+        sanitize_line(result.get("token").and_then(|v| v.as_str()).unwrap_or("?"))
     );
     println!();
     println!("This token is shown ONCE and never stored in plaintext.");
@@ -1173,4 +1264,91 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
     println!("Next step — let your real agents join the fabric:");
     println!("  claude mcp add mellowmesh -- mellowmesh mcp");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decision_option_prefixes_set_outcomes() {
+        assert_eq!(
+            parse_decision_option("approve:Ship it").unwrap(),
+            ("Ship it".to_string(), Some(DecisionOutcome::Approve))
+        );
+        assert_eq!(
+            parse_decision_option("reject: Hold").unwrap(),
+            ("Hold".to_string(), Some(DecisionOutcome::Reject))
+        );
+        assert_eq!(
+            parse_decision_option("neutral:Ask again later").unwrap(),
+            (
+                "Ask again later".to_string(),
+                Some(DecisionOutcome::Neutral)
+            )
+        );
+        assert_eq!(
+            parse_decision_option("Maybe").unwrap(),
+            ("Maybe".to_string(), None)
+        );
+        // Only the exact lowercase prefixes are special.
+        assert_eq!(
+            parse_decision_option("Approve: later").unwrap(),
+            ("Approve: later".to_string(), None)
+        );
+        assert!(parse_decision_option("approve:").is_err());
+        assert!(parse_decision_option("reject:   ").is_err());
+        assert!(parse_decision_option("").is_err());
+    }
+
+    #[test]
+    fn pid_file_parsing() {
+        assert_eq!(parse_pid("4242\n"), Some(4242));
+        assert_eq!(parse_pid(" 17 "), Some(17));
+        assert_eq!(parse_pid("1"), None);
+        assert_eq!(parse_pid("0"), None);
+        assert_eq!(parse_pid("-1"), None);
+        assert_eq!(parse_pid("12 34"), None);
+        assert_eq!(parse_pid("abc"), None);
+        assert_eq!(parse_pid(""), None);
+    }
+
+    #[test]
+    fn owner_token_is_read_and_trimmed() {
+        let dir = std::env::temp_dir().join(format!(
+            "mellowmesh-cli-test-{}",
+            ulid::Ulid::new().to_string().to_lowercase()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_owner_token(&dir), None);
+        std::fs::write(dir.join("owner.token"), "mm_secret\n").unwrap();
+        assert_eq!(read_owner_token(&dir), Some("mm_secret".to_string()));
+        std::fs::write(dir.join("owner.token"), "  \n").unwrap();
+        assert_eq!(read_owner_token(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn kill_requires_a_pid_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "mellowmesh-cli-test-{}",
+            ulid::Ulid::new().to_string().to_lowercase()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let err = kill_daemon_from_pid_file(&dir, false).unwrap_err();
+        assert!(err.to_string().contains("No daemon PID file"));
+        std::fs::write(dir.join("mellowmeshd.pid"), "not-a-pid").unwrap();
+        assert!(kill_daemon_from_pid_file(&dir, false).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn stop_is_a_no_op_when_nothing_listens() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        run_daemon_stop(port, false).await.unwrap();
+    }
 }
