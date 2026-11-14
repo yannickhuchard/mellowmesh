@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mello, the violet clay helper, on the 108dp adaptive-icon canvas (safe zone 66dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="25"
+        android:translateY="25"
+        android:scaleX="0.58"
+        android:scaleY="0.58">
+        <path
+            android:fillColor="#FF8B5CF6"
+            android:pathData="M50,9 C77,9 92,25 92,53 C92,80 76,93 50,93 C24,93 8,80 8,53 C8,25 23,9 50,9 Z" />
+        <path
+            android:fillColor="#59FFFFFF"
+            android:pathData="M24,30 C24,22 34,17 42,19 C48,21 46,28 38,31 C31,34 24,36 24,30 Z" />
+        <path
+            android:fillColor="#73FF8FB1"
+            android:pathData="M22,62 a6,4 0 1,0 12,0 a6,4 0 1,0 -12,0 Z" />
+        <path
+            android:fillColor="#73FF8FB1"
+            android:pathData="M66,62 a6,4 0 1,0 12,0 a6,4 0 1,0 -12,0 Z" />
+        <path
+            android:fillColor="#FF111114"
+            android:pathData="M34,50 a4,6 0 1,0 8,0 a4,6 0 1,0 -8,0 Z" />
+        <path
+            android:fillColor="#FF111114"
+            android:pathData="M58,50 a4,6 0 1,0 8,0 a4,6 0 1,0 -8,0 Z" />
+    </group>
+</vector>
