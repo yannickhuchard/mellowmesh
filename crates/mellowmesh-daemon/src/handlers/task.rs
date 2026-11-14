@@ -12,7 +12,7 @@ use axum::{
 };
 use chrono::{SecondsFormat, Utc};
 use mellowmesh_core::message::Message;
-use mellowmesh_core::task::{status, Task, TransitionRule, DEFAULT_LEASE_SECONDS};
+use mellowmesh_core::task::{status, Task, TaskUpdate, TransitionRule, DEFAULT_LEASE_SECONDS};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -278,19 +278,6 @@ pub async fn complete_task(
     }
 }
 
-/// `PATCH /tasks/:id` body. Every field is optional; an empty string clears
-/// `assigned_to` / `team`.
-#[derive(Deserialize, Default)]
-pub struct TaskPatch {
-    pub status: Option<String>,
-    pub assigned_to: Option<String>,
-    pub priority: Option<String>,
-    pub depends_on: Option<Vec<String>>,
-    pub team: Option<String>,
-    pub title: Option<String>,
-    pub description: Option<String>,
-}
-
 /// Lease expiry for a task returning to a claimed state.
 fn fresh_lease(task: &Task) -> Option<String> {
     let secs = task
@@ -310,7 +297,7 @@ pub async fn update_task(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthContext>,
     Path(task_id): Path<String>,
-    Json(patch): Json<TaskPatch>,
+    Json(patch): Json<TaskUpdate>,
 ) -> Result<impl IntoResponse, ApiError> {
     let all = load_tasks(&state).await?;
     let Some(current) = all.iter().find(|t| t.id == task_id).cloned() else {

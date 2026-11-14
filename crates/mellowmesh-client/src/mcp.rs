@@ -35,6 +35,7 @@ const READ_TOOLS: &[&str] = &[
     "list_agents",
     "list_tasks",
     "list_decisions",
+    "get_network",
     "get_context",
     "list_traces",
     "list_wiki_pages",
@@ -655,6 +656,49 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                 "required": ["name"]
             }
         }),
+        serde_json::json!({
+            "name": "update_task",
+            "description": "Update a task: move it on the board (status: in_progress by its claimant, blocked, cancelled, completed by its claimant, back from blocked, or reopen to open by its creator), reassign it, or change its priority, dependencies, team, title or description. Claiming still goes through claim_task. Allowed for the task's creator, assignee or claimant.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "Task identifier"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "in_progress", "blocked", "completed", "cancelled", "claimed"],
+                        "description": "New status (validated against the allowed transitions)"
+                    },
+                    "assigned_to": {
+                        "type": "string",
+                        "description": "Principal URI to assign; empty string clears it"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "low, medium, high or critical"
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Replace the task's dependencies (task ids); cycles are rejected"
+                    },
+                    "team": {
+                        "type": "string",
+                        "description": "Team id; empty string clears it"
+                    },
+                    "title": { "type": "string", "description": "New title" },
+                    "description": { "type": "string", "description": "New description" }
+                },
+                "required": ["task_id"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_network",
+            "description": "Read the hub's network: its name and default access, the spaces you may see (topic patterns with private/closed/open access) and the teams you belong to. Read-only.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
     ]
 }
 
@@ -928,6 +972,35 @@ pub async fn handle_tool_call(
         "list_tasks" => {
             let tasks = client.list_tasks().await?;
             json_block(&tasks)
+        }
+        "update_task" => {
+            let task_id = args
+                .get("task_id")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing task_id"))?;
+            let text = |key: &str| {
+                args.get(key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            };
+            let update = mellowmesh_core::task::TaskUpdate {
+                status: text("status"),
+                assigned_to: text("assigned_to"),
+                priority: text("priority"),
+                depends_on: args
+                    .get("depends_on")
+                    .is_some()
+                    .then(|| string_list(&args, "depends_on")),
+                team: text("team"),
+                title: text("title"),
+                description: text("description"),
+            };
+            let task = client.update_task(task_id, &update).await?;
+            json_block(&task)
+        }
+        "get_network" => {
+            let view = client.get_network().await?;
+            json_block(&view)
         }
         "claim_task" => {
             let task_id = args
@@ -1254,7 +1327,7 @@ mod tests {
     #[test]
     fn respond_decision_is_not_an_agent_tool() {
         let tools = list_tools_schema();
-        assert_eq!(tools.len(), 27);
+        assert_eq!(tools.len(), 29);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 

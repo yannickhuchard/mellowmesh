@@ -373,6 +373,9 @@ pub struct CreateTokenPayload {
     /// Topic patterns the token may write. Defaults to `["**"]`.
     #[serde(default)]
     pub write_scopes: Option<Vec<String>>,
+    /// Optional label for the token itself (e.g. the paired device).
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 pub async fn create_token(
@@ -410,6 +413,16 @@ pub async fn create_token(
         revoked: false,
     };
     state.store.insert_token(&record).map_err(internal)?;
+    let label = payload
+        .label
+        .map(|l| l.trim().chars().take(120).collect::<String>())
+        .filter(|l| !l.is_empty());
+    if let Some(l) = &label {
+        state
+            .store
+            .set_token_label(&record.id, l)
+            .map_err(internal)?;
+    }
     // Register the derived end-to-end key (linked to this token, so revoking
     // the token also deletes the key) for encrypted relay traffic.
     let _ = state
@@ -423,6 +436,7 @@ pub async fn create_token(
         "token": plaintext,
         "read_scopes": record.read_scopes,
         "write_scopes": record.write_scopes,
+        "label": label,
     })))
 }
 
@@ -437,6 +451,7 @@ pub async fn list_tokens(
         ));
     }
     let tokens = state.store.list_tokens().map_err(internal)?;
+    let labels = state.store.token_labels().map_err(internal)?;
     // Strip hashes from the listing.
     let sanitized: Vec<serde_json::Value> = tokens
         .into_iter()
@@ -448,6 +463,7 @@ pub async fn list_tokens(
                 "write_scopes": t.write_scopes,
                 "created_at": t.created_at,
                 "revoked": t.revoked,
+                "label": labels.get(&t.id),
             })
         })
         .collect();

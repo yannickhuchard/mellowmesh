@@ -262,6 +262,8 @@ impl Store {
         // Link a token to its derived e2e key id so revocation can delete the
         // key too, instead of leaving orphaned key material behind.
         let _ = conn.execute("ALTER TABLE tokens ADD COLUMN e2e_key_id TEXT", []);
+        // Optional token label (e.g. the name of a paired device).
+        let _ = conn.execute("ALTER TABLE tokens ADD COLUMN label TEXT", []);
 
         // End-to-end encryption keys, keyed by the token's derived key id.
         // Stored so the daemon can decrypt relayed envelopes without ever

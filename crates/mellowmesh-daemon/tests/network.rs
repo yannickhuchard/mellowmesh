@@ -522,3 +522,123 @@ fn refuses_to_listen_off_loopback_without_require_auth() {
     assert!(!dir.join("mm.db").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Rust SDK covers the whole network and task-board API.
+#[tokio::test]
+async fn sdk_round_trip() {
+    use mellowmesh_client::MellowMeshClient;
+    use mellowmesh_core::network::{AccessLevel, NetworkPatch, Space, Team, TeamRole};
+    use mellowmesh_core::task::{Task, TaskUpdate};
+
+    let hub = spawn_hub(true).await;
+    let owner = MellowMeshClient::loopback(hub.port).with_token(hub.token(OWNER, &["**"], &["**"]));
+    let me = owner.whoami().await.unwrap();
+    assert_eq!(me.principal.as_deref(), Some(OWNER));
+    assert!(me.is_owner && !me.remote);
+
+    let n = owner
+        .set_network(&NetworkPatch {
+            name: Some("SDK mesh".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(n.name, "SDK mesh");
+
+    let team = owner
+        .create_team(&Team {
+            id: "ops".into(),
+            name: "Ops".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(team.color, "#10B981");
+    let team = owner
+        .add_team_member("ops", "human://alice", TeamRole::Admin)
+        .await
+        .unwrap();
+    assert_eq!(team.members.len(), 1);
+    let mut renamed = team.clone();
+    renamed.name = "Operations".into();
+    assert_eq!(
+        owner.replace_team(&renamed).await.unwrap().name,
+        "Operations"
+    );
+
+    let space = owner
+        .create_space(&Space {
+            id: "news".into(),
+            patterns: vec!["_forum.news.**".into()],
+            access: AccessLevel::Open,
+            teams: vec!["ops".into()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(space.name, "news");
+    let mut closed = space.clone();
+    closed.access = AccessLevel::Closed;
+    assert_eq!(
+        owner.replace_space(&closed).await.unwrap().access,
+        AccessLevel::Closed
+    );
+    let view = owner.get_network().await.unwrap();
+    assert_eq!(view.network.name, "SDK mesh");
+    assert_eq!(view.spaces.len(), 2, "news + team-ops");
+    assert_eq!(owner.list_spaces().await.unwrap().len(), 2);
+    assert_eq!(owner.list_teams().await.unwrap().len(), 1);
+
+    let check = owner
+        .access_check("_forum.news.today", Some("human://alice"))
+        .await
+        .unwrap();
+    assert!(check.read && check.write);
+    assert_eq!(check.space.as_deref(), Some("news"));
+    let check = owner.access_check("_forum.news.today", None).await.unwrap();
+    assert!(!check.read);
+
+    // Tasks.
+    owner
+        .create_task(&Task {
+            id: "sdk1".into(),
+            title: "First".into(),
+            team: Some("ops".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let t = owner
+        .update_task(
+            "sdk1",
+            &TaskUpdate {
+                status: Some("blocked".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(t.status, "blocked");
+    let g = owner.task_graph(Some("team:ops")).await.unwrap();
+    assert_eq!(g.tasks.len(), 1);
+    assert_eq!(g.lanes[0].label, "Operations");
+    assert!(owner.task_graph(None).await.is_ok());
+
+    // A labelled token, as `mellowmesh pair` mints it.
+    let minted = owner
+        .create_labeled_token(OWNER, "Pixel", vec!["**".into()], vec!["**".into()])
+        .await
+        .unwrap();
+    let tokens = owner.list_tokens().await.unwrap();
+    assert!(tokens
+        .iter()
+        .any(|t| t["id"] == minted["id"] && t["label"] == "Pixel"));
+
+    owner
+        .remove_team_member("ops", "human://alice")
+        .await
+        .unwrap();
+    owner.delete_space("news").await.unwrap();
+    owner.delete_team("ops").await.unwrap();
+    assert!(owner.list_spaces().await.unwrap().is_empty());
+}

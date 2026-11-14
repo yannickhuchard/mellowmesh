@@ -1160,6 +1160,19 @@ mod tests {
         assert_eq!(again.status(), 409);
     }
 
+    /// Id of the first task on the hub.
+    async fn text_task_id(http: &reqwest::Client, base: &str) -> String {
+        let tasks: serde_json::Value = http
+            .get(format!("{base}/tasks"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        tasks[0]["id"].as_str().unwrap().to_string()
+    }
+
     #[tokio::test]
     async fn test_http_mcp_endpoint() {
         let store = Store::new_in_memory().unwrap();
@@ -1208,7 +1221,7 @@ mod tests {
         // and the code can never silently drift apart again.
         assert_eq!(
             tools.len(),
-            27,
+            29,
             "MCP tool count changed — update README.md and docs/mcp.md to match"
         );
 
@@ -1248,6 +1261,43 @@ mod tests {
             .unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("MCP-created task"));
+
+        // get_network (read-only) and update_task round-trip too.
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": { "name": "get_network", "arguments": {} }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let view: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(view["network"]["default_access"], "closed");
+        let task_id = text_task_id(&http, &base).await;
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                "params": { "name": "update_task",
+                            "arguments": { "task_id": task_id, "status": "blocked" } }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false, "{resp}");
+        assert!(resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("\"blocked\""));
 
         // notifications are acknowledged without a body
         let resp = http

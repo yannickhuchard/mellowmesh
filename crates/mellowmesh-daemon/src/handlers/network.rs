@@ -11,7 +11,8 @@ use axum::{
 };
 use chrono::Utc;
 use mellowmesh_core::network::{
-    Caller, NetworkPatch, Space, Team, TeamMember, TeamRole, WriteAccess,
+    AccessCheck, Caller, NetworkPatch, NetworkView, Space, Team, TeamMember, TeamRole, WhoAmI,
+    WriteAccess,
 };
 use mellowmesh_store::network_store::CreateOutcome;
 use serde::Deserialize;
@@ -53,12 +54,12 @@ pub async fn whoami(
     Extension(ctx): Extension<AuthContext>,
 ) -> impl IntoResponse {
     let principal = ctx.principal.as_ref();
-    Json(serde_json::json!({
-        "principal": principal.map(|p| p.id.clone()),
-        "kind": principal.map(|p| p.kind.clone()),
-        "is_owner": principal.is_some_and(|p| p.id == state.owner),
-        "remote": ctx.remote,
-    }))
+    Json(WhoAmI {
+        principal: principal.map(|p| p.id.clone()),
+        kind: principal.map(|p| p.kind.clone()),
+        is_owner: principal.is_some_and(|p| p.id == state.owner),
+        remote: ctx.remote,
+    })
 }
 
 /// `GET /network`: the network plus the spaces and teams the caller may see.
@@ -69,11 +70,11 @@ pub async fn get_network(
     let snap = crate::access::snapshot(&state);
     let admin = is_admin(&state, &ctx);
     let caller = ctx.caller();
-    Json(serde_json::json!({
-        "network": snap.network,
-        "spaces": snap.visible_spaces(&caller, admin),
-        "teams": snap.visible_teams(&caller, admin),
-    }))
+    Json(NetworkView {
+        network: snap.network.clone(),
+        spaces: snap.visible_spaces(&caller, admin),
+        teams: snap.visible_teams(&caller, admin),
+    })
 }
 
 /// `PUT /network` (admin): partial update.
@@ -397,11 +398,11 @@ pub async fn access_check(
     if let Some(n) = note {
         reason.push_str(n);
     }
-    Ok(Json(serde_json::json!({
-        "read": decision.read,
-        "write": decision.write != WriteAccess::Denied,
-        "space": decision.space,
-        "level": decision.level,
-        "reason": reason,
-    })))
+    Ok(Json(AccessCheck {
+        read: decision.read,
+        write: decision.write != WriteAccess::Denied,
+        space: decision.space,
+        level: decision.level,
+        reason,
+    }))
 }

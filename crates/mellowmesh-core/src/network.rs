@@ -431,6 +431,34 @@ pub fn team_space_id(team_id: &str) -> String {
     format!("{TEAM_SPACE_PREFIX}{team_id}")
 }
 
+/// `GET /whoami` response.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhoAmI {
+    pub principal: Option<String>,
+    pub kind: Option<String>,
+    pub is_owner: bool,
+    pub remote: bool,
+}
+
+/// `GET /network` response: the network plus the spaces and teams the
+/// caller may see.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkView {
+    pub network: Network,
+    pub spaces: Vec<Space>,
+    pub teams: Vec<Team>,
+}
+
+/// `GET /access/check` response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccessCheck {
+    pub read: bool,
+    pub write: bool,
+    pub space: Option<String>,
+    pub level: AccessLevel,
+    pub reason: String,
+}
+
 /// Who is asking, as far as access rules care.
 #[derive(Debug, Clone, Copy)]
 pub struct Caller<'a> {
