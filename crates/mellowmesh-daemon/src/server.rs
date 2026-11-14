@@ -1059,10 +1059,47 @@ mod tests {
         });
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Reject the decision, and try to forge a human in the body.
+        // Open mode trusts localhost for most things, but never for answering
+        // a decision: an anonymous answer is refused and changes nothing.
         let http = reqwest::Client::new();
+        let anon = http
+            .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .json(&serde_json::json!({ "option_id": "yes", "responded_by": "human://you" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(anon.status(), 401);
+        assert_eq!(
+            store.get_decision("dec_gov").unwrap().unwrap().status,
+            "requested"
+        );
+
+        // A human token for the required decider; the body still cannot
+        // forge a different human.
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        store
+            .upsert_principal(&Principal {
+                id: "human://you".to_string(),
+                kind: "human".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        let human_token = generate_token();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_you".to_string(),
+                principal: "human://you".to_string(),
+                token_hash: hash_token(&human_token),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec![],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
         let resp = http
             .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .bearer_auth(&human_token)
             .json(&serde_json::json!({
                 "option_id": "no",
                 "responded_by": "human://yannick"
@@ -1075,15 +1112,14 @@ mod tests {
         let d = store.get_decision("dec_gov").unwrap().unwrap();
         // A rejection is recorded as rejected, never approved.
         assert_eq!(d.status, "rejected");
-        // Open mode never trusts a caller-supplied human — no forgery.
-        assert_eq!(
-            d.responded_by,
-            Some("human://local-unauthenticated".to_string())
-        );
+        // The answer is attributed to the authenticated human, never to a
+        // caller-supplied one.
+        assert_eq!(d.responded_by, Some("human://you".to_string()));
 
         // A decision is answered exactly once.
         let again = http
             .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .bearer_auth(&human_token)
             .json(&serde_json::json!({ "option_id": "yes" }))
             .send()
             .await

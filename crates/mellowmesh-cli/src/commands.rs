@@ -103,6 +103,19 @@ fn read_owner_token(dir: &Path) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
+/// Answering a decision is a human act: the daemon refuses token-less
+/// answers even in open mode. When no `MELLOWMESH_TOKEN` is set and the CLI
+/// talks to the local daemon, act as the hub owner with the `owner.token` the
+/// daemon wrote next to its database (readable only by this OS user).
+fn as_local_human(client: &MellowMeshClient) -> MellowMeshClient {
+    if !client.has_token() && client.targets_local() {
+        if let Some(token) = read_owner_token(&daemon_data_dir()) {
+            return client.clone().with_token(token);
+        }
+    }
+    client.clone()
+}
+
 /// Parse the contents of `mellowmeshd.pid`. Rejects anything that is not a
 /// plain process id greater than 1.
 fn parse_pid(contents: &str) -> Option<u32> {
@@ -614,7 +627,14 @@ pub async fn run_respond(
     decision_id: &str,
     option_id: &str,
 ) -> anyhow::Result<()> {
-    client.respond_decision(decision_id, option_id).await?;
+    as_local_human(client)
+        .respond_decision(decision_id, option_id)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{e}\nAnswering a decision needs a human token: set MELLOWMESH_TOKEN, or run this on the hub's machine as the user who owns it (the CLI then uses owner.token)."
+            )
+        })?;
     println!("Decision {decision_id} answered with option {option_id}.");
     Ok(())
 }
@@ -1237,7 +1257,9 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
     } else {
         "option_keep"
     };
-    client.respond_decision(&decision_id, option).await?;
+    as_local_human(client)
+        .respond_decision(&decision_id, option)
+        .await?;
     println!(
         "      Decision recorded: {option} (status: {})",
         if approved { "approved" } else { "rejected" }

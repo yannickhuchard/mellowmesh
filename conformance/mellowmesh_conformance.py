@@ -24,6 +24,10 @@ Notes
   announcement with its payload.
 * D6 checks that a client cannot publish a forged decision outcome on the
   hub-reserved `_decision.<id>.responded` topic.
+* Answering a decision MUST be authenticated as a human, even on a hub that
+  otherwise runs in an open/trusted-localhost mode. Pass `--human-token` (a
+  token of the decider `human://conformance`, or the hub owner's token) for
+  D2–D4; D7 checks that an anonymous answer is refused.
 * A check whose setup call fails (e.g. the hub cannot create a task) is
   reported as ERROR rather than FAIL, and a harness problem in the WebSocket
   check (T9) is reported instead of aborting the run.
@@ -440,7 +444,16 @@ def _decision_opts():
     ]
 
 
-def check_decisions(hub, rep, agent_token):
+def _answer_status(st, human_token):
+    """FAIL normally; ERROR with a hint when the hub refused an anonymous
+    answer because no human token was supplied (that refusal is correct)."""
+    if st == 401 and not human_token:
+        return ERROR, " — the hub requires a human token to answer; pass --human-token"
+    return FAIL, ""
+
+
+def check_decisions(hub, rep, agent_token, human_token=None):
+    ht = human_token if human_token else None
     # D1 — a new decision MUST NOT be terminal
     st, d = hub.create_decision("conformance D1", options=_decision_opts())
     if st != 200 or not isinstance(d, dict) or not d.get("id"):
@@ -453,18 +466,20 @@ def check_decisions(hub, rep, agent_token):
             f"status={d.get('status')}")
 
     # D2 — the flagship: a REJECT option is recorded as rejected, never approved
-    st, r = hub.respond(did, "reject")
+    st, r = hub.respond(did, "reject", token=ht)
     after = hub.get_decision(did) or {}
     ok = st == 200 and after.get("status") == "rejected"
+    bad, hint = _answer_status(st, human_token)
     rep.add("D2", "§7.2", "A rejection is recorded as 'rejected' (never 'approved')",
-            PASS if ok else FAIL,
+            PASS if ok else bad,
             f"respond(reject) -> {st}; status={after.get('status')} "
-            f"(a hub that records 'approved' here inverts the human's decision)")
+            f"(a hub that records 'approved' here inverts the human's decision){hint}")
 
     # D3 — a decision is answered exactly once
-    st, r = hub.respond(did, "approve")
+    st, r = hub.respond(did, "approve", token=ht)
+    bad, hint = _answer_status(st, human_token)
     rep.add("D3", "§7.2", "A decision cannot be answered twice (409)",
-            PASS if st == 409 else FAIL, f"second respond -> {st} (expected 409)")
+            PASS if st == 409 else bad, f"second respond -> {st} (expected 409){hint}")
 
     # D4 — an unknown option is rejected, not silently recorded
     st, d4 = hub.create_decision("conformance D4", options=_decision_opts())
@@ -473,9 +488,24 @@ def check_decisions(hub, rep, agent_token):
         rep.add("D4", "§7.2", "An unknown option id is refused", ERROR,
                 f"could not create decision: POST /decisions -> {st}")
     else:
-        st, r = hub.respond(did4, "does-not-exist")
+        st, r = hub.respond(did4, "does-not-exist", token=ht)
+        bad, hint = _answer_status(st, human_token)
         rep.add("D4", "§7.2", "An unknown option id is refused (400)",
-                PASS if st == 400 else FAIL, f"respond(bogus) -> {st} (expected 400)")
+                PASS if st == 400 else bad, f"respond(bogus) -> {st} (expected 400){hint}")
+
+    # D7 — an anonymous answer is refused, even on an open-mode hub
+    st, d7 = hub.create_decision("conformance D7", options=_decision_opts())
+    did7 = d7.get("id") if isinstance(d7, dict) else None
+    if not did7:
+        rep.add("D7", "§7.2", "An anonymous answer is refused", ERROR,
+                f"could not create decision: POST /decisions -> {st}")
+    else:
+        st, r = hub.respond(did7, "approve", token="")
+        after = hub.get_decision(did7) or {}
+        ok = st in (401, 403) and after.get("status") not in TERMINAL_DECISION
+        rep.add("D7", "§7.2", "An anonymous answer is refused (401/403) and changes nothing",
+                PASS if ok else FAIL,
+                f"anonymous respond -> {st}; status={after.get('status')}")
 
     # D6 — a client cannot forge a decision outcome by publishing on the
     # hub-reserved `_decision.<id>.responded` topic
@@ -514,7 +544,7 @@ def run(args):
 
     rep = Report()
     check_tasks(hub, rep, args.reclaim_timeout)
-    check_decisions(hub, rep, args.agent_token)
+    check_decisions(hub, rep, args.agent_token, args.human_token)
     rep.print()
 
     c = rep.counts()
@@ -551,6 +581,9 @@ def main():
     p.add_argument("--url", help="Base URL of the hub, e.g. http://127.0.0.1:40000")
     p.add_argument("--token", help="Bearer token for setup calls (if the hub requires auth)")
     p.add_argument("--agent-token", help="A real agent:// bearer token; enables the D5 governance check")
+    p.add_argument("--human-token",
+                   help="A human bearer token allowed to answer decisions for human://conformance "
+                        "(e.g. the hub owner's token); used by D2-D4")
     p.add_argument("--reclaim-timeout", type=float, default=25.0,
                    help="Seconds to wait for lease reclaim in T6 (default 25)")
     p.add_argument("--http-timeout", type=float, default=10.0,

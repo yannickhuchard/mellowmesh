@@ -119,7 +119,10 @@ Prefix an option with `approve:` or `reject:` to give it an outcome; only those
 outcomes let the decision resolve to `approved` / `rejected`. An option
 without a prefix records the answer as `answered`.
 `mellowmesh respond` must be run by the decision's `required_decider` (or the
-hub owner) — agent tokens are refused.
+hub owner) — agent tokens are refused. Answering always needs a human token,
+even when the daemon runs in open mode: the CLI uses `MELLOWMESH_TOKEN`, or —
+on the hub's machine, as the user who runs the daemon — the owner token from
+`owner.token`.
 
 ## Security: Tokens, E2E, and MCP
 

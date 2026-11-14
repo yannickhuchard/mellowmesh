@@ -262,11 +262,14 @@ Each option MAY declare an `outcome` of `approve`, `reject`, or `neutral`
   - An `interface` relay MUST resolve `responded_by` to a known `human://`
     identity (a registered `human` principal, directly or through an identity
     mapping); it MUST NOT attribute an approval to an arbitrary string.
-  - Under authentication, the responder (the human, or the human an
-    interface relays) MUST be the decision's `required_decider` or the hub
-    owner; any other responder MUST be rejected.
-  - In open mode the responder MUST be recorded as unauthenticated (never a
-    caller-supplied human), so provenance cannot be forged.
+  - **Answering MUST be authenticated, in every mode.** Even a hub that trusts
+    unauthenticated localhost clients for other operations ("open mode") MUST
+    reject an anonymous answer (401), so no local process can approve a
+    decision or appear in the audit trail as a human.
+  - The responder (the human, or the human an interface relays) MUST be the
+    decision's `required_decider` or the hub owner; any other responder MUST
+    be rejected. A caller-supplied `responded_by` is never trusted except
+    through an interface relay as described above.
   - A principal MUST NOT answer its own proposal (`responded_by` ≠ `created_by`).
   - A decision MUST be answerable **exactly once**; a second response MUST be
     rejected.

@@ -11,7 +11,8 @@ mod mcp;
     about = "MellowMesh Intelligent Coordination CLI"
 )]
 struct Cli {
-    #[arg(short, long, default_value_t = 40000)]
+    /// Port of the local daemon (also read from MELLOWMESH_PORT)
+    #[arg(short, long, env = "MELLOWMESH_PORT", default_value_t = 40000)]
     port: u16,
 
     #[command(subcommand)]

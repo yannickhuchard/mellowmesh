@@ -86,6 +86,19 @@ curl -H "Authorization: Bearer mm_..." \
   https://relay.example.com/hub/<hub_id>/decisions
 ```
 
+### Web dashboard through the relay
+
+Open `https://<relay>/hub/<hub_id>/` in a browser: the dashboard keeps every
+API call and its live WebSocket under that `/hub/<hub_id>/` prefix. A relayed
+hub always requires auth, so the dashboard asks for a token on first use
+(paste the owner token or a human token) and keeps it in that browser's
+local storage for the relay's origin.
+
+The browser dashboard does **not** use end-to-end sealing: its requests carry
+the bearer token to the relay like any HTTPS client. Use it only through a
+relay you operate or trust, over HTTPS; for zero-trust access use the CLI or
+SDK (sealed, see below).
+
 ## End-to-end encryption (relay can't read your traffic)
 
 Without encryption the relay operator could observe the traffic it forwards

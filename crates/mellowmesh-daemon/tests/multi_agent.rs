@@ -335,11 +335,42 @@ async fn concurrent_decisions_answered_once_with_correct_outcome() {
     }
     assert_eq!(coordinator.list_decisions().await.unwrap().len(), n);
 
+    // Answering is a human act: even in open mode it needs a human token.
+    // An anonymous answer is refused.
+    assert!(client(port)
+        .respond_decision("decision_0", "approve")
+        .await
+        .is_err());
+    let human_token = {
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        store
+            .upsert_principal(&Principal {
+                id: "human://test".to_string(),
+                kind: "human".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        let t = generate_token();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_test_human".to_string(),
+                principal: "human://test".to_string(),
+                token_hash: hash_token(&t),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec![],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
+        t
+    };
+
     // The human answers all decisions concurrently: even ids approved, odd
     // rejected. Each is answered once; a duplicate answer is refused (409).
     let mut answerers = Vec::new();
     for i in 0..n {
-        let c = client(port);
+        let c = client(port).with_token(human_token.clone());
         answerers.push(tokio::spawn(async move {
             let option = if i % 2 == 0 { "approve" } else { "reject" };
             c.respond_decision(&format!("decision_{i}"), option)
@@ -363,10 +394,7 @@ async fn concurrent_decisions_answered_once_with_correct_outcome() {
             .unwrap();
         let expected = if i % 2 == 0 { "approved" } else { "rejected" };
         assert_eq!(d.status, expected, "decision_{i} recorded wrong outcome");
-        assert_eq!(
-            d.responded_by.as_deref(),
-            Some("human://local-unauthenticated")
-        );
+        assert_eq!(d.responded_by.as_deref(), Some("human://test"));
     }
 }
 
@@ -392,6 +420,26 @@ async fn reference_hub_passes_conformance_kit() {
 
     // Mint a real agent:// token so the kit can run the D5 governance check.
     let agent_token = generate_token();
+    let human_token = generate_token();
+    store
+        .upsert_principal(&Principal {
+            id: "human://conformance".to_string(),
+            kind: "human".to_string(),
+            display_name: None,
+            created_at: chrono::Utc::now(),
+        })
+        .unwrap();
+    store
+        .insert_token(&TokenRecord {
+            id: "tok_conformance_human".to_string(),
+            principal: "human://conformance".to_string(),
+            token_hash: hash_token(&human_token),
+            read_scopes: vec!["**".to_string()],
+            write_scopes: vec![],
+            created_at: chrono::Utc::now(),
+            revoked: false,
+        })
+        .unwrap();
     store
         .upsert_principal(&Principal {
             id: "agent://conformance/agent".to_string(),
@@ -420,6 +468,7 @@ async fn reference_hub_passes_conformance_kit() {
             .arg(kit)
             .args(["--url", &url, "--reclaim-timeout", "15"])
             .args(["--agent-token", &agent_token])
+            .args(["--human-token", &human_token])
             .output()
             .expect("failed to run conformance kit")
     })

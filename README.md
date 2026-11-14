@@ -8,7 +8,7 @@
 
 ---
 
-[![Rust](https://img.shields.io/badge/rust-v1.80%2B-blue.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-v1.89%2B-blue.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 You run AI agents everywhere — Claude Code in one terminal, Codex in a repo, a research agent in the background, bots in Discord. Each one is trapped in the window that launched it, and they coordinate with each other through nothing.

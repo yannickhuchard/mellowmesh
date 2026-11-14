@@ -36,7 +36,7 @@ mellowmesh --port 45000 status
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `MELLOWMESH_PORT` | Port for the daemon to bind or for the client/MCP server to target. | `40000` |
+| `MELLOWMESH_PORT` | Port for the daemon to bind or for the CLI / MCP server to target. `--port` takes precedence. | `40000` |
 | `MELLOWMESH_DB` | Absolute path to the SQLite storage database. | OS AppData folder (below) |
 | `MELLOWMESH_WIKIS` | Wiki namespace-to-directory mappings (see [CLI guide](cli.md)). | `default:./wiki` |
 | `MELLOWMESH_RETENTION` | Global retention override for topics that match no per-topic policy rule (e.g. `30d`, `12h`, `forever`). | default policy (`7d`) |

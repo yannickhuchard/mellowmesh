@@ -1361,17 +1361,27 @@
             });
         }
 
+        // When the dashboard is opened through a relay it lives under
+        // /hub/<id>/; every API and WebSocket path must keep that prefix,
+        // otherwise requests escape to the relay's own root and 404.
+        const API_BASE = (() => {
+            const m = window.location.pathname.match(/^\/hub\/[^/]+/);
+            return m ? m[0] : '';
+        })();
+
         // Single wrapper for every HTTP call the dashboard makes: adds the
         // bearer token and, on 401, asks for a token once and retries.
         async function apiFetch(path, opts = {}, attempt = 0) {
             const headers = new Headers(opts.headers || {});
             const token = currentToken();
             if (token) headers.set('Authorization', 'Bearer ' + token);
-            const res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
+            const res = await fetch(API_BASE + path, { ...opts, headers, credentials: 'same-origin' });
             if (res.status === 401 && attempt < 2) {
                 const entered = await requestToken(token
                     ? 'The stored access token was rejected. Paste a valid token:'
-                    : 'This daemon requires an access token. Paste one to continue:');
+                    : path.endsWith('/respond')
+                        ? 'Answering a decision needs a human token, even in open mode. Paste the owner token (the owner.token file next to the hub database) or your own human token:'
+                        : 'This daemon requires an access token. Paste one to continue:');
                 if (entered) return apiFetch(path, opts, attempt + 1);
             }
             return res;
@@ -2699,7 +2709,7 @@
             const statusText = document.getElementById('status-text');
 
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            let wsUrl = `${proto}//${window.location.host}/ws?pattern=${encodeURIComponent('**')}`;
+            let wsUrl = `${proto}//${window.location.host}${API_BASE}/ws?pattern=${encodeURIComponent('**')}`;
             // Browsers can't set headers on the upgrade request, so the token
             // travels as a query parameter (same origin only).
             const token = currentToken();

@@ -95,8 +95,15 @@ mellowmesh token revoke tok_…  # immediate revocation
   answer, but only when the chat identity resolves (through an identity
   mapping) to a known human principal who is allowed to decide; the answer
   is recorded as `human://x (via interface://y)`. Every response records
-  `responded_by` for audit (unauthenticated responses in open mode are
-  recorded as `human://local-unauthenticated`).
+  `responded_by` for audit.
+* **Answering always needs a token — even in open mode.** Open mode trusts
+  localhost for reading, publishing and coordinating, but an anonymous
+  `POST /decisions/<id>/respond` is refused (401): otherwise any local process,
+  including an agent with a shell, could approve a decision. `mellowmesh
+  respond` uses `MELLOWMESH_TOKEN` or, on the hub's own machine, the owner
+  token in `owner.token` (readable only by the OS user who runs the daemon);
+  the dashboard asks for a token the first time you answer; chat connectors
+  always run with their own interface token.
 * **Decision outcomes**: only options marked `"outcome": "approve"` /
   `"reject"` move a decision to `approved` / `rejected`; any other answer is
   recorded as `answered`. A "Reject" button can therefore never be recorded

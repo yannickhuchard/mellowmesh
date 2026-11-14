@@ -29,14 +29,41 @@ const ME: &str = "human://test";
 
 /// Serve a real daemon (open mode) on `port` from its own runtime thread,
 /// so the test thread stays free of any Tokio context — like a shell.
-fn spawn_daemon(port: u16) {
+/// Returns a human token for `ME`, like the one a paired device holds:
+/// answering decisions requires one even in open mode.
+fn spawn_daemon(port: u16) -> String {
     std::env::set_var("MELLOWMESH_SWEEP_INTERVAL_SECS", "1");
     std::env::set_var("MELLOWMESH_NOTIFICATIONS", "off");
     let (ready_tx, ready_rx) = mpsc::channel();
+    let (token_tx, token_rx) = mpsc::channel::<String>();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
             let store = Store::new_in_memory().unwrap();
+            {
+                use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+                store
+                    .upsert_principal(&Principal {
+                        id: ME.to_string(),
+                        kind: "human".to_string(),
+                        display_name: Some("Test human".to_string()),
+                        created_at: chrono::Utc::now(),
+                    })
+                    .unwrap();
+                let plaintext = generate_token();
+                store
+                    .insert_token(&TokenRecord {
+                        id: format!("tok_test_{port}"),
+                        principal: ME.to_string(),
+                        token_hash: hash_token(&plaintext),
+                        read_scopes: vec!["**".to_string()],
+                        write_scopes: vec!["**".to_string()],
+                        created_at: chrono::Utc::now(),
+                        revoked: false,
+                    })
+                    .unwrap();
+                token_tx.send(plaintext).unwrap();
+            }
             let metrics = Arc::new(DaemonMetrics::default());
             let pipeline = Arc::new(PersistencePipeline::new(store.clone(), metrics.clone()));
             pipeline.start();
@@ -76,6 +103,7 @@ fn spawn_daemon(port: u16) {
         });
     });
     ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    token_rx.recv_timeout(Duration::from_secs(10)).unwrap()
 }
 
 /// Seed the hub through the regular Rust SDK, as agents would.
@@ -212,10 +240,20 @@ fn config(port: u16) -> MeshConfig {
 #[test]
 fn app_core_against_real_daemon() {
     let port = 41201;
-    spawn_daemon(port);
+    let token = spawn_daemon(port);
     seed(port);
 
-    let session = MeshSession::connect(config(port)).unwrap();
+    // A token-less session can read in open mode but may not answer
+    // decisions: that is a human act, authenticated even in open mode.
+    let anonymous = MeshSession::connect(config(port)).unwrap();
+    assert!(matches!(
+        anonymous.respond_decision("decision_app_1".into(), "approve".into()),
+        Err(MeshError::Unauthorized { .. })
+    ));
+
+    let mut cfg = config(port);
+    cfg.token = Some(token);
+    let session = MeshSession::connect(cfg).unwrap();
     assert_eq!(session.me().id, ME);
     assert!(!session.e2e_enabled());
 

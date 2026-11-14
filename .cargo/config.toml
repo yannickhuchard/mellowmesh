@@ -1,0 +1,7 @@
+# Keep dependency updates compatible with the declared `rust-version`
+# (root Cargo.toml): `cargo update` prefers versions that support it.
+# Best effort only — a dependency can raise its own requirements transitively
+# (e.g. scheduled-thread-pool 0.2.8 pulls parking_lot 0.13, which needs 1.95),
+# so the `msrv` CI job is the real guard.
+[resolver]
+incompatible-rust-versions = "fallback"

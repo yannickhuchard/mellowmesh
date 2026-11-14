@@ -2,6 +2,7 @@
 name = "mellowmesh-cli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -16,7 +17,7 @@ mellowmesh-core = { path = "../mellowmesh-core" }
 mellowmesh-client = { path = "../mellowmesh-client" }
 mellowmesh-store = { path = "../mellowmesh-store" }
 tokio = { version = "1.38", features = ["full"] }
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 anyhow = "1.0"
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

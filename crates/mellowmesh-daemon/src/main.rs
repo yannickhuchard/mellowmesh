@@ -16,7 +16,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
     about = "MellowMesh Intelligent Coordination Daemon"
 )]
 struct Args {
-    #[arg(short, long, default_value_t = 40000)]
+    /// Port to listen on, on 127.0.0.1 (also read from MELLOWMESH_PORT)
+    #[arg(short, long, env = "MELLOWMESH_PORT", default_value_t = 40000)]
     port: u16,
 
     #[arg(short, long)]
@@ -294,13 +295,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("Could not write PID file {:?}: {}", pid_file, e);
     }
 
-    // Initialize and start connectors. Under required auth they get their
-    // own interface token (rotated each boot) so they can publish, subscribe,
-    // and relay human decision responses.
+    // Initialize and start connectors. They always get their own interface
+    // token (rotated each boot) so they can publish, subscribe, and relay
+    // human decision responses — answering a decision needs an authenticated
+    // principal even in open mode.
     // Loopback client: the daemon talks to itself, never through the relay,
     // regardless of any MELLOWMESH_URL/MELLOWMESH_E2E set in its environment.
     let mut client = mellowmesh_client::MellowMeshClient::loopback(args.port);
-    if require_auth {
+    {
         use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
         let principal_id = "interface://local/connectors".to_string();
         if let Ok(Some(old_id)) = state.store.get_config("connectors_token_id") {

@@ -229,6 +229,17 @@ impl MellowMeshClient {
         self.e2e_requested() && self.token.is_some()
     }
 
+    /// Whether a bearer token is configured for this client.
+    pub fn has_token(&self) -> bool {
+        self.token.is_some()
+    }
+
+    /// Whether this client talks to a daemon on this machine (loopback),
+    /// rather than to a remote hub through a relay.
+    pub fn targets_local(&self) -> bool {
+        self.is_local()
+    }
+
     /// True when the base URL is this machine (no relay in the path), so a
     /// bearer token on the wire never reaches a third party.
     fn is_local(&self) -> bool {
