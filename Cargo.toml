@@ -9,7 +9,8 @@ members = [
     "crates/mellowmesh-bench",
     "crates/mellowmesh-connectors",
     "crates/mellowmesh-relay",
-    "crates/mellowmesh-wasm"
+    "crates/mellowmesh-wasm",
+    "crates/mellowmesh-app-core"
 ]
 
 [workspace.package]
