@@ -70,9 +70,9 @@ fn check_wiki_name(wiki: &str) -> Result<(), ApiError> {
     }
 }
 
-fn require_read(ctx: &AuthContext, wiki: &str) -> Result<(), ApiError> {
+fn require_read(state: &AppState, ctx: &AuthContext, wiki: &str) -> Result<(), ApiError> {
     check_wiki_name(wiki)?;
-    if ctx.can_read(&wiki_scope_topic(wiki)) {
+    if ctx.can_read(state, &wiki_scope_topic(wiki)) {
         Ok(())
     } else {
         Err((
@@ -82,9 +82,9 @@ fn require_read(ctx: &AuthContext, wiki: &str) -> Result<(), ApiError> {
     }
 }
 
-fn require_write(ctx: &AuthContext, wiki: &str) -> Result<(), ApiError> {
+fn require_write(state: &AppState, ctx: &AuthContext, wiki: &str) -> Result<(), ApiError> {
     check_wiki_name(wiki)?;
-    if ctx.can_write(&wiki_scope_topic(wiki)) {
+    if ctx.can_write(state, &wiki_scope_topic(wiki)) {
         Ok(())
     } else {
         Err((
@@ -153,7 +153,7 @@ pub async fn list_or_search_pages(
     Path(wiki): Path<String>,
     Query(params): Query<SearchWikiParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_read(&ctx, &wiki)?;
+    require_read(&state, &ctx, &wiki)?;
     let query_str = params.query.unwrap_or_default();
     let doc_type = params.doc_type.as_deref();
     let tag = params.tag.as_deref();
@@ -184,7 +184,7 @@ pub async fn get_page(
     Extension(ctx): Extension<AuthContext>,
     Path((wiki, path)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_read(&ctx, &wiki)?;
+    require_read(&state, &ctx, &wiki)?;
     validate_page_path(&path, false)?;
     let store = state.store.clone();
     let wiki_clone = wiki.clone();
@@ -211,7 +211,7 @@ pub async fn write_page(
     Path((wiki, path)): Path<(String, String)>,
     Json(payload): Json<WritePagePayload>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_write(&ctx, &wiki)?;
+    require_write(&state, &ctx, &wiki)?;
     // 1. Resolve path on disk
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
@@ -327,7 +327,7 @@ pub async fn delete_page(
     Extension(ctx): Extension<AuthContext>,
     Path((wiki, path)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_write(&ctx, &wiki)?;
+    require_write(&state, &ctx, &wiki)?;
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -417,7 +417,7 @@ pub async fn sync_wiki_endpoint(
     Extension(ctx): Extension<AuthContext>,
     Path(wiki): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_write(&ctx, &wiki)?;
+    require_write(&state, &ctx, &wiki)?;
     let wiki_root = state.wikis.get(&wiki).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -442,7 +442,7 @@ pub async fn get_wiki_graph(
     Extension(ctx): Extension<AuthContext>,
     Path(wiki): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    require_read(&ctx, &wiki)?;
+    require_read(&state, &ctx, &wiki)?;
     let store = state.store.clone();
     let wiki_clone = wiki.clone();
 

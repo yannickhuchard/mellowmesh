@@ -202,6 +202,8 @@ impl NetworkPatch {
 /// A named part of the network: topic patterns plus who may use them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Space {
+    /// Slug id. May be omitted in a `PUT` body (the path names it).
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub name: String,
@@ -326,6 +328,8 @@ fn default_team_color() -> String {
 /// A named group of people and helpers that can be given access to spaces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Team {
+    /// Slug id. May be omitted in a `PUT` body (the path names it).
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub name: String,

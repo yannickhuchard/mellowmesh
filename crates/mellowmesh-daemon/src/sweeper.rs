@@ -73,6 +73,7 @@ async fn release_expired_leases(state: &AppState) {
                 "task_id": task.id,
                 "previous_claimant": previous_holder,
                 "status": "open",
+                "topics": task.topics,
             })),
             parent_id: None,
         };

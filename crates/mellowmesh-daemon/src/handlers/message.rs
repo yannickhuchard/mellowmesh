@@ -36,8 +36,19 @@ pub struct ForumParams {
 }
 
 /// Topics that only the hub itself publishes on. Clients may not forge
-/// decision outcomes, system/registry events, or lease reclaims.
-const RESERVED_PATTERNS: &[&str] = &["_decision.**", "_system.**", "_task.*.reclaimed"];
+/// decision outcomes, system/registry events, or task lifecycle events
+/// (`_task.<id>.progress` stays open: it is the claim-lease heartbeat).
+const RESERVED_PATTERNS: &[&str] = &[
+    "_decision.**",
+    "_system.**",
+    "_task.*.reclaimed",
+    "_task.*.created",
+    "_task.*.claimed",
+    "_task.*.started",
+    "_task.*.completed",
+    "_task.*.updated",
+    "_task.*.cancelled",
+];
 
 /// True when `topic` is in a hub-reserved namespace (case-insensitively,
 /// since topic names are case-insensitive).
@@ -168,13 +179,16 @@ pub fn handle_publish(
             }
         }
 
-        // Parse mentions and route directed inbox copies
-        let is_routed = msg
-            .headers
-            .as_ref()
-            .and_then(|h| h.get("x-mellowmesh-routed"))
-            .map(|v| v == "true")
-            .unwrap_or(false);
+        // Parse mentions and route directed inbox copies. Visitor posts are
+        // never routed into anyone's inbox.
+        let header_is_true = |name: &str| {
+            msg.headers
+                .as_ref()
+                .and_then(|h| h.get(name))
+                .is_some_and(|v| v == "true")
+        };
+        let is_routed =
+            header_is_true("x-mellowmesh-routed") || header_is_true(crate::access::VISITOR_HEADER);
 
         if !is_routed
             && !msg.topic.starts_with("_agent.")
@@ -453,7 +467,9 @@ pub async fn publish_message(
         ));
     }
 
-    if !ctx.can_write(&msg.topic) {
+    use mellowmesh_core::network::WriteAccess;
+    let write = ctx.access(&state, &msg.topic).write;
+    if write == WriteAccess::Denied {
         return Err((
             StatusCode::FORBIDDEN,
             format!(
@@ -473,9 +489,22 @@ pub async fn publish_message(
     if let Some(h) = msg.headers.as_mut() {
         h.remove("x-mellowmesh-routed");
         h.remove("x-mentions");
+        h.remove(crate::access::VISITOR_HEADER);
     }
 
-    if let Some(p) = &ctx.principal {
+    if write == WriteAccess::Visitor {
+        // A visitor post (open content with visitor_write): recorded as the
+        // visitor, never as a member, and never routed to inboxes.
+        let who = ctx.principal.as_ref().map(|p| p.id.clone());
+        msg.from = who
+            .clone()
+            .unwrap_or_else(|| mellowmesh_core::network::VISITOR_PRINCIPAL.to_string());
+        msg.owner = who;
+        msg.headers.get_or_insert_with(Default::default).insert(
+            crate::access::VISITOR_HEADER.to_string(),
+            "true".to_string(),
+        );
+    } else if let Some(p) = &ctx.principal {
         // Bind provenance to the authenticated principal so a message's
         // origin can be trusted for audit.
         msg.owner = Some(p.id.clone());
@@ -506,15 +535,6 @@ pub async fn publish_message(
     }
 }
 
-fn filter_readable(msgs: Vec<Message>, ctx: &crate::auth::AuthContext) -> Vec<Message> {
-    if ctx.principal.is_none() {
-        return msgs;
-    }
-    msgs.into_iter()
-        .filter(|m| ctx.can_read(&m.topic))
-        .collect()
-}
-
 /// Run a blocking store query on the blocking pool.
 async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
@@ -538,7 +558,7 @@ pub async fn get_history(
     })
     .await;
     match result {
-        Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
+        Ok(msgs) => Ok(Json(crate::access::filter_messages(&state, &ctx, msgs))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to fetch history: {e}"),
@@ -556,7 +576,7 @@ pub async fn search_messages(
     }
     let store = state.store.clone();
     match blocking(move || store.search_messages(&params.query)).await {
-        Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
+        Ok(msgs) => Ok(Json(crate::access::filter_messages(&state, &ctx, msgs))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to search messages: {e}"),
@@ -571,13 +591,14 @@ pub async fn list_topics(
     let store = state.store.clone();
     match blocking(move || store.list_topics()).await {
         Ok(topics) => {
-            // A scoped principal only sees topics it is allowed to read, so
-            // topic enumeration can't be used to map the whole namespace.
-            let visible: Vec<String> = if ctx.principal.is_some() {
-                topics.into_iter().filter(|t| ctx.can_read(t)).collect()
-            } else {
-                topics
-            };
+            // A caller only sees topics it is allowed to read, so topic
+            // enumeration can't be used to map the whole namespace.
+            let snap = crate::access::snapshot(&state);
+            let caller = ctx.caller();
+            let visible: Vec<String> = topics
+                .into_iter()
+                .filter(|t| snap.can_read(&caller, t))
+                .collect();
             Ok(Json(visible))
         }
         Err(e) => Err((
@@ -603,6 +624,8 @@ pub async fn get_forum(
     let result = blocking(move || store.get_history_matching(&pat, MAX_LIMIT)).await;
     match result {
         Ok(msgs) => {
+            let snap = crate::access::snapshot(&state);
+            let caller = ctx.caller();
             let mut filtered: Vec<Message> = msgs
                 .into_iter()
                 .filter(|m| {
@@ -611,7 +634,7 @@ pub async fn get_forum(
                         && !m.topic.contains(".scratch.")
                         && !m.topic.contains(".heartbeat")
                         && !m.topic.contains(".stream");
-                    is_eligible && ctx.can_read(&m.topic)
+                    is_eligible && crate::access::can_read_message(&snap, &caller, m)
                 })
                 .collect();
             // Keep the most recent FORUM_LIMIT, oldest first.

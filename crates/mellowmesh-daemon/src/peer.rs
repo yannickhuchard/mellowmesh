@@ -217,9 +217,11 @@ pub fn peer_topic_allowed(topic: &str) -> bool {
     if m("_system.registry.*", topic, true) {
         return true;
     }
-    !(m("_decision.**", topic, true)
-        || m("_task.*.reclaimed", topic, true)
-        || m("_system.**", topic, true))
+    // Task lifecycle events describe the peer's own tasks.
+    if crate::access::task_event(&topic.to_ascii_lowercase()).is_some() {
+        return false;
+    }
+    !(m("_decision.**", topic, true) || m("_system.**", topic, true))
 }
 
 /// Build the WebSocket handshake request, carrying the peer token (if any)
@@ -254,6 +256,51 @@ mod tests {
         assert!(!peer_topic_allowed("_system.presence"));
         assert!(!peer_topic_allowed("_system.presence.node1"));
         assert!(!peer_topic_allowed("_SYSTEM.presence.node1"));
+        assert!(!peer_topic_allowed("_task.t1.completed"));
+        assert!(!peer_topic_allowed("_TASK.t1.Created"));
+        assert!(peer_topic_allowed("_task.t1.progress"));
+    }
+
+    /// What this hub sends to a peer (a `node://` subscriber): only open
+    /// spaces, spaces shared with peers, and uncovered topics when the
+    /// network is open.
+    #[test]
+    fn outbound_peer_filter() {
+        use mellowmesh_core::network::{AccessLevel, Caller, NetworkSnapshot, Space};
+        let space = |id: &str, pattern: &str, access, share| Space {
+            id: id.into(),
+            patterns: vec![pattern.into()],
+            access,
+            share_with_peers: share,
+            ..Default::default()
+        };
+        let mut snap = NetworkSnapshot {
+            owner: "human://owner".into(),
+            spaces: vec![
+                space("public", "_forum.public.**", AccessLevel::Open, false),
+                space("family", "_chat.family.**", AccessLevel::Closed, false),
+                space("shared", "_forum.shared.**", AccessLevel::Closed, true),
+                space("diary", "_chat.diary.**", AccessLevel::Private, false),
+            ],
+            ..Default::default()
+        };
+        let scopes = vec!["**".to_string()];
+        let peer = Caller::token("node://laptop", "node", &scopes, &scopes);
+        assert!(snap.can_read(&peer, "_forum.public.news"));
+        assert!(snap.can_read(&peer, "_forum.shared.x"));
+        assert!(!snap.can_read(&peer, "_chat.family.chat"));
+        assert!(!snap.can_read(&peer, "_chat.diary.x"));
+        // Closed network: uncovered topics stay on this hub.
+        assert!(!snap.can_read(&peer, "_forum.general"));
+        // Reserved topics keep their own rules (token scopes).
+        assert!(snap.can_read(&peer, "_system.registry.agent"));
+        snap.network.default_access = AccessLevel::Open;
+        assert!(snap.can_read(&peer, "_forum.general"));
+        assert!(!snap.can_read(&peer, "_chat.family.chat"));
+        // A narrower peer scope still applies.
+        let narrow = vec!["_forum.public.**".to_string()];
+        let peer = Caller::token("node://laptop", "node", &narrow, &narrow);
+        assert!(!snap.can_read(&peer, "_forum.shared.x"));
     }
 
     #[test]

@@ -17,9 +17,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use mellowmesh_core::auth::{
-    generate_token, hash_token, kind_of_uri, scopes_allow, Principal, TokenRecord,
-};
+use mellowmesh_core::auth::{generate_token, hash_token, kind_of_uri, Principal, TokenRecord};
 use mellowmesh_core::e2e::REPLAY_WINDOW_SECS;
 use serde::Deserialize;
 use std::cmp::Reverse;
@@ -97,27 +95,16 @@ pub struct AuthPrincipal {
     pub token_hash: String,
 }
 
+/// Who is calling. Topic checks (`can_read`, `can_write`, `access`) apply
+/// the network rules and live in [`crate::access`].
 #[derive(Debug, Clone, Default)]
 pub struct AuthContext {
     pub principal: Option<AuthPrincipal>,
-}
-
-impl AuthContext {
-    pub fn can_write(&self, topic: &str) -> bool {
-        match &self.principal {
-            Some(p) => scopes_allow(&p.write_scopes, topic),
-            // Unauthenticated requests only reach handlers in open mode,
-            // where localhost is trusted.
-            None => true,
-        }
-    }
-
-    pub fn can_read(&self, topic: &str) -> bool {
-        match &self.principal {
-            Some(p) => scopes_allow(&p.read_scopes, topic),
-            None => true,
-        }
-    }
+    /// The request came from elsewhere: a public host, a non-loopback
+    /// peer address, or the relay. Remote callers are never trusted local.
+    pub remote: bool,
+    /// An anonymous local caller while the hub runs in open mode.
+    pub trusted_local: bool,
 }
 
 /// Endpoints reachable without a bearer token even under `--require-auth`.
@@ -129,6 +116,31 @@ fn is_open_path(path: &str) -> bool {
         path,
         "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request"
     )
+}
+
+/// Endpoints a token-less visitor (a remote caller, or any caller under
+/// `--require-auth`) may reach: reads, whose handlers only return what the
+/// network rules allow (open content), and plain publishing, which only
+/// succeeds on open content that accepts visitor posts.
+fn is_visitor_path(method: &axum::http::Method, path: &str) -> bool {
+    use axum::http::Method;
+    match *method {
+        Method::GET => matches!(
+            path,
+            "/history"
+                | "/topics"
+                | "/forum"
+                | "/search"
+                | "/context"
+                | "/ws"
+                | "/whoami"
+                | "/network"
+                | "/spaces"
+                | "/teams"
+        ),
+        Method::POST => path == "/publish",
+        _ => false,
+    }
 }
 
 fn extract_bearer(req: &Request<Body>) -> Option<String> {
@@ -263,7 +275,19 @@ pub async fn auth_middleware(
         }
     }
 
-    if state.require_auth && ctx.principal.is_none() && !is_open_path(req.uri().path()) {
+    ctx.remote = req
+        .extensions()
+        .get::<crate::access::RequestOrigin>()
+        .is_some_and(|o| o.remote);
+    ctx.trusted_local = ctx.principal.is_none() && !ctx.remote && !state.require_auth;
+
+    // Token-less callers that are not trusted (remote, or any caller under
+    // --require-auth) only reach the open endpoints and the visitor ones.
+    if ctx.principal.is_none()
+        && !ctx.trusted_local
+        && !is_open_path(req.uri().path())
+        && !is_visitor_path(req.method(), req.uri().path())
+    {
         return (
             StatusCode::UNAUTHORIZED,
             "Authentication required: pass a bearer token (Authorization header or ?token=)",
@@ -323,12 +347,13 @@ pub(crate) async fn token_still_valid(state: &AppState, token_hash: &str) -> boo
     }
 }
 
-/// True when the request may administer tokens: the owner principal, or an
-/// unauthenticated localhost request in open mode.
+/// True when the request may administer the hub (tokens, network, spaces,
+/// teams): the owner principal, or an unauthenticated local request in open
+/// mode. Remote token-less callers are never admins.
 pub(crate) fn is_admin(state: &AppState, ctx: &AuthContext) -> bool {
     match &ctx.principal {
         Some(p) => p.id == state.owner,
-        None => !state.require_auth,
+        None => ctx.trusted_local && !ctx.remote && !state.require_auth,
     }
 }
 
