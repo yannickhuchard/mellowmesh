@@ -172,12 +172,21 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
+    fn nibble(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bytes = s.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
         return None;
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+    bytes
+        .chunks_exact(2)
+        .map(|pair| Some((nibble(pair[0])? << 4) | nibble(pair[1])?))
         .collect()
 }
 
@@ -251,5 +260,18 @@ mod tests {
         assert_eq!(hex_decode("00ff10"), Some(vec![0x00, 0xff, 0x10]));
         assert_eq!(hex_decode("0"), None);
         assert_eq!(hex_decode("zz"), None);
+        assert_eq!(hex_decode("ABcd"), Some(vec![0xab, 0xcd]));
+        assert_eq!(hex_decode(""), Some(vec![]));
+    }
+
+    #[test]
+    fn test_hex_decode_rejects_non_ascii_without_panicking() {
+        // "é" is two bytes, so these inputs have even byte length but would
+        // split a character if sliced by byte offsets.
+        assert_eq!(hex_decode("aéb"), None);
+        assert_eq!(hex_decode("éé"), None);
+        assert_eq!(hex_decode("0é"), None);
+        assert_eq!(hex_decode("+1"), None);
+        assert_eq!(hex_decode("-1"), None);
     }
 }
