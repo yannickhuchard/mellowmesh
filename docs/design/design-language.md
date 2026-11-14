@@ -1,160 +1,178 @@
-# Design Language — "Living Mesh"
+# Design Language — "Mesh Mall"
 
-The visual and motion system for the native MellowMesh apps. It extends the
+The visual, motion and interaction system for the native MellowMesh apps
+(Windows, macOS, iOS, Android). It extends the
 [brand kit](../../branding/brand_kit.md) and serves the personas in
 [ux-research.md](ux-research.md).
 
-## Context: what leads interface design right now
+> **v2.** v1 ("Living Mesh") used abstract wireframe polyhedra for agents.
+> Testing the idea against first-time users showed it felt disconnected and
+> technical. v2 grounds everything in a place everyone already knows how to
+> use — a mall — and in characters that read like the staff of a serious
+> management game.
 
-* **Depth is back, used with restraint.** Apple's Liquid Glass (iOS/macOS
-  26) moved away from flat design toward layered, translucent material with
-  subtle depth; Microsoft's Fluent leans more colorful and dimensional;
-  Google's Material 3 Expressive made **spring physics** a theme-level motion
-  scheme.
-* **2D interfaces with a 3D accent**: interactive 3D objects sit inside
-  otherwise calm 2D layouts — a hero object, not a 3D world.
-* **Motion that explains**: animation confirms actions and shows state
-  rather than decorating.
-* **Agents get a visible "presence"**: AI products show agent state with a
-  living object (the ubiquitous "orb" with idle/thinking/speaking states),
-  plus streaming text and confidence cues.
+## The idea
 
-MellowMesh takes these currents and gives them **one signature that only
-MellowMesh can own: the mesh itself**. The logo — an "M" drawn as nodes and
-edges in a spectrum gradient — becomes the interface.
+Walking into MellowMesh should feel like walking into a well-run mall: you
+always know where you are, friendly staff greet you, someone shows you
+around, and nobody shouts.
 
-## Signature elements
+Someone who knows nothing about AI must be able to discover everything —
+helpers, conversations, requests, organizations, apps — by wandering, being
+guided, and learning words only when they need them.
 
-### 1. The Constellation (Mesh home)
-A 2.5D graph with depth: **me** at the center (a small "M" mesh core), **my
-agents** on the first ring, squads/people/organizations further out and
-deeper (smaller, dimmer, blurred). The core computes `x, y, z`; each shell
-projects with a gentle perspective and parallax (device tilt on phones,
-pointer on desktop). Drag to orbit, pinch to zoom, tap to enter.
+## 1. A map you already understand
 
-### 2. Nodelets (agent avatars)
-Each agent is a small **wireframe polyhedron** — nodes as dots, edges as
-light lines — generated from its id (`avatar_seed`) and tinted with its
-brand accent. Its motion *is* its state:
+Home is the **Plaza**: an isometric 2.5D map (the look of a simulation game,
+not a sci-fi graph) with "You are here" at the fountain — the MellowMesh "M".
 
-| State | Nodelet motion |
-| :--- | :--- |
-| Idle | slow rotation |
-| Thinking | vertices breathe, edges shimmer |
-| Working | an orbit ring fills with task progress |
-| Waiting for me | amber halo pulse + gentle bob |
-| Done | one emerald flash, then idle |
-| Offline | flattens to 2D, desaturated |
+| Place | What it is | Technical term (shown only in "Learn") |
+| :--- | :--- | :--- |
+| **Plaza** | Home. The next useful stop is lit with a glowing walkway. | — |
+| **Your helpers** | The AI helpers you own, at work or resting. | agents |
+| **Meeting rooms** | Several helpers (and people) on one project. | squads / topics |
+| **Café** | People you talk to, one-to-one or in groups. | humans, groups |
+| **Offices** | Organizations you belong to and their helpers. | org spaces |
+| **To-do desk** | Things only you can answer. | decisions |
+| **Shops** | Discover new helpers and the little apps they bring. | agent directory, MeshUI / MCP Apps |
+| **Help desk** | Mello, the guide: tours, explanations, "how do I…?" | — |
 
-**Humans are never polyhedra**: they are round photo/initial avatars with a
-thin mesh ring. Human vs agent is readable by shape alone.
+Navigation tabs use the same plain names on every platform: **Plaza ·
+Chats · To do · Shops**, plus the **Help** button (Mello) always in reach.
 
-Rendering: plain vector math (rotate 3D points, project, stroke) on the
-platform's 2D canvas — SwiftUI `Canvas`/`TimelineView`, Compose `Canvas`,
-Win2D / Composition. No 3D engine, crisp at any size, cheap on battery.
+The map is computed by the core (`graph` layout) and drawn by each shell;
+buildings carry badges ("2" at the To-do desk) and helpers stand at their
+doors in their current mood.
 
-### 3. Light threads
-Edges between nodes carry **light pulses** when messages flow: a message
-from my agent to a squad is a spark traveling along that edge in the
-spectrum gradient. Bursty traffic = busy mesh, at a glance.
+## 2. Helpers are staff, not shapes
 
-### 4. Spectrum seam
-A 1–2 px line in the logo gradient marks **identity and focus**: the active
-conversation header, the focused composer, the edge of a Signal card. Used
-sparingly — it is the brand's signature, not a decoration.
+Every AI helper is an **illustrated character** — a management-sim staff
+portrait: semi-flat, soft lighting, friendly, readable at 24 px, never
+cartoonish.
 
-### 5. Signal cards (decisions)
-A decision rises above the mesh as a glass card with depth and a soft glow.
-Options show their outcome color. **Press-and-hold** to confirm fills a ring,
-then the OS biometric prompt appears; on success an emerald thread runs
-from me to the agent's nodelet.
+* **Honesty rule:** helpers are drawn and always wear an **"AI" staff
+  badge** (with the logo spectrum stripe). **People are never drawn** — they
+  are real photos or initials. Human vs AI is obvious by kind of image, not
+  only by color.
+* **Role props:** each role carries its tool in a corner badge — code
+  brackets (Coder), magnifier (Reviewer), rocket (Ops), compass (Scout),
+  coins (Ledger), speech bubble (Herald), pen (Writer), book (Tutor), plane
+  (Trips), map pin (Mello, the guide).
+* **Mood is state:**
 
-### 6. Mesh morph (navigation)
-Tapping a node zooms the camera into it; the nodelet becomes the
-conversation's header avatar (matched geometry / shared element). Back
-reverses the flight. Navigation feels like moving *through* my network.
+| Mood | Pose | Meaning |
+| :--- | :--- | :--- |
+| Idle | relaxed smile, slow breathing, blinks | ready |
+| Thinking | raised brow, thought bubble with 3 dots | working out an answer |
+| Working | focused, progress ring around the tool | doing a task (percentage) |
+| Raising a hand | waves, soft amber frame pulse | needs you |
+| Done | big smile, two sparkles | finished |
+| Away | greyed, "z z" | offline / sleeping |
+| Talking | mouth animates | speaking (guide, voice) |
 
-## Color
+**Production:** characters are authored once as layered vector rigs with a
+state machine (Rive is a good fit: idle/think/work/raise-hand/celebrate/away
+blend states). Runtimes render them natively on iOS/macOS and Android; on
+Windows use the vector fallback (SVG/Win2D layers driven by the same state
+names) unless a Rive runtime is validated for WinUI. Diversity: skin tones,
+hair styles and outfits vary by helper; the guide is consistent everywhere.
 
-From the logo gradient: indigo → pink → amber → emerald → cyan.
+## 3. Interruptions: polite by default
+
+Helpers climb an **interruption ladder** only as far as they need to:
+
+| Level | Motion | When |
+| :--- | :--- | :--- |
+| 1 · Glance | a dot appears on the place/tab | FYI, no sound |
+| 2 · Whisper | quiet strip slides in, fades in 4 s | "Coder finished the login page" |
+| 3 · Tap on the shoulder | helper peeks from the screen edge, waves, *Now / Later* | needs you soon, not now |
+| 4 · Knock | system notification with the options | a request only you can answer, with a deadline |
+| 5 · Alarm | persistent, time-sensitive | money or security at risk; rare, owner-approved, explains why |
+
+* The user picks the **loudest allowed level** (default: Knock). Quiet hours
+  (default 21:00–08:00) let only Alarms through; a **daily digest** collects
+  everything below Knock.
+* Every notification offers **"Quieter…"** — tuning happens where the
+  annoyance happens.
+* Requests always wait safely at the To-do desk; lowering the volume never
+  loses anything.
+
+## 4. Guided, never lost
+
+* **Mello, the guide** (Help desk) greets first-timers with a 3-step tour —
+  *a mall of helpers · talk like you text · you stay in charge* — and steps
+  aside once the user knows the way. Always reachable from the Help button.
+* **Walkways:** a glowing path leads from "You are here" to the next useful
+  stop; *Walk me there* animates the camera along it.
+* **"Learn" chips:** dotted-underlined words (helper, request, project,
+  "checks in every 10 min") open a one-line explanation with a picture.
+* **"What happens if…" previews:** before any answer, plain sentences say
+  what happens if yes, what happens if not now, and how to undo.
+* **Mall passport:** four stamps for first steps — meet a helper, ask a
+  question, answer a request, set quiet hours. Then the tour retires.
+* **Callouts** (speech bubbles anchored to a place or a control) replace
+  modal pop-ups; they never block the screen.
+
+## 5. Emotional motion, with manners
+
+| Reaction | Motion | Spring |
+| :--- | :--- | :--- |
+| Greet | wave when you arrive at a helper's place | `bloom` |
+| Listen | small nod when your message is received | `snap` |
+| Think | thought bubble while working out an answer | 1.2 s loop |
+| Ask | raised hand + soft amber pulse — never a siren | `glide` |
+| Celebrate | smile and two sparkles — no confetti storms | `bloom` |
+| Apologize | worried brows, then the next step ("I can retry or undo") | `glide` |
+
+Spring tokens (one definition, mapped per platform):
+
+| Token | SwiftUI | Compose | WinUI (Composition) |
+| :--- | :--- | :--- | :--- |
+| `snap` | `.spring(response: 0.28, dampingFraction: 0.86)` | `spring(0.86f, 700f)` | NaturalMotion damping 0.86, period 45 ms |
+| `glide` | `.spring(response: 0.5, dampingFraction: 0.9)` | `spring(0.9f, 300f)` | damping 0.9, period 80 ms |
+| `bloom` | `.spring(response: 0.45, dampingFraction: 0.7)` | `spring(0.7f, 400f)` | damping 0.7, period 70 ms |
+
+Rules: every reaction lasts under a second, can be interrupted, and becomes a
+still pose with **Reduce Motion**. Characters never move while the user is
+reading or typing in front of them.
+
+## 6. Color & type
+
+From the logo gradient: indigo → pink → amber → emerald → cyan, on a calm
+"night mall" obsidian.
 
 | Token | Dark | Light | Use |
 | :--- | :--- | :--- | :--- |
-| `bg` | `#0B0F19` Obsidian | `#F6F7FB` | app background |
-| `surface` | `#161C2D` @ 65% + blur | `#FFFFFF` @ 72% + blur | glass panels |
-| `surface-raised` | `#1E2640` | `#FFFFFF` | sheets, cards |
-| `stroke` | `#FFFFFF` @ 8% | `#0B0F19` @ 8% | hairlines |
-| `ink` | `#F3F4F6` | `#0B0F19` | primary text |
-| `ink-muted` | `#9CA3AF` | `#5B6475` | secondary text |
-| `primary` | `#6366F1` Indigo | `#4F46E5` | primary actions, me |
-| `cyan` | `#06B6D4` | `#0891B2` | live / streaming |
-| `pink` | `#EC4899` | `#DB2777` | reject, errors |
-| `amber` | `#F59E0B` | `#B45309` | waiting for me |
-| `emerald` | `#10B981` | `#047857` | approved, done, online |
-| `spectrum` | `linear 135°: #6366F1 → #EC4899 → #F59E0B → #10B981 → #06B6D4` | same | seam, me-core, onboarding |
+| `bg` | `#0B0F19` | `#F6F7FB` | background |
+| `surface` | `#161C2D` | `#FFFFFF` | cards, sheets |
+| `ink` / `ink-muted` | `#F3F4F6` / `#B4BACB` | `#0B0F19` / `#5B6475` | text |
+| `primary` (you) | `#6366F1` | `#4F46E5` | your actions, "You are here" |
+| `needs-you` | `#F59E0B` | `#B45309` | To-do desk, raised hands |
+| `yes` / `done` | `#10B981` | `#047857` | approvals, completion |
+| `no` / people | `#EC4899` | `#DB2777` | "not now", Café |
+| `live` | `#06B6D4` | `#0891B2` | meeting rooms, streaming |
+| guide | `#EEF2FF` bubble, `#7C3AED` desk | same | Mello's callouts |
 
-Agent accents rotate through indigo, cyan, pink, amber, emerald
-(deterministic from the id). Status is always doubled by shape or label,
-never color alone. Light-theme values are darkened to keep text contrast
-≥ 4.5:1.
-
-## Typography
-
-| Role | Apple | Android | Windows |
-| :--- | :--- | :--- | :--- |
-| Body & UI | SF Pro (Dynamic Type) | Roboto Flex (font scaling) | Segoe UI Variable |
-| Display (titles, metrics) | **Outfit** 600/800 | **Outfit** 600/800 | **Outfit** 600/800 |
-| Developer mode | JetBrains Mono | JetBrains Mono | JetBrains Mono |
-
-System fonts for reading (native feel, accessibility scaling); Outfit
-carries the brand in headlines and numbers.
-
-## Shape & material
-
-* Radii: 10 (controls), 16 (cards), 24 (sheets), full (avatars, chips).
-* Material is native per platform — Liquid Glass (Apple), Material 3
-  tonal surfaces with brand-harmonized dynamic color (Android), Mica /
-  Acrylic (Windows). The brand lives in content (mesh, nodelets, seam), the
-  chrome stays native.
-
-## Motion
-
-Spring tokens, one definition mapped per platform:
-
-| Token | Feel | SwiftUI | Compose | WinUI (Composition) |
-| :--- | :--- | :--- | :--- | :--- |
-| `snap` | taps, toggles | `.spring(response: 0.28, dampingFraction: 0.86)` | `spring(dampingRatio = 0.86f, stiffness = 700f)` | `NaturalMotion` damping 0.86, period 45 ms |
-| `glide` | navigation, sheets | `.spring(response: 0.5, dampingFraction: 0.9)` | `spring(0.9f, 300f)` | damping 0.9, period 80 ms |
-| `bloom` | success, nodelet flash | `.spring(response: 0.45, dampingFraction: 0.7)` | `spring(0.7f, 400f)` | damping 0.7, period 70 ms |
-| `drift` | constellation idle | linear, 40–90 s per revolution | same | same |
-
-Rules: interruptible always (gestures can catch any animation); opacity
-fades 150–250 ms; nothing loops faster than 1 Hz except "thinking"; **Reduce
-Motion** → constellation becomes a static 2D map, morphs become crossfades,
-pulses become badges.
+Type: **Outfit** for signs, titles and numbers; the **system font** for
+reading (SF Pro, Roboto Flex, Segoe UI Variable) with Dynamic Type / font
+scaling; JetBrains Mono only in developer mode. Text contrast ≥ 4.5:1;
+status never conveyed by color alone (mood pose + label + badge).
 
 ## Platform signatures
 
 | | iOS | macOS | Android | Windows |
 | :--- | :--- | :--- | :--- | :--- |
-| Navigation | Glass tab bar: Mesh · Chats · Signals · Apps; floating Ask | 3-column split view; toolbar Ask | M3E nav bar; FAB Ask; predictive back | NavigationView; Mica; command bar Ask |
-| Mesh | full-screen, tilt parallax | sidebar-sized + full window mode, pointer parallax | full-screen, tilt parallax | full window, pointer parallax |
-| Decisions | detented sheet + Face ID; lock-screen actions | sheet + Touch ID; notification actions | bottom sheet + BiometricPrompt; notification actions | ContentDialog + Windows Hello; toast buttons |
-| Ambient | Live Activity / Dynamic Island: agent working | Menu bar mesh (mini constellation) | Live Update notification; bubbles | Tray mesh; Widgets board |
-
-## MeshUI cards
-
-Agent apps render with native components but share MellowMesh styling: a
-16-radius surface, title in Outfit, agent nodelet + name in the header, the
-spectrum seam on the left edge when the card belongs to the active task.
-Block types: text, key/value, progress, metric, list, chart, image,
-actions. Actions use native buttons; destructive actions are pink and
-confirm.
+| Navigation | Liquid Glass tab bar: Plaza · Chats · To do · Shops; Help pill | split view; sidebar with the same places | Material 3 Expressive nav bar; Help chip | NavigationView + Mica; "Campus map" for orgs |
+| Requests | sheet with "what happens if", hold + Face ID | sheet + Touch ID | sheet + BiometricPrompt | dialog + Windows Hello |
+| Interruptions | notification actions, Live Activity for work in progress | menu bar helper | notification actions, Live Updates, bubbles | toasts with buttons, tray |
+| Discovery | Shops tab | Shops in sidebar | Shops floors (Popular · Study · Writing · Money · Work) | Shops + org catalog |
 
 ## Deliverables
 
-* Claude Design file: four platform clients (Windows, macOS, iOS, Android)
-  — Mesh, Chats (agent / squad / person / group / organization), Signal
-  sheet, Apps.
+* Claude Design file (private, shareable from its page): design language,
+  personas & first-use test, Character and Mall-map components, iPhone
+  (first run, Plaza, meeting room, To-do desk), Android (Shops, interruption
+  settings), macOS (group of people + helpers), Windows (organization
+  campus).
 * Token export per platform (Swift asset catalog, Compose theme, WinUI
-  resource dictionary) — generated from this table when the shells start.
+  resource dictionary) and the character rig when the shells start.

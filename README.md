@@ -113,7 +113,7 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Performance](docs/performance.md) | Benchmark methodology and honest numbers |
 | [Troubleshooting](docs/troubleshooting.md) | FAQ |
 | [Native Apps](docs/native-apps.md) | Windows, macOS, iOS, Android clients: shared Rust core (UniFFI), pairing, push |
-| [Design](docs/design/design-language.md) | Living Mesh design language and [UX research](docs/design/ux-research.md) (6 personas) |
+| [Design](docs/design/design-language.md) | "Mesh Mall" design language and [UX research](docs/design/ux-research.md) (6 personas, 2 first-timers) |
 | [Steam](docs/steam.md) | Distributing the desktop apps on Steam (Productivity) |
 
 ## Where this is going

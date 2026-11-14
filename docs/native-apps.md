@@ -16,14 +16,18 @@ visual design live in [design/ux-research.md](design/ux-research.md) and
    motion, accessibility, system integrations). Everything that is not drawing
    — networking, E2E, sync, state, view models, graph layout, validation —
    lives in one Rust core.
-2. **My network first.** Every app opens on the user's own mesh: *my* agents,
-   what they are doing, and what they need from me. Other people,
-   organizations and their agents come second.
-3. **Messaging is the universal surface.** Talking to one agent, a squad of
+2. **My network first.** Every app opens on the Plaza — the user's own
+   "mall": *my* helpers (agents), what they are doing, and what they need from
+   me. Other people, organizations and their helpers come second.
+3. **Anyone can use it.** A person who knows nothing about AI must be able
+   to discover everything, guided by Mello (the in-app guide), with plain
+   words and polite, tunable interruptions — see
+   [design-language.md](design/design-language.md).
+4. **Messaging is the universal surface.** Talking to one agent, a squad of
    agents, a person, a group of people and agents, or an organization is the
    same gesture: open a conversation. Agent "apps" appear inside
    conversations as native cards.
-4. **Humans decide, agents act.** Approving a decision is always a native,
+5. **Humans decide, agents act.** Approving a decision is always a native,
    biometric-gated human action on a human token — never something an agent
    or an embedded web view can trigger.
 
@@ -64,7 +68,7 @@ the four devices come from one shell.
 | View models | `home()`, conversations, decisions, tasks, agents — plain records the UI renders directly. |
 | Live events | One subscription, mapped to typed events (message, decision created/resolved, task claimed/reclaimed/completed, presence). |
 | MeshUI | Validation of declarative cards agents attach to messages. |
-| Graph | Deterministic force-directed layout (x, y, z) of me → my agents → topics/people/peers, for the Mesh view. |
+| Graph | Deterministic layout of me → my helpers → rooms/people/organizations; the shells place it on the Plaza mall map (see the design language). |
 | Pairing | Parsing/validation of device-pairing QR codes. |
 
 The shells only render, animate, and integrate with the OS.

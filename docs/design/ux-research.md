@@ -2,199 +2,206 @@
 
 Research basis for the native MellowMesh apps (Windows, macOS, iOS, Android).
 Companion documents: [native-apps.md](../native-apps.md) (architecture) and
-[design-language.md](design-language.md) (visual & motion system).
+[design-language.md](design-language.md) (Mesh Mall: visual, motion and
+interaction system).
 
 ## Product framing
 
-MellowMesh is **agentic messaging on your own network**. The starting point is
-never a feed or a directory: it is *my mesh* — the agents I own, what they are
-doing right now, and what they need from me. From there, the same
-conversation gesture reaches one agent, a squad of agents, people, mixed
-groups, and organizations — and the apps they publish.
+MellowMesh is **agentic messaging on your own network**, presented as a
+**mall of helpers**. The starting point is never a feed or a directory: it
+is the **Plaza** — my own place, with the helpers (AI agents) I own, what
+they are doing right now, and what they need from me. From there, the same
+conversation gesture reaches one helper, a meeting room of helpers, people,
+mixed groups and organizations — and the apps they bring.
+
+The bar: **someone who knows nothing about AI can discover everything on
+their own**, guided, with plain words and polite interruptions.
 
 Core loop: **see → talk → decide → done.**
 
-1. *See* my agents and their state at a glance.
-2. *Talk* to one, several, or a mix of agents and people.
-3. *Decide* when an agent needs a human signature — in one native,
-   biometric-confirmed gesture, wherever I am.
+1. *See* my helpers and what needs me at a glance.
+2. *Talk* to one, several, or a mix of helpers and people, in my own words.
+3. *Decide* when a helper needs a human OK — with a plain-language preview
+   of what happens, confirmed natively with biometrics, wherever I am.
 4. *Done*: the result comes back as a message or a card.
 
-## Six personas
+## Six personas — two of them first-timers
 
-### 1. Léa — the solo AI-native founder
-*34, runs a one-person company with 9 agents (coding, ops, support, finance).*
+### 1. Marc — the first-timer who fears breaking something · NEW TO AI
+*58, independent consultant. Has never used an AI assistant.*
 
-* **Devices**: MacBook (main), iPhone (always), occasionally a Windows PC.
-* **Goals**: run the company from anywhere; never be the bottleneck; know
-  instantly which agent is stuck.
-* **Pains**: approvals buried in terminals and chat apps; no single view of
-  "who is doing what"; anxiety about agents acting without sign-off.
-* **Key jobs**: approve a deploy from a café (iPhone, Face ID); glance at the
-  mesh in the menu bar; ask the support agent for today's summary.
-* **Design implications**: the Mesh home and the Signals queue must answer
-  "is anything blocked on me?" in under 2 seconds. Live Activity for long
-  tasks. Decisions reachable from the lock screen.
+* **Devices**: iPhone only (an iPad at home).
+* **Wants**: help writing client reports and invoices — if it's not
+  complicated.
+* **Worries**: "I don't know what AI is; I'm afraid it will send things in
+  my name or that I'll break something."
+* **Key moment**: first evening — Mello shows him around, he asks the Writer
+  for a report, reads a preview and approves sending it.
+* **The app must**: explain each new word where it appears, preview every
+  consequence ("if you say yes / not now"), never act without his clear OK,
+  use large type and generous touch targets, hide technical vocabulary.
 
-### 2. Karim — the indie developer & open-source maintainer
-*27, Windows laptop + Android phone, Steam user, runs local coding agents.*
+### 2. Nadia — the first-timer drowning in notifications · NEW TO AI
+*21, retail team lead and evening student. First time using AI.*
 
-* **Devices**: Windows laptop (gaming + dev), Android phone.
-* **Goals**: let agents triage issues and draft PRs overnight; stay in
-  control of what gets merged.
-* **Pains**: fragmented tools; heavy setup; cloud lock-in.
-* **Key jobs**: install from Steam, pair his phone with a QR code in under a
-  minute; open a Squad conversation for a repo; approve merges with Windows
-  Hello at the desk and BiometricPrompt on the bus.
-* **Design implications**: first-run must be 3 steps (install → my mesh is
-  already there → add phone). Fluent-native on Windows, Material 3
-  Expressive on Android — no "ported" feel.
+* **Devices**: Android phone (budget), shared Windows PC at the shop.
+* **Wants**: plan shifts, revise for her course, find cheaper train
+  tickets.
+* **Worries**: "Too many notifications already; I don't want another app
+  yelling at me."
+* **Key moment**: window-shops helpers in Shops, tries the Tutor, then sets
+  "only real requests may ring" and quiet hours from the notification
+  itself.
+* **The app must**: make discovery feel like window-shopping (floors, shop
+  windows, "try saying…" examples, safety labels), keep interruptions polite
+  and batched, and make tuning them one tap away.
 
-### 3. Sofia — the engineering lead in a scale-up
-*41, leads 12 engineers and ~30 team agents across 4 squads.*
+### 3. Léa — the solo AI-native founder
+*34, runs a one-person company with 9 helpers (coding, ops, support,
+finance).*
 
-* **Devices**: MacBook, iPhone; company Windows VDI for some tools.
-* **Goals**: coordinate humans and agents on the same threads; see
-  throughput and bottlenecks; keep an audit trail.
-* **Pains**: agents and people talk in separate channels; no shared
-  context; unclear accountability.
-* **Key jobs**: run a Group conversation with two engineers and three
-  agents; reassign a reclaimed task; review the decision history of a
-  release.
-* **Design implications**: Group and Squad conversations show *who is human
-  and who is an agent* at a glance; task and lease state inline; the decision
-  record (who, via which device) one tap away.
+* **Devices**: MacBook, iPhone.
+* **Wants**: run the company from anywhere without being the bottleneck.
+* **Worries**: approvals buried in terminals and chat apps.
+* **Key moment**: approves a deploy from a café — Plaza → "Walk me there" →
+  To-do desk → hold → Face ID.
+* **The app must**: answer "does anything need me?" in two seconds.
 
-### 4. Marc — the non-technical independent professional
-*52, consultant; uses agents for research, writing and invoicing.*
+### 4. Karim — the indie developer
+*27, Windows laptop + Android, Steam user, runs local coding helpers.*
 
-* **Devices**: iPhone only (plus an iPad at home).
-* **Goals**: delegate in plain language; get results as clean, readable
-  cards; never see a topic name or a token.
-* **Pains**: technical jargon; fear of "breaking something"; too many apps.
-* **Key jobs**: "Prepare my weekly client report" to his writing agent;
-  approve sending an invoice; read a summary card.
-* **Design implications**: zero protocol vocabulary in the default UI
-  (topics, leases, tokens hidden behind "Details"); generous type and
-  touch targets; MeshUI cards must read like native iOS content.
+* **Wants**: helpers triage issues and draft PRs overnight; he controls
+  merges.
+* **Worries**: heavy setup; apps that feel ported.
+* **Key moment**: installs from Steam, pairs his phone with a QR code in a
+  minute.
+* **The app must**: feel native on Windows and Android; three-step first run.
 
-### 5. Aïcha — the organization admin (IT & security)
-*38, governs agents for a 400-person company.*
+### 5. Sofia — the engineering lead
+*41, 12 engineers and ~30 team helpers.*
 
-* **Devices**: Windows workstation, Android work phone.
-* **Goals**: decide which agents exist, who owns them, what they can
-  touch; revoke a device or a token immediately; prove compliance.
-* **Pains**: shadow agents; unclear permissions; no device inventory.
-* **Key jobs**: review the Organization space; revoke a lost phone's token
-  from her desktop; see every decision approved this week and on which
-  device.
-* **Design implications**: an Organization view with members, agents,
-  devices and policies; destructive actions double-confirmed; audit export.
-  Information density is welcome on desktop.
+* **Wants**: people and helpers in the same meeting rooms, with a record.
+* **Worries**: unclear accountability between humans and helpers.
+* **Key moment**: a release review with two engineers and three helpers.
+* **The app must**: show who is human (photo/initials) and who is AI (drawn,
+  "AI" badge) at a glance; tasks and requests inline; decision record.
 
-### 6. Tomás — the agent builder
-*30, builds agents and their in-chat apps for clients and for the
-MellowMesh community.*
+### 6. Aïcha — the organization admin
+*38, governs 120 helpers for a 400-person company.*
 
-* **Devices**: Mac + Android test phone.
-* **Goals**: ship an agent whose app (MeshUI card or MCP App) looks great on
-  every platform; debug message flow quickly.
-* **Pains**: designing four UIs; no way to preview on each OS; opaque
-  traffic.
-* **Key jobs**: preview a MeshUI card on all four platform renderers; watch
-  the live mesh while his agent runs; enable a trace for 15 minutes.
-* **Design implications**: a developer mode (traces, raw payloads, topic
-  paths) that stays out of everyone else's way; a MeshUI preview gallery.
+* **Wants**: know which helpers exist, who owns them, what they can touch.
+* **Worries**: helpers without owners; lost devices.
+* **Key moment**: spots an unowned helper on the campus map and assigns it;
+  revokes a lost phone in two clicks.
+* **The app must**: provide an organization campus map, device inventory,
+  audit export; density is welcome on desktop.
+
+*Extended persona (not in the core six):* **Tomás, agent builder** — needs a
+developer mode (traces, raw payloads, MeshUI previews on all four renderers)
+that stays out of everyone else's way.
 
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |
 | :--- | :---: | :---: | :---: | :---: |
-| Léa (founder) | ○ | ● | ● | |
+| Marc (first-timer) | | | ● | |
+| Nadia (first-timer) | ○ | | | ● |
+| Léa (founder) | | ● | ● | |
 | Karim (indie dev) | ● | | | ● |
-| Sofia (eng lead) | ○ | ● | ● | |
-| Marc (professional) | | | ● | |
+| Sofia (eng lead) | | ● | ● | |
 | Aïcha (admin) | ● | | | ● |
-| Tomás (builder) | ○ | ● | ○ | ● |
 
 ● primary · ○ secondary
 
 ## Jobs to be done (prioritized)
 
-1. **Know if anything needs me** — Signals queue, badges, notifications.
-2. **Approve/reject safely from anywhere** — native sheet + biometrics.
-3. **Talk to my agent(s) in plain language** — Agent and Squad chats.
-4. **See my mesh** — who is online, busy, stuck; what moves.
-5. **Work with people and agents together** — Group chats, Organizations.
-6. **Use the apps agents publish** — MeshUI cards, MCP Apps.
+1. **Know if anything needs me** — To-do desk badge, Plaza "next stop".
+2. **Answer safely from anywhere** — preview, hold, biometrics.
+3. **Talk to helpers in plain language** — chats and meeting rooms.
+4. **Discover helpers** — Shops, guided by Mello.
+5. **Control interruptions** — ladder, quiet hours, digest.
+6. **Work with people and helpers together** — groups, organizations.
 7. **Add a device / manage access** — QR pairing, per-device tokens.
 
 ## Information architecture
 
-Four destinations on every platform — same names, native navigation:
+Four destinations + the guide, same names on every platform:
 
 | Destination | Purpose |
 | :--- | :--- |
-| **Mesh** | Home. 2.5D constellation: me at the center, my agents around me, then squads, people, orgs. "Now" strip: what needs me, what is running. |
-| **Chats** | Unified conversations; filter chips: *All · Agents · Squads · People · Groups · Orgs*. |
-| **Signals** | Everything waiting for me: decisions first, then reclaimed tasks, mentions. Badge = count of decisions. |
-| **Apps** | Apps published by my agents, people and organizations (MeshUI + MCP Apps), pinned or recent. |
-
-Profile/settings (devices, networks, developer mode) live behind the user's
-avatar. Compose is a persistent action: "Ask…" with an agent picker.
-
-Platform mapping:
-
-* **iOS**: Liquid Glass tab bar with the four destinations; floating "Ask"
-  button; decision sheet as a detented bottom sheet.
-* **macOS**: three-column split view (destinations · list · detail);
-  menu bar extra with the Now strip; global hotkey for "Ask".
-* **Android**: Material 3 Expressive navigation bar; FAB "Ask"; predictive
-  back; agent chats as conversation bubbles.
-* **Windows**: NavigationView (left), Mica backdrop; tray icon with the Now
-  strip; toast decisions; global hotkey for "Ask".
+| **Plaza** | Home: the mall map, "You are here", the next useful stop, "while you were away". |
+| **Chats** | All conversations: helpers, meeting rooms, people, groups, organizations. |
+| **To do** | Everything only I can answer (requests first), with previews. |
+| **Shops** | Discover helpers and their apps by floor (Popular, Study, Writing, Money, Work…). |
+| **Help (Mello)** | Tours, "Learn" explanations, "how do I…?", always one tap away. |
 
 ## Key flows
 
-### F1 — First run (all platforms)
-Install → the app starts or finds the local hub → **Mesh** shows *my*
-agents (already registered by CLI/MCP) → banner "Add your phone" → QR. On a
-phone: scan → verify fingerprint → done. Target: < 60 s.
+### F0 — First run for a first-timer (Marc)
+Install → Mello: *a mall of helpers* → *talk like you text* (sample chat) →
+*you stay in charge* (sample request) → "Show me around" (walkway to Shops)
+or "I'll explore on my own". Passport shows 0/4. Target: understood in
+< 2 minutes, no technical word seen.
 
-### F2 — Approve from anywhere
-Notification "Coder wants to deploy auth-service v2" → expand → options
-with outcome colors (approve = emerald, reject = pink, neutral = slate) →
-choose → biometric → live confirmation → the agent's node pulses emerald on
-the Mesh. Never possible from a widget, web view or agent app.
+### F1 — Discover and try a helper (Nadia)
+Shops → floor *Study* → Tutor's shop window ("Quiz me on chapter 3", "Only
+reads what you share") → Try → first chat; Mello's tip disappears after
+"Got it". Passport stamp "Meet a helper".
 
-### F3 — Talk to a squad
-Mesh → tap the *claims-api* squad → conversation with three agents and their
-current tasks pinned at the top → "@Reviewer check the last PR" → the
-reviewer's node lights up; its answer arrives as a MeshUI card.
+### F2 — Answer a request from anywhere (Léa, Marc)
+Knock notification (or Plaza "next stop") → To-do desk → "If you say yes /
+if you say not now" + "can be undone" → choose → hold → biometrics → the
+helper reacts (thanks, sparkles) → Passport stamp "Answer a request".
 
-### F4 — Recover a stuck task
-Signals → "Lease expired: Implement OAuth2" → see the last progress →
-reassign to another agent (or claim it as a human) in one action.
+### F3 — Polite interruption in a conversation
+Ops taps on the shoulder (peeks from the edge, waves): *Now* (opens the
+To-do desk) or *In 10 min* (snoozes; no notification meanwhile).
+
+### F4 — Tune interruptions (Nadia)
+From any notification: "Quieter…" → choose the loudest allowed level, quiet
+hours, daily digest. Mello explains the consequence of the chosen level.
+
+### F5 — Organization hygiene (Aïcha)
+Campus map → unowned helper flagged at the door → Assign; Devices → Revoke a
+lost phone.
 
 ## Usability principles
 
-* **2-second answer**: from any app launch, "does anything need me?" is
-  answered without scrolling.
-* **One gesture per intent**: open a chat, decide, ask.
-* **Plain language first**: protocol terms only in Details/developer mode.
-* **Human vs agent is always visible**: shape and label, not only color.
-* **Motion explains state** (thinking, working, waiting, done) — never
-  decoration only; everything honors Reduce Motion.
+* **Plain words first**; technical terms only in "Learn" chips and developer
+  mode.
+* **Two-second answer** to "does anything need me?".
+* **Preview before consequence**: every request explains yes / not now /
+  undo.
+* **Human vs AI is always visible** by kind of image and the "AI" badge.
+* **Polite by default**: the interruption ladder, quiet hours, digest.
+* **Motion explains state** and honors Reduce Motion.
 * **Accessibility**: Dynamic Type / font scaling, VoiceOver / TalkBack /
-  Narrator labels on every node of the mesh, contrast ≥ 4.5:1 for text,
-  status never conveyed by color alone.
+  Narrator labels for every place and character ("AI helper Ops, raising a
+  hand — needs you"), contrast ≥ 4.5:1, touch targets ≥ 44 px.
 
-## Research plan (to validate with real users)
+## First-use test (Marc and Nadia, unaided)
 
-1. 6 × 45-min interviews (one per persona archetype) on current agent
-   workflows and approval habits.
-2. Clickable prototypes per platform (the Claude Design file) — task-based
-   tests on F1–F4; success rate, time on task, SUS.
-3. Diary study (1 week) with 5 founders/devs using the CLI + iPhone build:
-   when and where decisions happen.
-4. Iterate tokens and motion with Reduce Motion / large-type participants.
+Think-aloud, 30 minutes, on their own phone. Success = completed without
+help *and* able to explain what happened.
+
+| # | Task | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T1 | Find a helper that can write a letter. | 3 min | Reaches Shops → Writing without the search box. |
+| T2 | Ask your first question in your own words. | 5 min | Sends a message; notices the helper is AI (badge). |
+| T3 | A helper asks for your OK. Decide. | 5 min | Can say what will happen before answering; uses Face ID / fingerprint. |
+| T4 | Make helpers quiet after 9 pm. | 4 min | Sets quiet hours from the notification or settings. |
+| T5 | Find your way back to the Plaza. | 3 min | Uses the tab or "You are here" without looping on Back. |
+
+Also measured: SUS score, words the participants don't understand
+(collected → new "Learn" chips), moments of hesitation before a
+consequence, and whether they can tell people from helpers.
+
+## Research plan
+
+1. Run the first-use test with 5 "Marc" and 5 "Nadia" profiles on the
+   clickable prototypes; iterate the tour and the copy.
+2. 6 × 45-min interviews with experienced users (Léa, Karim, Sofia, Aïcha
+   archetypes) on approvals and interruption habits.
+3. One-week diary study with first-timers: what helpers they tried, which
+   interruptions annoyed them, when they answered requests.
+4. Reduce Motion / large-type sessions to validate characters and the map.
