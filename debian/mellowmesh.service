@@ -1,12 +1,42 @@
 [Unit]
 Description=MellowMesh Intelligent Coordination Daemon
+Documentation=https://github.com/yannickhuchard/mellowmesh
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/mellowmeshd
-Restart=always
-User=mellowmesh
+# Runs as a transient, unprivileged system user allocated by systemd; no
+# account needs to exist. State lives in /var/lib/mellowmesh (managed by
+# StateDirectory=). On first start the daemon writes the owner token to
+# /var/lib/mellowmesh/owner.token (mode 0600); read it as root to mint
+# further tokens (`mellowmesh token create ...`).
+DynamicUser=yes
+StateDirectory=mellowmesh
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/mellowmesh
 Environment=MELLOWMESH_DB=/var/lib/mellowmesh/mellowmesh.db
+Environment=MELLOWMESH_NOTIFICATIONS=off
+# A system service is reachable by every local user: always enforce tokens.
+ExecStart=/usr/bin/mellowmeshd --require-auth --db /var/lib/mellowmesh/mellowmesh.db
+Restart=on-failure
+RestartSec=2
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

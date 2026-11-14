@@ -20,7 +20,7 @@ To build and test MellowMesh, you need the following tools:
     ```
 3. Add the upstream repository as a remote:
     ```bash
-    git remote add upstream https://github.com/mellowmesh/mellowmesh.git
+    git remote add upstream https://github.com/yannickhuchard/mellowmesh.git
     ```
 
 ---
@@ -74,4 +74,13 @@ When submitting a pull request (PR):
 2.  **Commit Messages**: Keep commit messages clear, concise, and descriptive (e.g., `feat(daemon): add telemetry support`).
 3.  **Tests**: Include unit tests for any new functionality or bug fixes.
 4.  **Documentation**: Update relevant documentation, READMEs, or inline comments if you alter public APIs or introduce new features.
-5.  **Checks**: Verify that all CI checks (formatting, clippy, and unit tests) pass locally.
+5.  **Checks**: Verify that all CI checks (formatting, clippy, unit tests, and `cargo audit`) pass locally.
+6.  **Dependencies**: Commit `Cargo.lock` changes deliberately; CI builds with `--locked`.
+
+---
+
+## 4. Reporting Security Issues
+
+**Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
+
+Report them privately through GitHub's private vulnerability reporting instead: open the repository's **Security** tab and click **Report a vulnerability** ([direct link](https://github.com/yannickhuchard/mellowmesh/security/advisories/new)). The full policy — supported versions, what to include, response times, and coordinated disclosure — is in [SECURITY.md](SECURITY.md).

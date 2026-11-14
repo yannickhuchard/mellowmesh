@@ -16,16 +16,25 @@ Three properties make this safe(r) by construction:
 2. **Enabling the relay force-enables `--require-auth`** — a relayed hub
    cannot run in open mode; every forwarded request must carry a valid
    bearer token, checked by *your* daemon, not the relay.
-3. **The relay is stateless and self-hostable** — it stores nothing and
-   only sees what passes through it. Run your own, and terminate TLS in
-   front of it (reverse proxy) before exposing it to the internet.
+3. **The relay is minimal and self-hostable** — the only thing it stores
+   is which hub id belongs to which link key (see `--state-file` below); it
+   only sees what passes through it, and with end-to-end encryption (the
+   default for remote URLs) it cannot read requests or tokens. Run your own,
+   and terminate TLS in front of it (reverse proxy) before exposing it to the
+   internet.
 
 ## Running a relay
 
 ```bash
-mellowmesh-relay --port 9443
+mellowmesh-relay --port 9443 --state-file /var/lib/mellowmesh-relay/hubs.json
 # production: put nginx/caddy with TLS in front, forward to 127.0.0.1:9443
 ```
+
+`--state-file <path>` (or the `MELLOWMESH_RELAY_STATE` environment variable)
+persists the hub-id → link-key bindings. Always set it in production: without
+it, bindings live only in memory and are lost when the relay restarts. Keep the file readable only by the relay's
+service account. Hub ids are limited to 64 characters from `[A-Za-z0-9_-]`;
+other ids are refused.
 
 ## Linking your daemon
 
@@ -42,7 +51,8 @@ Relay link enabled. Your hub will be reachable at: https://relay.example.com/hub
 
 The hub id and link key are generated once and persisted in the database, so
 the URL survives restarts. The link key prevents another daemon from
-hijacking your hub id on the relay. If the link drops, the daemon reconnects
+hijacking your hub id on the relay (provided the relay runs with
+`--state-file`, so it remembers the binding across its own restarts). If the link drops, the daemon reconnects
 with exponential backoff.
 
 ## Using your hub remotely
@@ -78,9 +88,10 @@ curl -H "Authorization: Bearer mm_..." \
 
 ## End-to-end encryption (relay can't read your traffic)
 
-By default the relay operator can observe the traffic it forwards (which is
-why self-hosting is a first-class option). For a stronger guarantee, use the
-**end-to-end encrypted transport**: your bearer token doubles as a shared
+Without encryption the relay operator could observe the traffic it forwards
+(which is why self-hosting is a first-class option). Clients therefore use the
+**end-to-end encrypted transport by default** whenever the hub URL is remote
+(not loopback) and a token is set: your bearer token doubles as a shared
 secret, and requests are sealed with ChaCha20-Poly1305 before they reach the
 relay. The relay forwards opaque ciphertext and a key id that is useless
 without your hub's database.
@@ -88,15 +99,16 @@ without your hub's database.
 ```bash
 export MELLOWMESH_URL="https://relay.example.com/hub/<hub_id>"
 export MELLOWMESH_TOKEN="mm_..."
-export MELLOWMESH_E2E=1
+# E2E is automatic for a remote URL with a token; MELLOWMESH_E2E=1 forces it,
+# MELLOWMESH_E2E=0 opts out (not recommended).
 
-mellowmesh decisions        # every command now travels sealed
+mellowmesh decisions        # every command travels sealed
 mellowmesh respond decision_01k... option_1
 mellowmesh tail "_task.**"  # live subscriptions too: sealed proof in,
                             # sealed deliveries out
 ```
 
-With `MELLOWMESH_E2E=1`, **every** CLI command and SDK method routes through
+With E2E on, **every** CLI command and SDK method routes through
 one sealed dispatch point — nothing can accidentally fall back to plaintext,
 and the bearer token itself travels only inside the ciphertext (never as an
 HTTP header or query parameter). Live subscriptions authenticate with a

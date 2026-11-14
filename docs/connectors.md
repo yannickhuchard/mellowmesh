@@ -59,8 +59,16 @@ Incoming/outgoing webhook message bridging (no decision flow yet):
 
 ```bash
 export TEAMS_WEBHOOK_URL="https://outlook.office.com/webhook/..."
-export TEAMS_OUTGOING_WEBHOOK_KEY="base64-hmac-key"   # verifies inbound posts
+export TEAMS_OUTGOING_WEBHOOK_KEY="base64-hmac-key"   # required for inbound posts
+export TEAMS_BIND="127.0.0.1:40002"                    # optional; this is the default
 ```
+
+The inbound receiver (Teams outgoing webhook → fabric) starts **only** when
+`TEAMS_OUTGOING_WEBHOOK_KEY` is set, and every inbound post must carry a valid
+HMAC signature made with that key; without the key, only outbound mirroring
+via `TEAMS_WEBHOOK_URL` runs. The receiver binds `127.0.0.1:40002` by default —
+expose it to Teams through your reverse proxy, or set `TEAMS_BIND` (e.g.
+`0.0.0.0:40002`) if it must listen on another interface.
 
 ## How decision relaying is audited
 
@@ -78,13 +86,19 @@ The human identity comes from the platform's user id (`telegram://12345`,
 attributed to a human when the external id maps to a `human://` principal (or
 the connector already supplies a `human://` id) — otherwise the response is
 refused, so an interface can't attribute an approval to an arbitrary person.
-Create a mapping via the REST API:
+Identity mappings decide who may approve from a chat, so creating one requires
+the **owner token** (any other token gets 403). Create a mapping via the REST
+API:
 
 ```bash
 curl -X POST http://127.0.0.1:40000/identity-mappings \
+  -H "Authorization: Bearer $(cat /path/to/owner.token)" \
   -H 'Content-Type: application/json' \
   -d '{"external_id":"telegram://123456789","mellowmesh_id":"human://yannick"}'
 ```
+
+A relayed answer is accepted only if the mapped human is the decision's
+`required_decider` (or the hub owner).
 
 ## Mock mode
 
