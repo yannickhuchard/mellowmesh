@@ -293,6 +293,14 @@ async fn main() -> anyhow::Result<()> {
     if !public_hosts.is_empty() {
         tracing::info!("Public hosts (remote callers): {}", public_hosts.join(", "));
     }
+    if !args.listen.is_loopback() && public_hosts.is_empty() {
+        tracing::warn!(
+            "Listening on {} without --public-host: other machines must name this hub with \
+             a configured public host (e.g. --public-host 192.168.1.20:{}), or they are refused",
+            args.listen,
+            args.port
+        );
+    }
     if !require_auth && !public_hosts.is_empty() {
         tracing::warn!(
             "Public hosts are configured without --require-auth: remote callers can only \
