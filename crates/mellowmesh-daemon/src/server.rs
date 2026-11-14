@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -47,6 +47,8 @@ pub fn create_router(state: AppState) -> Router {
             "/tasks",
             post(handlers::task::create_task).get(handlers::task::list_tasks),
         )
+        .route("/tasks/graph", get(handlers::task::task_graph))
+        .route("/tasks/:id", patch(handlers::task::update_task))
         .route("/tasks/:id/claim", post(handlers::task::claim_task))
         .route("/tasks/:id/complete", post(handlers::task::complete_task))
         .route(
