@@ -424,8 +424,8 @@ impl Store {
                 ts.expires_at.to_rfc3339(),
                 ts.persistence_mode,
                 ts.retention,
-                ts.max_messages_per_second,
-                ts.max_bytes_per_second,
+                ts.max_messages_per_second.map(|v| v as i64),
+                ts.max_bytes_per_second.map(|v| v as i64),
                 topics_json,
                 ts.status
             ],
@@ -469,8 +469,12 @@ impl Store {
                 expires_at,
                 persistence_mode: row.get(8)?,
                 retention: row.get(9)?,
-                max_messages_per_second: row.get(10)?,
-                max_bytes_per_second: row.get(11)?,
+                max_messages_per_second: row
+                    .get::<_, Option<i64>>(10)?
+                    .and_then(|v| usize::try_from(v).ok()),
+                max_bytes_per_second: row
+                    .get::<_, Option<i64>>(11)?
+                    .and_then(|v| usize::try_from(v).ok()),
                 topics,
                 status: row.get(13)?,
             }))
@@ -528,8 +532,12 @@ impl Store {
                 expires_at,
                 persistence_mode: row.get(8)?,
                 retention: row.get(9)?,
-                max_messages_per_second: row.get(10)?,
-                max_bytes_per_second: row.get(11)?,
+                max_messages_per_second: row
+                    .get::<_, Option<i64>>(10)?
+                    .and_then(|v| usize::try_from(v).ok()),
+                max_bytes_per_second: row
+                    .get::<_, Option<i64>>(11)?
+                    .and_then(|v| usize::try_from(v).ok()),
                 topics,
                 status: row.get(13)?,
             })
