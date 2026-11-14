@@ -1,15 +1,16 @@
-# Design Language — "Mesh Mall"
+# Design Language — "Mesh Mall in daylight"
 
 The visual, motion and interaction system for the native MellowMesh apps
 (Windows, macOS, iOS, Android). It extends the
 [brand kit](../../branding/brand_kit.md) and serves the personas in
 [ux-research.md](ux-research.md).
 
-> **v2.** v1 ("Living Mesh") used abstract wireframe polyhedra for agents.
-> Testing the idea against first-time users showed it felt disconnected and
-> technical. v2 grounds everything in a place everyone already knows how to
-> use — a mall — and in characters that read like the staff of a serious
-> management game.
+> **v3 — "in daylight".** v1 used abstract wireframe polyhedra; v2 used
+> drawn staff portraits on a dark, neon UI. Both read as dated or busy.
+> v3 follows today's best interface work (restraint, calm paper
+> backgrounds, one strong ink, tactile materials, big numerals, playful
+> clay characters): light screens, black primary actions, and helpers drawn
+> as soft clay companions on a clay-diorama map.
 
 ## The idea
 
@@ -44,38 +45,32 @@ The map is computed by the core (`graph` layout) and drawn by each shell;
 buildings carry badges ("2" at the To-do desk) and helpers stand at their
 doors in their current mood.
 
-## 2. Helpers are staff, not shapes
+## 2. Helpers are clay companions
 
-Every AI helper is an **illustrated character** — a management-sim staff
-portrait: semi-flat, soft lighting, friendly, readable at 24 px, never
-cartoonish.
+Every AI helper is a **soft clay blob**: one rounded shape, glossy
+highlight, two expressive eyes, a color. Simple shapes stay premium at every
+size (24 px in a list, 160 px on a welcome screen) where detailed faces look
+amateur.
 
-* **Honesty rule:** helpers are drawn and always wear an **"AI" staff
-  badge** (with the logo spectrum stripe). **People are never drawn** — they
-  are real photos or initials. Human vs AI is obvious by kind of image, not
-  only by color.
-* **Role props:** each role carries its tool in a corner badge — code
-  brackets (Coder), magnifier (Reviewer), rocket (Ops), compass (Scout),
-  coins (Ledger), speech bubble (Herald), pen (Writer), book (Tutor), plane
-  (Trips), map pin (Mello, the guide).
+* **Honesty rule:** helpers are blobs and carry an **"AI" tag** next to
+  their name; **people are never drawn** — round photos or initials. Human vs
+  AI is obvious by shape.
+* **Color = identity:** violet (Mello, the guide), indigo, sky, amber, mint,
+  pink. Grey means asleep.
 * **Mood is state:**
 
-| Mood | Pose | Meaning |
+| Mood | Look | Meaning |
 | :--- | :--- | :--- |
-| Idle | relaxed smile, slow breathing, blinks | ready |
-| Thinking | raised brow, thought bubble with 3 dots | working out an answer |
-| Working | focused, progress ring around the tool | doing a task (percentage) |
-| Raising a hand | waves, soft amber frame pulse | needs you |
-| Done | big smile, two sparkles | finished |
-| Away | greyed, "z z" | offline / sleeping |
-| Talking | mouth animates | speaking (guide, voice) |
+| Ready | blinks, breathes | idle |
+| Thinking | eyes look up, three dots | working out an answer |
+| Working | ring around the blob fills with progress | doing a task |
+| Needs you | raises a little hand and waves | waiting for a human |
+| Done | happy closed eyes (^ ^) | finished |
+| Asleep | grey, eyes closed | offline |
 
-**Production:** characters are authored once as layered vector rigs with a
-state machine (Rive is a good fit: idle/think/work/raise-hand/celebrate/away
-blend states). Runtimes render them natively on iOS/macOS and Android; on
-Windows use the vector fallback (SVG/Win2D layers driven by the same state
-names) unless a Rive runtime is validated for WinUI. Diversity: skin tones,
-hair styles and outfits vary by helper; the guide is consistent everywhere.
+**Production:** one vector rig (body, gloss, cheeks, eyes, hand) with a state
+machine; on device the shapes are drawn natively (SwiftUI `Canvas` / Compose
+`Canvas` / Win2D) or with a Rive file sharing the same state names.
 
 ## 3. Interruptions: polite by default
 
@@ -138,25 +133,26 @@ reading or typing in front of them.
 
 ## 6. Color & type
 
-From the logo gradient: indigo → pink → amber → emerald → cyan, on a calm
-"night mall" obsidian.
+Paper, ink, a little color. Black ink carries every primary action; color
+belongs to helpers and to meaning.
 
-| Token | Dark | Light | Use |
-| :--- | :--- | :--- | :--- |
-| `bg` | `#0B0F19` | `#F6F7FB` | background |
-| `surface` | `#161C2D` | `#FFFFFF` | cards, sheets |
-| `ink` / `ink-muted` | `#F3F4F6` / `#B4BACB` | `#0B0F19` / `#5B6475` | text |
-| `primary` (you) | `#6366F1` | `#4F46E5` | your actions, "You are here" |
-| `needs-you` | `#F59E0B` | `#B45309` | To-do desk, raised hands |
-| `yes` / `done` | `#10B981` | `#047857` | approvals, completion |
-| `no` / people | `#EC4899` | `#DB2777` | "not now", Café |
-| `live` | `#06B6D4` | `#0891B2` | meeting rooms, streaming |
-| guide | `#EEF2FF` bubble, `#7C3AED` desk | same | Mello's callouts |
+| Token | Value | Use |
+| :--- | :--- | :--- |
+| `paper` | `#F4F3EF` | app background |
+| `card` | `#FFFFFF` | cards, sheets (hairline `rgba(17,17,20,.06)`, soft shadow) |
+| `ink` / `ink-2` / `ink-3` | `#111114` / `#55555C` / `#8A8A90` | text, primary buttons |
+| `indigo` | `#4F46E5` | links, "you", progress |
+| `amber` | `#F59E0B` (tint `#FFF6E0`) | needs you |
+| `green` | `#10B981` (tint `#E7F8F0`) | yes, done |
+| `rose` | `#E11D48` (tint `#FFF1F5`) | no, risk |
 
-Type: **Outfit** for signs, titles and numbers; the **system font** for
-reading (SF Pro, Roboto Flex, Segoe UI Variable) with Dynamic Type / font
-scaling; JetBrains Mono only in developer mode. Text contrast ≥ 4.5:1;
-status never conveyed by color alone (mood pose + label + badge).
+Type: **Inter** (system font on device) — large and tight for headlines and
+numbers (−0.035 em), comfortable 15–17 px body. A dark theme mirrors the same
+roles; it is not the default.
+
+The mall map is a pastel **clay diorama**: white buildings with colored
+roofs, soft shadows, round trees, a fountain with the MellowMesh "M", and an
+amber walkway to the next stop.
 
 ## Platform signatures
 
