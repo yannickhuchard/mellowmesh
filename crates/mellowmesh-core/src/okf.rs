@@ -190,42 +190,36 @@ pub fn serialize_okf(doc: &OKFDocument) -> String {
     yaml
 }
 
+/// For every `open` character, the index of its matching `close` character
+/// (nesting-aware), computed in a single linear pass with a stack. Unmatched
+/// openers map to `None`.
+fn matching_brackets(chars: &[char], open: char, close: char) -> Vec<Option<usize>> {
+    let mut matches = vec![None; chars.len()];
+    let mut stack = Vec::new();
+    for (idx, &c) in chars.iter().enumerate() {
+        if c == open {
+            stack.push(idx);
+        } else if c == close {
+            if let Some(start) = stack.pop() {
+                matches[start] = Some(idx);
+            }
+        }
+    }
+    matches
+}
+
 fn extract_markdown_links(body: &str) -> Vec<String> {
     let mut links = Vec::new();
     let chars: Vec<char> = body.chars().collect();
+    // Precomputing the matching brackets keeps extraction linear: scanning
+    // forward from every `[` would be quadratic on unbalanced input.
+    let square = matching_brackets(&chars, '[', ']');
+    let paren = matching_brackets(&chars, '(', ')');
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == '[' {
-            // Find closing ']'
-            let mut j = i + 1;
-            let mut bracket_depth = 1;
-            while j < chars.len() {
-                if chars[j] == '[' {
-                    bracket_depth += 1;
-                } else if chars[j] == ']' {
-                    bracket_depth -= 1;
-                    if bracket_depth == 0 {
-                        break;
-                    }
-                }
-                j += 1;
-            }
-            if j < chars.len() && j + 1 < chars.len() && chars[j + 1] == '(' {
-                // Find closing ')'
-                let mut k = j + 2;
-                let mut paren_depth = 1;
-                while k < chars.len() {
-                    if chars[k] == '(' {
-                        paren_depth += 1;
-                    } else if chars[k] == ')' {
-                        paren_depth -= 1;
-                        if paren_depth == 0 {
-                            break;
-                        }
-                    }
-                    k += 1;
-                }
-                if k < chars.len() {
+            if let Some(j) = square[i].filter(|&j| j + 1 < chars.len() && chars[j + 1] == '(') {
+                if let Some(k) = paren[j + 1] {
                     let link_content: String = chars[j + 2..k].iter().collect();
                     let trimmed = link_content.trim();
                     // Extract the path (strip query parameters/hashes if any)
@@ -272,5 +266,27 @@ mod tests {
         assert!(serialized.contains("title: \"Rotates credentials\""));
         assert!(serialized.contains("resource: \"users-api\""));
         assert!(serialized.contains("Go to [IAM Settings](iam.md)"));
+    }
+
+    #[test]
+    fn test_link_extraction_edge_cases() {
+        assert_eq!(
+            extract_markdown_links("[a [nested] b](x.md) [c](y.md?q=1) [d](z.txt)"),
+            vec!["x.md", "y.md"]
+        );
+        assert_eq!(
+            extract_markdown_links("[a](b (c) d.md)"),
+            vec!["b (c) d.md"]
+        );
+        assert!(extract_markdown_links("[unclosed](x.md").is_empty());
+        assert!(extract_markdown_links("[[[").is_empty());
+    }
+
+    #[test]
+    fn test_link_extraction_adversarial_is_fast() {
+        let body = "[".repeat(100_000) + &"](".repeat(50_000);
+        let start = std::time::Instant::now();
+        assert!(extract_markdown_links(&body).is_empty());
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
     }
 }

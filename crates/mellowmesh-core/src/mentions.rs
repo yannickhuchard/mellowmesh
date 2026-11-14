@@ -37,15 +37,26 @@ pub fn parse_mentions(
     let mut sorted_topics = named_topics.to_vec();
     sorted_topics.sort_by_key(|t| std::cmp::Reverse(t.name.len()));
 
+    // Case-fold every name once per call instead of once per body position.
+    let agent_names: Vec<Vec<Folded>> = sorted_agents.iter().map(|a| fold_str(&a.name)).collect();
+    let owner_names: Vec<(&str, Vec<Folded>)> = owners
+        .iter()
+        .map(|o| {
+            let username = o.strip_prefix("human://").unwrap_or(o.as_str());
+            (username, fold_str(username))
+        })
+        .collect();
+    let topic_names: Vec<Vec<Folded>> = sorted_topics.iter().map(|t| fold_str(&t.name)).collect();
+
     let chars: Vec<char> = body.chars().collect();
+    let folded: Vec<Folded> = chars.iter().map(|&c| fold_char(c)).collect();
     let mut i = 0;
 
     while i < chars.len() {
         if chars[i] == '@' && i + 1 < chars.len() {
             // A. Check for bracketed syntax first: @[Name]
             if chars[i + 1] == '[' {
-                if let Some(end_idx) = chars[i + 2..].iter().position(|&c| c == ']') {
-                    let end_pos = i + 2 + end_idx;
+                if let Some(end_pos) = find_closing_bracket(&chars, i + 2) {
                     let name: String = chars[i + 2..end_pos].iter().collect();
                     let trimmed_name = name.trim();
 
@@ -81,83 +92,36 @@ pub fn parse_mentions(
             }
 
             // B. Try dynamic agent registry match (greedy matching)
-            let mut agent_matched = false;
-            for agent in &sorted_agents {
-                let name_chars: Vec<char> = agent.name.chars().collect();
-                let name_len = name_chars.len();
-
-                if i + 1 + name_len <= chars.len() {
-                    let sub = &chars[i + 1..i + 1 + name_len];
-                    let matches_name = sub.iter().zip(name_chars.iter()).all(|(c1, c2)| {
-                        c1.to_lowercase().to_string() == c2.to_lowercase().to_string()
-                    });
-
-                    if matches_name {
-                        // Validate word boundary
-                        let next_idx = i + 1 + name_len;
-                        let is_boundary = if next_idx < chars.len() {
-                            let next_c = chars[next_idx];
-                            !next_c.is_alphanumeric() && next_c != '_'
-                        } else {
-                            true
-                        };
-
-                        if is_boundary {
-                            result.push_str(&format!("[@{}]({})", agent.name, agent.id));
-                            if !mentions.contains(&agent.id) {
-                                mentions.push(agent.id.clone());
-                            }
-                            i = next_idx;
-                            agent_matched = true;
-                            break;
-                        }
-                    }
+            let agent_hit = sorted_agents
+                .iter()
+                .zip(&agent_names)
+                .find_map(|(agent, name)| {
+                    greedy_match(&chars, &folded, i + 1, name).map(|n| (agent, n))
+                });
+            if let Some((agent, next_idx)) = agent_hit {
+                result.push_str(&format!("[@{}]({})", agent.name, agent.id));
+                if !mentions.contains(&agent.id) {
+                    mentions.push(agent.id.clone());
                 }
-            }
-
-            if agent_matched {
+                i = next_idx;
                 continue;
             }
 
             // C. Try dynamic human owner match (greedy matching)
-            let mut owner_matched = false;
-            for owner_uri in &owners {
-                let username = owner_uri
-                    .strip_prefix("human://")
-                    .unwrap_or(owner_uri.as_str());
-                let name_chars: Vec<char> = username.chars().collect();
-                let name_len = name_chars.len();
-
-                if i + 1 + name_len <= chars.len() {
-                    let sub = &chars[i + 1..i + 1 + name_len];
-                    let matches_name = sub.iter().zip(name_chars.iter()).all(|(c1, c2)| {
-                        c1.to_lowercase().to_string() == c2.to_lowercase().to_string()
+            let owner_hit =
+                owners
+                    .iter()
+                    .zip(&owner_names)
+                    .find_map(|(owner_uri, (username, name))| {
+                        greedy_match(&chars, &folded, i + 1, name)
+                            .map(|n| (owner_uri, *username, n))
                     });
-
-                    if matches_name {
-                        // Validate word boundary
-                        let next_idx = i + 1 + name_len;
-                        let is_boundary = if next_idx < chars.len() {
-                            let next_c = chars[next_idx];
-                            !next_c.is_alphanumeric() && next_c != '_'
-                        } else {
-                            true
-                        };
-
-                        if is_boundary {
-                            result.push_str(&format!("[@{username}]({owner_uri})"));
-                            if !mentions.contains(owner_uri) {
-                                mentions.push(owner_uri.clone());
-                            }
-                            i = next_idx;
-                            owner_matched = true;
-                            break;
-                        }
-                    }
+            if let Some((owner_uri, username, next_idx)) = owner_hit {
+                result.push_str(&format!("[@{username}]({owner_uri})"));
+                if !mentions.contains(owner_uri) {
+                    mentions.push(owner_uri.clone());
                 }
-            }
-
-            if owner_matched {
+                i = next_idx;
                 continue;
             }
         }
@@ -165,8 +129,7 @@ pub fn parse_mentions(
         if chars[i] == '#' && i + 1 < chars.len() {
             // A. Check for bracketed syntax first: #[Name]
             if chars[i + 1] == '[' {
-                if let Some(end_idx) = chars[i + 2..].iter().position(|&c| c == ']') {
-                    let end_pos = i + 2 + end_idx;
+                if let Some(end_pos) = find_closing_bracket(&chars, i + 2) {
                     let name: String = chars[i + 2..end_pos].iter().collect();
                     let trimmed_name = name.trim();
 
@@ -187,42 +150,17 @@ pub fn parse_mentions(
             }
 
             // B. Try dynamic topic name match (greedy matching)
-            let mut topic_matched = false;
-            for nt in &sorted_topics {
-                let name_chars: Vec<char> = nt.name.chars().collect();
-                let name_len = name_chars.len();
-
-                if i + 1 + name_len <= chars.len() {
-                    let sub = &chars[i + 1..i + 1 + name_len];
-                    let matches_name = sub.iter().zip(name_chars.iter()).all(|(c1, c2)| {
-                        c1.to_lowercase().to_string() == c2.to_lowercase().to_string()
-                    });
-
-                    if matches_name {
-                        // Validate word boundary
-                        let next_idx = i + 1 + name_len;
-                        let is_boundary = if next_idx < chars.len() {
-                            let next_c = chars[next_idx];
-                            !next_c.is_alphanumeric() && next_c != '_'
-                        } else {
-                            true
-                        };
-
-                        if is_boundary {
-                            let topic_uri = format!("topic://{}", nt.topic);
-                            result.push_str(&format!("[#{}]({})", nt.name, topic_uri));
-                            if !mentions.contains(&topic_uri) {
-                                mentions.push(topic_uri);
-                            }
-                            i = next_idx;
-                            topic_matched = true;
-                            break;
-                        }
-                    }
+            let topic_hit = sorted_topics
+                .iter()
+                .zip(&topic_names)
+                .find_map(|(nt, name)| greedy_match(&chars, &folded, i + 1, name).map(|n| (nt, n)));
+            if let Some((nt, next_idx)) = topic_hit {
+                let topic_uri = format!("topic://{}", nt.topic);
+                result.push_str(&format!("[#{}]({})", nt.name, topic_uri));
+                if !mentions.contains(&topic_uri) {
+                    mentions.push(topic_uri);
                 }
-            }
-
-            if topic_matched {
+                i = next_idx;
                 continue;
             }
         }
@@ -232,6 +170,55 @@ pub fn parse_mentions(
     }
 
     (result, mentions)
+}
+
+/// Maximum number of characters scanned after `@[` / `#[` for the closing
+/// `]`. Names are short; bounding the lookahead keeps parsing linear in the
+/// body length even for adversarial input full of unclosed brackets.
+pub const MAX_BRACKET_NAME_CHARS: usize = 64;
+
+/// Finds the index of the `]` closing a bracketed name that starts at
+/// `start`, looking at most [`MAX_BRACKET_NAME_CHARS`] characters ahead.
+fn find_closing_bracket(chars: &[char], start: usize) -> Option<usize> {
+    let end = chars
+        .len()
+        .min(start.saturating_add(MAX_BRACKET_NAME_CHARS + 1));
+    chars
+        .get(start..end)?
+        .iter()
+        .position(|&c| c == ']')
+        .map(|idx| start + idx)
+}
+
+/// The lowercase form of a single character (at most three chars; unused
+/// slots are `'\0'`). Comparing these is equivalent to comparing
+/// `c.to_lowercase().to_string()`.
+type Folded = [char; 3];
+
+fn fold_char(c: char) -> Folded {
+    let mut out = ['\0'; 3];
+    for (slot, lc) in out.iter_mut().zip(c.to_lowercase()) {
+        *slot = lc;
+    }
+    out
+}
+
+fn fold_str(s: &str) -> Vec<Folded> {
+    s.chars().map(fold_char).collect()
+}
+
+/// Case-insensitively matches the pre-folded `name` at `start` in the body,
+/// requiring a word boundary after it. Returns the index just past the name.
+fn greedy_match(chars: &[char], folded: &[Folded], start: usize, name: &[Folded]) -> Option<usize> {
+    let next_idx = start.checked_add(name.len())?;
+    if next_idx > chars.len() || folded[start..next_idx] != *name {
+        return None;
+    }
+    let is_boundary = match chars.get(next_idx) {
+        Some(&next_c) => !next_c.is_alphanumeric() && next_c != '_',
+        None => true,
+    };
+    is_boundary.then_some(next_idx)
 }
 
 #[cfg(test)]
@@ -464,6 +451,36 @@ mod tests {
                 "agent://yannick/arabic-agent"
             ]
         );
+    }
+
+    #[test]
+    fn test_adversarial_brackets_are_linear() {
+        let agents = mock_agents();
+        let topics = mock_topics();
+        let body = "@[".repeat(50_000) + &"#[".repeat(50_000); // 200 KB
+        let start = std::time::Instant::now();
+        let (out, uris) = parse_mentions(&body, &agents, &topics);
+        let elapsed = start.elapsed();
+        assert_eq!(out, body);
+        assert!(uris.is_empty());
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn test_bracket_lookahead_is_bounded() {
+        let agents = mock_agents();
+        // A closing bracket beyond the lookahead window is not a bracketed name.
+        let body = format!("@[{}Hermes]", " ".repeat(MAX_BRACKET_NAME_CHARS));
+        let (out, uris) = parse_mentions(&body, &agents, &[]);
+        assert_eq!(out, body);
+        assert!(uris.is_empty());
+        // Within the window, surrounding whitespace is still trimmed.
+        let (out, uris) = parse_mentions("@[  Hermes  ] hi", &agents, &[]);
+        assert_eq!(out, "[@Hermes](agent://yannick/hermes) hi");
+        assert_eq!(uris, vec!["agent://yannick/hermes"]);
     }
 
     #[test]
