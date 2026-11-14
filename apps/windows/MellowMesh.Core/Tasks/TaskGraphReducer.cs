@@ -191,6 +191,28 @@ public static class TaskGraphReducer
         return known?.Id ?? id;
     }
 
+    /// <summary>
+    /// Build a graph from a plain <c>GET /tasks</c> list (fallback for hubs
+    /// without <c>/tasks/graph</c>), keeping only tasks in scope.
+    /// </summary>
+    public static TaskGraph FromTasks(IEnumerable<MeshTask> tasks, DateTimeOffset now, Func<MeshTask, bool>? inScope = null)
+    {
+        var graph = new TaskGraph { Now = now };
+        foreach (var t in tasks)
+        {
+            if (inScope is null || inScope(t))
+            {
+                graph.Tasks.Add(t as GraphTask ?? GraphTask.From(t));
+            }
+        }
+        foreach (var t in graph.Tasks)
+        {
+            t.Lane = LaneFor(t, graph);
+        }
+        Recompute(graph, now);
+        return graph;
+    }
+
     /// <summary>Scope predicate mirroring <c>GET /tasks/graph?scope=</c> for live events.</summary>
     public static Func<MeshTask, bool> ScopePredicate(string scope, string me, IReadOnlyCollection<string>? myHelpers = null)
     {

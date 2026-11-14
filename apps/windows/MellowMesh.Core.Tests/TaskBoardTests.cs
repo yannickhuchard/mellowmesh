@@ -62,6 +62,22 @@ public class TaskBoardTests
         Assert.Equal("completed", BoardModel.StatusFor(BoardColumn.Done));
 
         var g = Graph();
+        var b = BoardModel.Build(g);
+        var open = b[BoardColumn.ToDo].Cards[0];       // t7 open
+        var claimed = b[BoardColumn.Claimed].Cards[0]; // t5
+        var doing = b[BoardColumn.Doing].Cards[0];     // t2
+        var blocked = b[BoardColumn.Waiting].Cards.Single(c => c.Id == "t4");
+        var done = b[BoardColumn.Done].Cards[0];       // t1
+        Assert.False(BoardModel.CanMove(open, BoardColumn.Claimed)); // claims are not drops
+        Assert.False(BoardModel.CanMove(open, BoardColumn.Doing));
+        Assert.True(BoardModel.CanMove(open, BoardColumn.Waiting));
+        Assert.True(BoardModel.CanMove(claimed, BoardColumn.Doing));
+        Assert.True(BoardModel.CanMove(doing, BoardColumn.Done));
+        Assert.True(BoardModel.CanMove(blocked, BoardColumn.ToDo));
+        Assert.True(BoardModel.CanMove(done, BoardColumn.ToDo)); // reopen
+        Assert.False(BoardModel.CanMove(done, BoardColumn.Doing));
+        Assert.False(BoardModel.CanMove(doing, BoardColumn.Doing));
+
         Assert.Equal(1, BoardModel.Build(g, new BoardFilter(Team: "home")).Count);
         Assert.Equal(2, BoardModel.Build(g, new BoardFilter(Lanes: new[] { Coder })).Count);
         Assert.Equal(1, BoardModel.Build(g, new BoardFilter(Text: "task t5")).Count);
@@ -230,6 +246,23 @@ public class TaskBoardTests
         Assert.Equal(Ops, g.Tasks.Single(t => t.Id == "t8").Lane);
         Assert.Equal(Now.AddMinutes(1), g.Tasks.Single(t => t.Id == "t8").ClaimedAt);
         Assert.Equal(Now.AddMinutes(1), g.Now);
+    }
+
+    [Fact]
+    public void FromTasks_BuildsLanesAndBlockers()
+    {
+        var tasks = new List<MeshTask>
+        {
+            new() { Id = "a", Status = "in_progress", ClaimedBy = Coder, StartedAt = Now.AddHours(-1), CreatedAt = Now.AddHours(-2) },
+            new() { Id = "b", Status = "open", Team = "home", DependsOn = { "a" }, CreatedAt = Now.AddHours(-1) },
+            new() { Id = "c", Status = "open", Team = "work" },
+        };
+        var g = TaskGraphReducer.FromTasks(tasks, Now, t => t.Team != "work");
+        Assert.Equal(2, g.Tasks.Count);
+        Assert.Equal(new[] { Coder, "team:home" }, g.Lanes.Select(l => l.Id));
+        Assert.Equal(new[] { "a" }, g.Tasks.Single(t => t.Id == "b").BlockedBy);
+        Assert.Equal(BoardColumn.Waiting, BoardModel.ColumnFor(g.Tasks.Single(t => t.Id == "b")));
+        Assert.Equal("Home", g.Lanes[1].Label);
     }
 
     [Fact]

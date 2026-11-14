@@ -37,7 +37,7 @@ public class MeshUiTests
         var card = MeshUiParser.Parse(Full);
         Assert.Equal("Nightly build", card.Title);
         Assert.Equal(8, card.Blocks.Count);
-        Assert.IsType<TextBlock>(card.Blocks[0]);
+        Assert.IsType<MarkdownBlock>(card.Blocks[0]);
         Assert.Equal("7330242", Assert.IsType<KeyValueBlock>(card.Blocks[1]).Pairs[0].Value);
         Assert.Equal(0.75, Assert.IsType<ProgressBlock>(card.Blocks[2]).Value);
         Assert.Equal("+1.2%", Assert.IsType<MetricBlock>(card.Blocks[3]).Delta);
@@ -88,7 +88,7 @@ public class MeshUiTests
     public void AllowsAutolinksAndComparisons()
     {
         var card = MeshUiParser.Parse(With("""{"type":"text","markdown":"see <https://example.com> and 1 < 2"}"""));
-        Assert.Contains("1 < 2", ((TextBlock)card.Blocks[0]).Markdown);
+        Assert.Contains("1 < 2", ((MarkdownBlock)card.Blocks[0]).Markdown);
     }
 
     [Fact]

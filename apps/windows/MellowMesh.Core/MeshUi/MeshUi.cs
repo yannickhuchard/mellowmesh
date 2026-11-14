@@ -23,7 +23,7 @@ public sealed record KeyValuePairItem(string Key, string Value);
 public abstract record UiBlock;
 
 /// <summary>CommonMark subset. Never rendered as HTML; images are not auto-loaded.</summary>
-public sealed record TextBlock(string Markdown) : UiBlock;
+public sealed record MarkdownBlock(string Markdown) : UiBlock;
 
 public sealed record KeyValueBlock(IReadOnlyList<KeyValuePairItem> Pairs) : UiBlock;
 
@@ -180,7 +180,7 @@ public static class MeshUiParser
             {
                 case "text":
                     OnlyFields(b, type, "type", "markdown");
-                    blocks.Add(new TextBlock(CheckText("text.markdown", ReqString(b, "markdown"), MaxMarkdown, false)));
+                    blocks.Add(new MarkdownBlock(CheckText("text.markdown", ReqString(b, "markdown"), MaxMarkdown, false)));
                     break;
                 case "key_value":
                 {

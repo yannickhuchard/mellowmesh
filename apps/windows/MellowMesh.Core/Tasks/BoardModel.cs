@@ -121,6 +121,31 @@ public sealed class BoardModel
     /// <summary>Whether a drop is a real change worth a PATCH.</summary>
     public static bool IsMove(BoardCard card, BoardColumn to) => card.Column != to;
 
+    /// <summary>
+    /// Moves the hub accepts by PATCH (docs/task-board.md): claimed → doing;
+    /// claimed/doing → done; any unfinished → waiting (blocked); blocked → back
+    /// to the column it came from; done/cancelled → to do (reopen). Claiming
+    /// (to do → claimed) only happens through a helper's claim, never a drop.
+    /// The hub still has the final word (who may move what).
+    /// </summary>
+    public static bool CanMove(BoardCard card, BoardColumn to)
+    {
+        if (!IsMove(card, to))
+        {
+            return false;
+        }
+        var s = card.Status;
+        return to switch
+        {
+            BoardColumn.ToDo => s is TaskStatuses.Completed or TaskStatuses.Cancelled or TaskStatuses.Blocked,
+            BoardColumn.Claimed => s == TaskStatuses.Blocked,
+            BoardColumn.Doing => s is TaskStatuses.Claimed or TaskStatuses.Blocked,
+            BoardColumn.Waiting => !TaskStatuses.IsTerminal(s) && s != TaskStatuses.Blocked,
+            BoardColumn.Done => s is TaskStatuses.Claimed or TaskStatuses.InProgress,
+            _ => false,
+        };
+    }
+
     public static BoardModel Build(TaskGraph graph, BoardFilter? filter = null)
     {
         var lanes = graph.Lanes.ToDictionary(l => l.Id, l => l, StringComparer.OrdinalIgnoreCase);
