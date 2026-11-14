@@ -17,6 +17,13 @@ Options:
   -h, --help             Print help
 ```
 
+`--peer` without a pattern syncs `_forum.**` only; pass `addr=pattern` to
+widen it. Set `MELLOWMESH_PEER_TOKEN` to authenticate to a peer: it is sent
+as an `Authorization: Bearer` header on the WebSocket handshake. Inbound peer
+traffic on `_decision.*`, `_task.*.reclaimed` and `_system.*` (except
+`_system.registry.*`) is dropped. The daemon writes `owner.token` (mode 0600)
+and `mellowmeshd.pid` next to its database.
+
 ### Client CLI (`mellowmesh`)
 
 Use the global `-p` / `--port` argument to target specific daemon instances:
