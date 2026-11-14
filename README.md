@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 27 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 29 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -102,6 +102,8 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Conformance Kit](conformance/) | Verify any implementation against the protocol's `MUST` requirements |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
+| [Network](docs/network.md) | Spaces (private / closed / open), teams, visitors, `--public-host`, pairing a phone |
+| [Task Boards](docs/task-board.md) | Dependencies, teams, board moves, task graph and live task events |
 | [Security Policy](SECURITY.md) | Supported versions and how to report a vulnerability privately |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |

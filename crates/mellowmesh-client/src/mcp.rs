@@ -35,6 +35,7 @@ const READ_TOOLS: &[&str] = &[
     "list_agents",
     "list_tasks",
     "list_decisions",
+    "get_network",
     "get_context",
     "list_traces",
     "list_wiki_pages",
@@ -42,6 +43,18 @@ const READ_TOOLS: &[&str] = &[
     "search_wiki",
     "list_named_topics",
 ];
+
+/// A list of strings from a tool argument (missing or malformed: empty).
+fn string_list(args: &serde_json::Value, key: &str) -> Vec<String> {
+    args.get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 /// A text content block with untrusted content sanitized.
 fn text_block(text: impl AsRef<str>) -> anyhow::Result<Vec<serde_json::Value>> {
@@ -286,6 +299,15 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                     "parent_id": {
                         "type": "string",
                         "description": "Optional parent task or message identifier for lineage tracing"
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Ids of tasks that must be completed first"
+                    },
+                    "team": {
+                        "type": "string",
+                        "description": "Team id (slug) the task belongs to"
                     }
                 },
                 "required": ["title", "topics", "capabilities"]
@@ -634,6 +656,49 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                 "required": ["name"]
             }
         }),
+        serde_json::json!({
+            "name": "update_task",
+            "description": "Update a task: move it on the board (status: in_progress by its claimant, blocked, cancelled, completed by its claimant, back from blocked, or reopen to open by its creator), reassign it, or change its priority, dependencies, team, title or description. Claiming still goes through claim_task. Allowed for the task's creator, assignee or claimant.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "Task identifier"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "in_progress", "blocked", "completed", "cancelled", "claimed"],
+                        "description": "New status (validated against the allowed transitions)"
+                    },
+                    "assigned_to": {
+                        "type": "string",
+                        "description": "Principal URI to assign; empty string clears it"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "low, medium, high or critical"
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Replace the task's dependencies (task ids); cycles are rejected"
+                    },
+                    "team": {
+                        "type": "string",
+                        "description": "Team id; empty string clears it"
+                    },
+                    "title": { "type": "string", "description": "New title" },
+                    "description": { "type": "string", "description": "New description" }
+                },
+                "required": ["task_id"]
+            }
+        }),
+        serde_json::json!({
+            "name": "get_network",
+            "description": "Read the hub's network: its name and default access, the spaces you may see (topic patterns with private/closed/open access) and the teams you belong to. Read-only.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
     ]
 }
 
@@ -872,6 +937,12 @@ pub async fn handle_tool_call(
                 .get("parent_id")
                 .and_then(|p| p.as_str())
                 .map(|s| s.to_string());
+            let depends_on = string_list(&args, "depends_on");
+            let team = args
+                .get("team")
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.is_empty())
+                .map(|s| s.to_string());
 
             let task = mellowmesh_core::task::Task {
                 id: format!("task_{}", ulid::Ulid::new().to_string().to_lowercase()),
@@ -891,6 +962,9 @@ pub async fn handle_tool_call(
                 parent_id,
                 lease_seconds: None,
                 claim_expires_at: None,
+                depends_on,
+                team,
+                ..Default::default()
             };
             client.create_task(&task).await?;
             text_block(format!("Task created successfully with ID: {}", task.id))
@@ -898,6 +972,35 @@ pub async fn handle_tool_call(
         "list_tasks" => {
             let tasks = client.list_tasks().await?;
             json_block(&tasks)
+        }
+        "update_task" => {
+            let task_id = args
+                .get("task_id")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing task_id"))?;
+            let text = |key: &str| {
+                args.get(key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            };
+            let update = mellowmesh_core::task::TaskUpdate {
+                status: text("status"),
+                assigned_to: text("assigned_to"),
+                priority: text("priority"),
+                depends_on: args
+                    .get("depends_on")
+                    .is_some()
+                    .then(|| string_list(&args, "depends_on")),
+                team: text("team"),
+                title: text("title"),
+                description: text("description"),
+            };
+            let task = client.update_task(task_id, &update).await?;
+            json_block(&task)
+        }
+        "get_network" => {
+            let view = client.get_network().await?;
+            json_block(&view)
         }
         "claim_task" => {
             let task_id = args
@@ -1224,7 +1327,7 @@ mod tests {
     #[test]
     fn respond_decision_is_not_an_agent_tool() {
         let tools = list_tools_schema();
-        assert_eq!(tools.len(), 27);
+        assert_eq!(tools.len(), 29);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 

@@ -116,6 +116,10 @@ cargo run --example multi_agent_discussion
   * `409 Conflict` → task is claimed by another agent with a live lease
   * `404 Not Found` / `400 Bad Request` (not claimable, e.g. completed)
 * `POST /tasks/:id/complete`
+* `PATCH /tasks/:id` — payload: `{ status?, assigned_to?, priority?, depends_on?, team?, title?, description? }`; response: the task. Status moves are validated (see [task boards](task-board.md)).
+* `GET /tasks/graph?scope=all|mine|agent:<principal>|team:<id>` — response: `{ now, lanes, tasks, edges }` with per-task `lane`, `blocked_by`, `waiting_seconds`, `running_seconds`, `critical`.
+
+`POST /tasks` also accepts `depends_on` and `team`; `created_at`, `claimed_at`, `started_at` and `completed_at` are set by the hub. The hub announces `_task.<id>.created|claimed|started|completed|updated|cancelled` (payload: the task); clients cannot publish those topics.
 
 Claim-lease semantics: publishing any message on `_task.<id>.progress` renews the publisher's lease. Expired claims are released by the daemon sweep, which publishes a `_task.<id>.reclaimed` event with payload `{ "task_id", "previous_claimant", "status": "open" }`.
 
@@ -124,6 +128,22 @@ Claim-lease semantics: publishing any message on `_task.<id>.progress` renews th
 * `POST /decisions` — payload: `Decision`
 * `GET /decisions` — response: `Vec<Decision>`
 * `POST /decisions/:id/respond` — payload: `{ "option_id": "option_yes" }`
+
+### Network: identity, spaces, teams
+
+Contract and rules: [docs/network.md](network.md).
+
+* `GET /whoami` — `{ "principal", "kind", "is_owner", "remote" }`
+* `GET /network` — `{ "network", "spaces", "teams" }` visible to the caller; `PUT /network` (owner) — partial `{ name?, description?, default_access?, visitor_write? }`
+* `GET /spaces`, `POST /spaces` (owner, `201`), `PUT /spaces/:id`, `DELETE /spaces/:id` (`204`)
+* `GET /teams`, `POST /teams` (owner, `201`, also creates the closed space `team-<id>` over `_team.<id>.**`), `PUT /teams/:id`, `DELETE /teams/:id` (`204`)
+* `POST /teams/:id/members` — `{ "principal", "role": "owner|admin|member" }`; `DELETE /teams/:id/members/:principal` (percent-encoded)
+* `GET /access/check?topic=T&principal=P` (owner) — `{ "read", "write", "space", "level", "reason" }`
+* `POST /auth/tokens` accepts an optional `"label"` (shown by `GET /auth/tokens`).
+
+Token-less remote callers (and token-less callers under `--require-auth`) may use the read endpoints (`/history`, `/topics`, `/forum`, `/search`, `/context`, `/ws`, `/whoami`, `/network`, `/spaces`, `/teams`) and `POST /publish`, which only return or accept what the space rules allow.
+
+Rust SDK: `whoami`, `get_network`, `set_network`, `list_spaces`, `create_space`, `replace_space`, `delete_space`, `list_teams`, `create_team`, `replace_team`, `delete_team`, `add_team_member`, `remove_team_member`, `access_check`, `create_labeled_token`, `update_task`, `task_graph`.
 
 ### Schema Contracts
 

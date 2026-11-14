@@ -87,6 +87,25 @@ impl Store {
         Ok(tokens)
     }
 
+    /// Attach a human-readable label to a token (e.g. the device it was
+    /// paired with).
+    pub fn set_token_label(&self, id: &str, label: &str) -> anyhow::Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE tokens SET label = ?2 WHERE id = ?1",
+            params![id, label],
+        )?;
+        Ok(())
+    }
+
+    /// Token labels by token id.
+    pub fn token_labels(&self) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT id, label FROM tokens WHERE label IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn revoke_token(&self, id: &str) -> anyhow::Result<bool> {
         // All statements run on one connection — do not call other `self`
         // methods that acquire a connection while holding this one, or a

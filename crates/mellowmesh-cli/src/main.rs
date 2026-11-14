@@ -3,6 +3,7 @@ use mellowmesh_client::MellowMeshClient;
 
 mod commands;
 mod mcp;
+mod network_cmds;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -108,6 +109,30 @@ enum Commands {
     /// Bearer token management (authentication)
     Token(TokenCmd),
 
+    /// Your network: name and default access for topics in no space
+    Network(NetworkCmd),
+
+    /// Spaces: topic patterns with private / closed / open access
+    Space(SpaceCmd),
+
+    /// Teams of people and helpers (each gets a closed team room)
+    Team(TeamCmd),
+
+    /// Check what someone may do on a topic
+    Access(AccessCmd),
+
+    /// Pair a phone or computer: mint an owner token, print a QR code and
+    /// the pairing link
+    Pair {
+        /// Device name (labels the token)
+        #[arg(long)]
+        name: String,
+        /// Base URL the device will use to reach this hub
+        /// (e.g. http://192.168.1.20:40000)
+        #[arg(long)]
+        url: String,
+    },
+
     /// Send an end-to-end encrypted request through a relay (relay sees only
     /// ciphertext). Requires MELLOWMESH_URL and MELLOWMESH_TOKEN.
     E2e {
@@ -153,6 +178,152 @@ pub enum TokenAction {
     List,
     /// Revoke a token by its id (tok_...)
     Revoke { id: String },
+}
+
+#[derive(Args, Debug, Clone)]
+struct NetworkCmd {
+    #[command(subcommand)]
+    action: NetworkAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum NetworkAction {
+    /// Show the network, its spaces and teams
+    Show,
+    /// Change the network name or default access
+    Set {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// Access for topics in no space: closed or open
+        #[arg(long = "default")]
+        default_access: Option<String>,
+        /// Whether visitors may post on uncovered topics (open network)
+        #[arg(long)]
+        visitor_write: Option<bool>,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+struct SpaceCmd {
+    #[command(subcommand)]
+    action: SpaceAction,
+}
+
+#[derive(Args, Debug, Clone)]
+struct SpaceFields {
+    /// Display name
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    description: Option<String>,
+    /// Topic pattern (repeatable; replaces the list on `set`)
+    #[arg(long = "pattern")]
+    patterns: Vec<String>,
+    /// private, closed or open
+    #[arg(long)]
+    access: Option<String>,
+    /// Member principal URI (repeatable; replaces the list on `set`)
+    #[arg(long = "member")]
+    members: Vec<String>,
+    /// Team id (repeatable; replaces the list on `set`)
+    #[arg(long = "team")]
+    teams: Vec<String>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum SpaceAction {
+    /// Create a space
+    Add {
+        id: String,
+        #[command(flatten)]
+        fields: SpaceFields,
+        /// Share this space with peers
+        #[arg(long)]
+        peers: bool,
+        /// Let visitors post (open spaces)
+        #[arg(long)]
+        visitor_write: bool,
+    },
+    /// List spaces
+    List,
+    /// Change a space (only the given fields)
+    Set {
+        id: String,
+        #[command(flatten)]
+        fields: SpaceFields,
+        #[arg(long)]
+        peers: Option<bool>,
+        #[arg(long)]
+        visitor_write: Option<bool>,
+    },
+    /// Remove a space
+    Remove { id: String },
+}
+
+#[derive(Args, Debug, Clone)]
+struct TeamCmd {
+    #[command(subcommand)]
+    action: TeamAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum TeamAction {
+    /// Create a team (and its closed team space team-<id>)
+    Add {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        /// Color like '#10B981'
+        #[arg(long)]
+        color: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// List teams
+    List,
+    /// Remove a team and its team space
+    Remove { id: String },
+    /// Manage team members
+    Member(TeamMemberCmd),
+}
+
+#[derive(Args, Debug, Clone)]
+struct TeamMemberCmd {
+    #[command(subcommand)]
+    action: TeamMemberAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum TeamMemberAction {
+    /// Add a member (or change their role)
+    Add {
+        team: String,
+        principal: String,
+        /// owner, admin or member
+        #[arg(long, default_value = "member")]
+        role: String,
+    },
+    /// Remove a member
+    Remove { team: String, principal: String },
+}
+
+#[derive(Args, Debug, Clone)]
+struct AccessCmd {
+    #[command(subcommand)]
+    action: AccessAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum AccessAction {
+    /// What a principal (default: a visitor) may do on a topic
+    Check {
+        topic: String,
+        /// Principal URI (omit for a visitor without a token)
+        #[arg(long = "as")]
+        principal: Option<String>,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -244,6 +415,49 @@ enum TaskAction {
         priority: String,
         #[arg(long)]
         created_by: Option<String>,
+        /// Task id that must be completed first (repeatable)
+        #[arg(long = "depends-on")]
+        depends_on: Vec<String>,
+        /// Team id the task belongs to
+        #[arg(long)]
+        team: Option<String>,
+    },
+    /// Update a task (status, assignee, priority, dependencies, team, text)
+    Update {
+        id: String,
+        /// open, in_progress, blocked, completed or cancelled
+        #[arg(long)]
+        status: Option<String>,
+        /// Assignee principal URI ('' clears it)
+        #[arg(long)]
+        assign: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        /// Replace the dependencies (repeatable)
+        #[arg(long = "depends-on")]
+        depends_on: Vec<String>,
+        /// Remove every dependency
+        #[arg(long, conflicts_with = "depends_on")]
+        no_deps: bool,
+        /// Team id ('' clears it)
+        #[arg(long)]
+        team: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Show the task board (To do / Claimed / Doing / Waiting / Done)
+    Board {
+        /// Only tasks you created, are assigned or claimed
+        #[arg(long, conflicts_with_all = ["agent", "team"])]
+        mine: bool,
+        /// Only tasks assigned to or claimed by this principal
+        #[arg(long, conflicts_with = "team")]
+        agent: Option<String>,
+        /// Only tasks of this team
+        #[arg(long)]
+        team: Option<String>,
     },
 }
 
@@ -458,28 +672,68 @@ async fn main() -> anyhow::Result<()> {
         Commands::Agents => {
             commands::run_agents(&client).await?;
         }
-        Commands::Task(TaskCmd {
-            action:
-                TaskAction::Create {
-                    title,
-                    topics,
-                    description,
-                    capabilities,
-                    priority,
-                    created_by,
-                },
-        }) => {
-            commands::run_task_create(
-                &client,
+        Commands::Task(TaskCmd { action }) => match action {
+            TaskAction::Create {
                 title,
                 topics,
                 description,
                 capabilities,
                 priority,
                 created_by,
-            )
-            .await?;
-        }
+                depends_on,
+                team,
+            } => {
+                commands::run_task_create(
+                    &client,
+                    title,
+                    topics,
+                    description,
+                    capabilities,
+                    priority,
+                    created_by,
+                    depends_on,
+                    team,
+                )
+                .await?;
+            }
+            TaskAction::Update {
+                id,
+                status,
+                assign,
+                priority,
+                depends_on,
+                no_deps,
+                team,
+                title,
+                description,
+            } => {
+                network_cmds::run_task_update(
+                    &client,
+                    &id,
+                    network_cmds::TaskUpdateArgs {
+                        status,
+                        assign,
+                        priority,
+                        depends_on,
+                        no_deps,
+                        team,
+                        title,
+                        description,
+                    },
+                )
+                .await?;
+            }
+            TaskAction::Board { mine, agent, team } => {
+                let scope = if mine {
+                    Some("mine".to_string())
+                } else if let Some(a) = agent {
+                    Some(format!("agent:{a}"))
+                } else {
+                    team.map(|t| format!("team:{t}"))
+                };
+                network_cmds::run_task_board(&client, scope).await?;
+            }
+        },
         Commands::Tasks => {
             commands::run_tasks(&client).await?;
         }
@@ -603,23 +857,92 @@ async fn main() -> anyhow::Result<()> {
                 commands::run_schema_list(&client).await?;
             }
         },
-        Commands::Token(TokenCmd { action }) => match action {
-            TokenAction::Create {
-                principal,
+        Commands::Token(TokenCmd { action }) => {
+            // Token administration is an owner action: on this machine use
+            // the owner token automatically (unless MELLOWMESH_TOKEN is set).
+            let admin = commands::as_local_human(&client);
+            match action {
+                TokenAction::Create {
+                    principal,
+                    name,
+                    read_scopes,
+                    write_scopes,
+                } => {
+                    commands::run_token_create(&admin, &principal, name, read_scopes, write_scopes)
+                        .await?;
+                }
+                TokenAction::List => {
+                    commands::run_token_list(&admin).await?;
+                }
+                TokenAction::Revoke { id } => {
+                    commands::run_token_revoke(&admin, &id).await?;
+                }
+            }
+        }
+        Commands::Network(NetworkCmd { action }) => match action {
+            NetworkAction::Show => network_cmds::run_network_show(&client).await?,
+            NetworkAction::Set {
                 name,
-                read_scopes,
-                write_scopes,
+                description,
+                default_access,
+                visitor_write,
             } => {
-                commands::run_token_create(&client, &principal, name, read_scopes, write_scopes)
-                    .await?;
-            }
-            TokenAction::List => {
-                commands::run_token_list(&client).await?;
-            }
-            TokenAction::Revoke { id } => {
-                commands::run_token_revoke(&client, &id).await?;
+                network_cmds::run_network_set(
+                    &client,
+                    name,
+                    description,
+                    default_access,
+                    visitor_write,
+                )
+                .await?
             }
         },
+        Commands::Space(SpaceCmd { action }) => match action {
+            SpaceAction::Add {
+                id,
+                fields,
+                peers,
+                visitor_write,
+            } => {
+                let args = space_args(fields, Some(peers), Some(visitor_write));
+                network_cmds::run_space_add(&client, id, args).await?
+            }
+            SpaceAction::List => network_cmds::run_space_list(&client).await?,
+            SpaceAction::Set {
+                id,
+                fields,
+                peers,
+                visitor_write,
+            } => {
+                let args = space_args(fields, peers, visitor_write);
+                network_cmds::run_space_set(&client, id, args).await?
+            }
+            SpaceAction::Remove { id } => network_cmds::run_space_remove(&client, &id).await?,
+        },
+        Commands::Team(TeamCmd { action }) => match action {
+            TeamAction::Add {
+                id,
+                name,
+                color,
+                description,
+            } => network_cmds::run_team_add(&client, id, name, color, description).await?,
+            TeamAction::List => network_cmds::run_team_list(&client).await?,
+            TeamAction::Remove { id } => network_cmds::run_team_remove(&client, &id).await?,
+            TeamAction::Member(TeamMemberCmd { action }) => match action {
+                TeamMemberAction::Add {
+                    team,
+                    principal,
+                    role,
+                } => network_cmds::run_team_member_add(&client, &team, &principal, &role).await?,
+                TeamMemberAction::Remove { team, principal } => {
+                    network_cmds::run_team_member_remove(&client, &team, &principal).await?
+                }
+            },
+        },
+        Commands::Access(AccessCmd {
+            action: AccessAction::Check { topic, principal },
+        }) => network_cmds::run_access_check(&client, &topic, principal.as_deref()).await?,
+        Commands::Pair { name, url } => network_cmds::run_pair(&client, &name, &url).await?,
         Commands::E2e { method, path, body } => {
             commands::run_e2e(&client, &method, &path, body).await?;
         }
@@ -633,4 +956,21 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn space_args(
+    fields: SpaceFields,
+    peers: Option<bool>,
+    visitor_write: Option<bool>,
+) -> network_cmds::SpaceArgs {
+    network_cmds::SpaceArgs {
+        name: fields.name,
+        description: fields.description,
+        patterns: fields.patterns,
+        access: fields.access,
+        members: fields.members,
+        teams: fields.teams,
+        peers,
+        visitor_write,
+    }
 }

@@ -83,7 +83,7 @@ pub fn start(state: AppState, config: RelayConfig, local_port: u16) {
 }
 
 async fn run_link(
-    _state: &AppState,
+    state: &AppState,
     ws_url: &str,
     config: &RelayConfig,
     local_port: u16,
@@ -129,7 +129,10 @@ async fn run_link(
         }
     });
 
-    let http = crate::state::loopback_http_client();
+    // Every request replayed for a relay client is marked remote, so it is
+    // never treated as a trusted local caller.
+    let marker = state.access.remote_marker.clone();
+    let http = remote_dispatch_client(&marker);
     let base = format!("http://127.0.0.1:{local_port}");
     // Live subscription bridges opened on behalf of remote clients, keyed by
     // stream id, with a generation so a finished bridge only removes itself.
@@ -215,6 +218,7 @@ async fn run_link(
                             let out = out_tx.clone();
                             let streams_map = streams.clone();
                             let sid = stream_id.clone();
+                            let marker = marker.clone();
                             next_generation += 1;
                             let generation = next_generation;
                             // Hold the lock across spawn + insert so the
@@ -222,8 +226,14 @@ async fn run_link(
                             // registered.
                             let mut map = streams.lock().unwrap();
                             let handle = tokio::spawn(async move {
-                                run_stream_bridge(local_port, sid.clone(), query, out.clone())
-                                    .await;
+                                run_stream_bridge(
+                                    local_port,
+                                    &marker,
+                                    sid.clone(),
+                                    query,
+                                    out.clone(),
+                                )
+                                .await;
                                 {
                                     let mut map = streams_map.lock().unwrap();
                                     if map.get(&sid).is_some_and(|(g, _)| *g == generation) {
@@ -265,6 +275,20 @@ async fn run_link(
     reader_result
 }
 
+/// The loopback client used to replay relayed requests: like
+/// [`crate::state::loopback_http_client`], plus the remote marker header.
+fn remote_dispatch_client(marker: &str) -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(v) = reqwest::header::HeaderValue::from_str(marker) {
+        headers.insert(crate::access::REMOTE_MARKER_HEADER, v);
+    }
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .default_headers(headers)
+        .build()
+        .unwrap_or_default()
+}
+
 /// Ping the relay this often.
 const LINK_PING_EVERY: Duration = Duration::from_secs(30);
 /// Treat the link as dead after this long without any inbound frame.
@@ -285,6 +309,7 @@ pub fn is_forwardable_path(path: &str) -> bool {
 /// forward every delivered message up the relay link.
 async fn run_stream_bridge(
     local_port: u16,
+    marker: &str,
     stream_id: String,
     query: Option<String>,
     out: tokio::sync::mpsc::Sender<RelayFrame>,
@@ -293,7 +318,18 @@ async fn run_stream_bridge(
         "ws://127.0.0.1:{local_port}/ws{}",
         query.map(|q| format!("?{q}")).unwrap_or_default()
     );
-    let ws = match tokio_tungstenite::connect_async(&url).await {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let (mut request, marker) = match (url.into_client_request(), marker.parse()) {
+        (Ok(r), Ok(m)) => (r, m),
+        _ => {
+            tracing::debug!("Stream bridge {} has an invalid query", stream_id);
+            return;
+        }
+    };
+    request
+        .headers_mut()
+        .insert(crate::access::REMOTE_MARKER_HEADER, marker);
+    let ws = match tokio_tungstenite::connect_async(request).await {
         Ok((ws, _)) => ws,
         Err(e) => {
             tracing::debug!("Stream bridge {} failed to open: {}", stream_id, e);

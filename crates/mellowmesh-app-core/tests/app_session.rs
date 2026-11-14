@@ -93,6 +93,7 @@ fn spawn_daemon(port: u16) -> String {
                 port,
                 http: mellowmesh_daemon::state::loopback_http_client(),
                 caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
+                access: Default::default(),
             };
             mellowmesh_daemon::sweeper::start(state.clone());
             let app = create_router(state);
@@ -470,6 +471,7 @@ fn connect_maps_auth_failures() {
                 port,
                 http: mellowmesh_daemon::state::loopback_http_client(),
                 caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
+                access: Default::default(),
             };
             let app = create_router(state);
             let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))

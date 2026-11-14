@@ -4,10 +4,10 @@
 //! `mellowmesh-daemon`): `_decision.<id>.requested` (payload: the decision),
 //! `_decision.<id>.responded` (payload: `decision_id`, `status`, `option_id`,
 //! `responded_by`) and `_task.<id>.reclaimed` (payload: `task_id`,
-//! `previous_claimant`). The hub does **not** announce claims or completions;
-//! `_task.<id>.claimed` / `.completed` are a client convention (used by the
-//! standalone WASM engine and agents that announce their work), and
-//! `_task.<id>.progress` is the lease heartbeat. Presence comes from
+//! `previous_claimant`). The hub also announces `_task.<id>.created`,
+//! `.claimed`, `.started`, `.completed`, `.updated` and `.cancelled` (payload:
+//! the task; clients may not publish these), and `_task.<id>.progress` is the
+//! lease heartbeat. Presence comes from
 //! `_agent.<path>.heartbeat` / `.status`.
 
 use mellowmesh_client::sanitize::sanitize_line;

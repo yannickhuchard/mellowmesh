@@ -4,6 +4,7 @@ pub mod decision;
 pub mod e2e;
 pub mod mentions;
 pub mod message;
+pub mod network;
 pub mod okf;
 pub mod persistence;
 pub mod relay;

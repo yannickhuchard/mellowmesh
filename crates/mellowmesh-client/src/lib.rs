@@ -7,7 +7,10 @@ use futures_util::StreamExt;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::Decision;
 use mellowmesh_core::message::Message;
-use mellowmesh_core::task::Task;
+use mellowmesh_core::network::{
+    AccessCheck, Network, NetworkPatch, NetworkView, Space, Team, TeamRole, WhoAmI,
+};
+use mellowmesh_core::task::{Task, TaskGraph, TaskUpdate};
 use mellowmesh_core::telemetry::TraceSession;
 pub use mellowmesh_core::topic::NamedTopic;
 use reqwest::Method;
@@ -932,6 +935,30 @@ impl MellowMeshClient {
         .json()
     }
 
+    /// Create a full-access or scoped token with a label (e.g. the device
+    /// it is for), without touching the principal's display name.
+    pub async fn create_labeled_token(
+        &self,
+        principal: &str,
+        label: &str,
+        read_scopes: Vec<String>,
+        write_scopes: Vec<String>,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send(
+            Method::POST,
+            "/auth/tokens",
+            Some(serde_json::json!({
+                "principal": principal,
+                "label": label,
+                "read_scopes": read_scopes,
+                "write_scopes": write_scopes,
+            })),
+        )
+        .await?
+        .ensure("Create token")?
+        .json()
+    }
+
     pub async fn list_tokens(&self) -> anyhow::Result<Vec<serde_json::Value>> {
         self.send(Method::GET, "/auth/tokens", None)
             .await?
@@ -960,6 +987,173 @@ impl MellowMeshClient {
         .await?
         .ensure("Remove schema")?;
         Ok(())
+    }
+
+    // -----------------------------------------------------------------
+    // Network: identity, network setting, spaces, teams, access checks
+    // (contract: docs/network.md)
+    // -----------------------------------------------------------------
+
+    /// Who the hub thinks this client is (`GET /whoami`).
+    pub async fn whoami(&self) -> anyhow::Result<WhoAmI> {
+        self.send(Method::GET, "/whoami", None)
+            .await?
+            .ensure("Who am I")?
+            .json()
+    }
+
+    /// The network plus the spaces and teams this client may see.
+    pub async fn get_network(&self) -> anyhow::Result<NetworkView> {
+        self.send(Method::GET, "/network", None)
+            .await?
+            .ensure("Get network")?
+            .json()
+    }
+
+    /// Update the network setting (owner only). Unset fields are kept.
+    pub async fn set_network(&self, patch: &NetworkPatch) -> anyhow::Result<Network> {
+        self.send(Method::PUT, "/network", Some(serde_json::to_value(patch)?))
+            .await?
+            .ensure("Set network")?
+            .json()
+    }
+
+    pub async fn list_spaces(&self) -> anyhow::Result<Vec<Space>> {
+        self.send(Method::GET, "/spaces", None)
+            .await?
+            .ensure("List spaces")?
+            .json()
+    }
+
+    /// Create a space (owner only).
+    pub async fn create_space(&self, space: &Space) -> anyhow::Result<Space> {
+        self.send(Method::POST, "/spaces", Some(serde_json::to_value(space)?))
+            .await?
+            .ensure("Create space")?
+            .json()
+    }
+
+    /// Replace a space (owner only).
+    pub async fn replace_space(&self, space: &Space) -> anyhow::Result<Space> {
+        let path = format!("/spaces/{}", path_segment(&space.id)?);
+        self.send(Method::PUT, &path, Some(serde_json::to_value(space)?))
+            .await?
+            .ensure("Update space")?
+            .json()
+    }
+
+    pub async fn delete_space(&self, id: &str) -> anyhow::Result<()> {
+        let path = format!("/spaces/{}", path_segment(id)?);
+        self.send(Method::DELETE, &path, None)
+            .await?
+            .ensure("Remove space")?;
+        Ok(())
+    }
+
+    pub async fn list_teams(&self) -> anyhow::Result<Vec<Team>> {
+        self.send(Method::GET, "/teams", None)
+            .await?
+            .ensure("List teams")?
+            .json()
+    }
+
+    /// Create a team and its closed team space `team-<id>` (owner only).
+    pub async fn create_team(&self, team: &Team) -> anyhow::Result<Team> {
+        self.send(Method::POST, "/teams", Some(serde_json::to_value(team)?))
+            .await?
+            .ensure("Create team")?
+            .json()
+    }
+
+    /// Replace a team's name, description, color and members (owner only).
+    pub async fn replace_team(&self, team: &Team) -> anyhow::Result<Team> {
+        let path = format!("/teams/{}", path_segment(&team.id)?);
+        self.send(Method::PUT, &path, Some(serde_json::to_value(team)?))
+            .await?
+            .ensure("Update team")?
+            .json()
+    }
+
+    /// Delete a team and its team space (owner only).
+    pub async fn delete_team(&self, id: &str) -> anyhow::Result<()> {
+        let path = format!("/teams/{}", path_segment(id)?);
+        self.send(Method::DELETE, &path, None)
+            .await?
+            .ensure("Remove team")?;
+        Ok(())
+    }
+
+    /// Add (or change the role of) a team member; returns the team.
+    pub async fn add_team_member(
+        &self,
+        team_id: &str,
+        principal: &str,
+        role: TeamRole,
+    ) -> anyhow::Result<Team> {
+        let path = format!("/teams/{}/members", path_segment(team_id)?);
+        self.send(
+            Method::POST,
+            &path,
+            Some(serde_json::json!({ "principal": principal, "role": role })),
+        )
+        .await?
+        .ensure("Add team member")?
+        .json()
+    }
+
+    pub async fn remove_team_member(&self, team_id: &str, principal: &str) -> anyhow::Result<()> {
+        let path = format!(
+            "/teams/{}/members/{}",
+            path_segment(team_id)?,
+            path_segment(principal)?
+        );
+        self.send(Method::DELETE, &path, None)
+            .await?
+            .ensure("Remove team member")?;
+        Ok(())
+    }
+
+    /// What `principal` (or, when `None`, a visitor) may do on `topic`
+    /// (owner only).
+    pub async fn access_check(
+        &self,
+        topic: &str,
+        principal: Option<&str>,
+    ) -> anyhow::Result<AccessCheck> {
+        let mut path = format!("/access/check?topic={}", enc(topic));
+        if let Some(p) = principal {
+            path.push_str(&format!("&principal={}", enc(p)));
+        }
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure("Access check")?
+            .json()
+    }
+
+    // -----------------------------------------------------------------
+    // Task boards
+    // -----------------------------------------------------------------
+
+    /// Update a task (`PATCH /tasks/:id`); returns the updated task.
+    pub async fn update_task(&self, task_id: &str, update: &TaskUpdate) -> anyhow::Result<Task> {
+        let path = format!("/tasks/{}", path_segment(task_id)?);
+        self.send(Method::PATCH, &path, Some(serde_json::to_value(update)?))
+            .await?
+            .ensure("Update task")?
+            .json()
+    }
+
+    /// The task graph: `scope` is `all`, `mine`, `agent:<principal>` or
+    /// `team:<id>` (default `all`).
+    pub async fn task_graph(&self, scope: Option<&str>) -> anyhow::Result<TaskGraph> {
+        let path = match scope {
+            Some(s) => format!("/tasks/graph?scope={}", enc(s)),
+            None => "/tasks/graph".to_string(),
+        };
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure("Task graph")?
+            .json()
     }
 }
 
