@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="MellowMesh.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="MellowMesh">
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar over Mica. -->
+        <Grid x:Name="AppTitleBar" Height="44" Padding="16,0,140,0">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Border x:Name="TitleBlobHost" Width="22" Height="22" />
+                <TextBlock Text="MellowMesh" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource InkBrush}" />
+                <Border x:Name="LiveChip" CornerRadius="999" Padding="8,1,8,2" Background="{StaticResource GreenTintBrush}" VerticalAlignment="Center">
+                    <TextBlock x:Name="LiveText" Text="Offline" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Ink2Brush}" />
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <NavigationView
+            x:Name="Nav"
+            Grid.Row="1"
+            PaneDisplayMode="Left"
+            OpenPaneLength="232"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="False"
+            IsPaneToggleButtonVisible="True"
+            SelectionChanged="Nav_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="PlazaItem" Content="Plaza" Tag="plaza">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ChatsItem" Content="Chats" Tag="chats">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8BD;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="TodoItem" Content="To do" Tag="todo">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE73A;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ShopsItem" Content="Shops" Tag="shops">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE719;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItemSeparator />
+                <NavigationViewItem x:Name="BoardItem" Content="Master board" Tag="board">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A9;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="RoadmapItem" Content="Roadmap" Tag="roadmap">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7C4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="NetworkItem" Content="Your network" Tag="network">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE774;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="HelpItem" Content="Help · Mello" Tag="help">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE897;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="SettingsItem" Content="Settings" Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Grid>
+                <Frame x:Name="ContentFrame" />
+                <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" MaxWidth="640" Margin="16,8,16,0" Spacing="8">
+                    <InfoBar x:Name="WhisperBar" IsOpen="False" IsClosable="True" Severity="Informational" />
+                    <InfoBar x:Name="TapBar" IsOpen="False" IsClosable="True" Severity="Warning" />
+                </StackPanel>
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

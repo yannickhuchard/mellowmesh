@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- UI-free core of the Windows app: hub client, models and view-model
+       builders. Builds and tests on any OS with the .NET 8 SDK. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>MellowMesh.Core</RootNamespace>
+    <AssemblyName>MellowMesh.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MellowMesh.Core.Tests" />
+  </ItemGroup>
+
+</Project>

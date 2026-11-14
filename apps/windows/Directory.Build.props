@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Company>MellowMesh</Company>
+    <Product>MellowMesh</Product>
+    <Version>0.1.1</Version>
+  </PropertyGroup>
+</Project>
