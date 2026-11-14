@@ -16,7 +16,6 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use mellowmesh_core::e2e::{
     open, seal, Envelope, SealedRequest, SealedResponse, CTX_REQUEST, CTX_RESPONSE,
-    REPLAY_WINDOW_SECS,
 };
 
 pub async fn handle_e2e_request(
@@ -54,9 +53,10 @@ pub async fn handle_e2e_request(
         }
     };
 
-    // Replay window.
+    // Replay window: not older than the window, and not dated more than a
+    // small clock skew into the future.
     let now = Utc::now().timestamp();
-    if (now - sealed.ts).abs() > REPLAY_WINDOW_SECS {
+    if !crate::auth::ts_acceptable(sealed.ts, now) {
         return (
             StatusCode::UNAUTHORIZED,
             "Sealed request outside replay window".to_string(),
@@ -67,7 +67,7 @@ pub async fn handle_e2e_request(
     // Single-use id: reject a replayed envelope within the window. A missing
     // id is rejected outright — every current client sends one.
     match &sealed.jti {
-        Some(jti) if crate::auth::register_jti(jti, now) => {}
+        Some(jti) if crate::auth::register_jti(jti, sealed.ts, now) => {}
         _ => {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -80,7 +80,7 @@ pub async fn handle_e2e_request(
     // SSRF guard: the sealed path is joined onto the loopback origin, so it
     // must be an absolute path. Without this, a value like `@evil.example`
     // would redirect the daemon's own request to an external host.
-    if !sealed.path_and_query.starts_with('/') {
+    if !sealed.path_and_query.starts_with('/') || sealed.path_and_query.starts_with("//") {
         return (
             StatusCode::BAD_REQUEST,
             "Sealed path_and_query must start with '/'".to_string(),
@@ -90,7 +90,7 @@ pub async fn handle_e2e_request(
 
     // Dispatch against our own loopback API. The inner Authorization header
     // carries the caller's token, so auth/scopes apply exactly as usual.
-    let dispatched = dispatch_local(state.port, &sealed).await;
+    let dispatched = dispatch_local(&state.http, state.port, &sealed).await;
     let sealed_response = match dispatched {
         Ok(r) => r,
         Err(e) => SealedResponse {
@@ -121,10 +121,13 @@ pub async fn handle_e2e_request(
     }
 }
 
-async fn dispatch_local(port: u16, sealed: &SealedRequest) -> anyhow::Result<SealedResponse> {
+async fn dispatch_local(
+    http: &reqwest::Client,
+    port: u16,
+    sealed: &SealedRequest,
+) -> anyhow::Result<SealedResponse> {
     let url = format!("http://127.0.0.1:{port}{}", sealed.path_and_query);
     let method = reqwest::Method::from_bytes(sealed.method.as_bytes())?;
-    let http = reqwest::Client::new();
     let mut req = http.request(method, &url);
     if let Some(auth) = &sealed.authorization {
         req = req.header(reqwest::header::AUTHORIZATION, auth);

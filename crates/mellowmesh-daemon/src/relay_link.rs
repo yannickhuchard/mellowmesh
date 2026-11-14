@@ -88,7 +88,8 @@ async fn run_link(
     config: &RelayConfig,
     local_port: u16,
 ) -> anyhow::Result<()> {
-    let (ws_stream, _) = tokio_tungstenite::connect_async(ws_url).await?;
+    let (ws_stream, _) =
+        tokio::time::timeout(LINK_IDLE_TIMEOUT, tokio_tungstenite::connect_async(ws_url)).await??;
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     ws_tx
@@ -100,27 +101,51 @@ async fn run_link(
         )?))
         .await?;
 
-    // Single writer task fed by the per-request executors.
+    // Single writer task fed by the per-request executors. It also pings the
+    // relay periodically so a half-open link is noticed.
     let (out_tx, mut out_rx) = tokio::sync::mpsc::channel::<RelayFrame>(256);
     let mut writer = tokio::spawn(async move {
-        while let Some(frame) = out_rx.recv().await {
-            let Ok(text) = serde_json::to_string(&frame) else {
-                continue;
-            };
-            if ws_tx.send(WsMessage::Text(text)).await.is_err() {
-                break;
+        let mut ping = tokio::time::interval_at(
+            tokio::time::Instant::now() + LINK_PING_EVERY,
+            LINK_PING_EVERY,
+        );
+        loop {
+            tokio::select! {
+                frame = out_rx.recv() => {
+                    let Some(frame) = frame else { break };
+                    let Ok(text) = serde_json::to_string(&frame) else {
+                        continue;
+                    };
+                    if ws_tx.send(WsMessage::Text(text)).await.is_err() {
+                        break;
+                    }
+                }
+                _ = ping.tick() => {
+                    if ws_tx.send(WsMessage::Ping(Vec::new())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
 
-    let http = reqwest::Client::new();
+    let http = crate::state::loopback_http_client();
     let base = format!("http://127.0.0.1:{local_port}");
-    // Live subscription bridges opened on behalf of remote clients.
-    let streams: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
+    // Live subscription bridges opened on behalf of remote clients, keyed by
+    // stream id, with a generation so a finished bridge only removes itself.
+    let streams: Arc<Mutex<HashMap<String, (u64, tokio::task::AbortHandle)>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let mut next_generation: u64 = 0;
 
     let reader_result: anyhow::Result<()> = async {
-        while let Some(msg) = ws_rx.next().await {
+        loop {
+            // Nothing at all (not even a pong) for LINK_IDLE_TIMEOUT means
+            // the link is dead: reconnect.
+            let msg = match tokio::time::timeout(LINK_IDLE_TIMEOUT, ws_rx.next()).await {
+                Ok(Some(msg)) => msg,
+                Ok(None) => break,
+                Err(_) => anyhow::bail!("relay link idle for {:?}", LINK_IDLE_TIMEOUT),
+            };
             match msg? {
                 WsMessage::Text(text) => {
                     let Ok(frame) = serde_json::from_str::<RelayFrame>(&text) else {
@@ -141,9 +166,23 @@ async fn run_link(
                             authorization,
                             body,
                         } => {
+                            let out = out_tx.clone();
+                            // Only an absolute path on this hub may be
+                            // forwarded; anything else could redirect the
+                            // loopback request to another host.
+                            if !is_forwardable_path(&path) {
+                                let _ = out
+                                    .send(RelayFrame::Response {
+                                        id,
+                                        status: 400,
+                                        content_type: Some("text/plain".to_string()),
+                                        body: Some("Invalid request path".to_string()),
+                                    })
+                                    .await;
+                                continue;
+                            }
                             let http = http.clone();
                             let base = base.clone();
-                            let out = out_tx.clone();
                             tokio::spawn(async move {
                                 let response = execute_local(
                                     &http,
@@ -176,19 +215,33 @@ async fn run_link(
                             let out = out_tx.clone();
                             let streams_map = streams.clone();
                             let sid = stream_id.clone();
+                            next_generation += 1;
+                            let generation = next_generation;
+                            // Hold the lock across spawn + insert so the
+                            // bridge's own cleanup cannot run before it is
+                            // registered.
+                            let mut map = streams.lock().unwrap();
                             let handle = tokio::spawn(async move {
                                 run_stream_bridge(local_port, sid.clone(), query, out.clone())
                                     .await;
-                                streams_map.lock().unwrap().remove(&sid);
+                                {
+                                    let mut map = streams_map.lock().unwrap();
+                                    if map.get(&sid).is_some_and(|(g, _)| *g == generation) {
+                                        map.remove(&sid);
+                                    }
+                                }
                                 let _ = out.send(RelayFrame::StreamClose { stream_id: sid }).await;
                             });
-                            streams
-                                .lock()
-                                .unwrap()
-                                .insert(stream_id, handle.abort_handle());
+                            // A reused stream id replaces (and stops) the
+                            // previous bridge instead of leaking it.
+                            if let Some((_, old)) =
+                                map.insert(stream_id, (generation, handle.abort_handle()))
+                            {
+                                old.abort();
+                            }
                         }
                         RelayFrame::StreamClose { stream_id } => {
-                            if let Some(handle) = streams.lock().unwrap().remove(&stream_id) {
+                            if let Some((_, handle)) = streams.lock().unwrap().remove(&stream_id) {
                                 handle.abort();
                             }
                         }
@@ -206,10 +259,25 @@ async fn run_link(
     writer.abort();
     let _ = (&mut writer).await;
     // The relay link is gone: tear down every local subscription bridge.
-    for (_, handle) in streams.lock().unwrap().drain() {
+    for (_, (_, handle)) in streams.lock().unwrap().drain() {
         handle.abort();
     }
     reader_result
+}
+
+/// Ping the relay this often.
+const LINK_PING_EVERY: Duration = Duration::from_secs(30);
+/// Treat the link as dead after this long without any inbound frame.
+const LINK_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// A forwarded request path must be an absolute path on this hub: it starts
+/// with a single `/` (not `//`, which would be read as an authority) and
+/// contains no backslash or control characters.
+pub fn is_forwardable_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains('\\')
+        && !path.chars().any(|c| c.is_control() || c == ' ')
 }
 
 /// Bridge one remote subscription: open a local WebSocket (the query carries
@@ -262,6 +330,7 @@ async fn execute_local(
     authorization: Option<&str>,
     body: Option<String>,
 ) -> anyhow::Result<(u16, Option<String>, Option<String>)> {
+    anyhow::ensure!(is_forwardable_path(path), "invalid request path");
     let mut url = format!("{base}{path}");
     if let Some(q) = query {
         url = format!("{url}?{q}");
@@ -285,4 +354,22 @@ async fn execute_local(
         .map(|s| s.to_string());
     let text = resp.text().await.ok();
     Ok((status, content_type, text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forwarded_paths_must_stay_on_this_hub() {
+        assert!(is_forwardable_path("/tasks"));
+        assert!(is_forwardable_path("/wiki/w/pages/a/b.md"));
+        assert!(!is_forwardable_path("@169.254.169.254/latest"));
+        assert!(!is_forwardable_path("//169.254.169.254/latest"));
+        assert!(!is_forwardable_path(""));
+        assert!(!is_forwardable_path("tasks"));
+        assert!(!is_forwardable_path("/\\evil"));
+        assert!(!is_forwardable_path("/a b"));
+        assert!(!is_forwardable_path("/a\r\nHost: x"));
+    }
 }

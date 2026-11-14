@@ -66,6 +66,8 @@ async fn spawn_daemon(port: u16) -> Store {
         require_auth: false,
         owner: "human://test".to_string(),
         port,
+        http: mellowmesh_daemon::state::loopback_http_client(),
+        caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
     };
 
     mellowmesh_daemon::sweeper::start(state.clone());

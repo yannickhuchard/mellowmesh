@@ -14,19 +14,71 @@ use serde::Deserialize;
 use std::sync::atomic::Ordering;
 use ulid::Ulid;
 
+/// Hard cap on any history-style listing.
+pub const MAX_LIMIT: usize = 1000;
+
 #[derive(Deserialize)]
 pub struct HistoryParams {
     limit: Option<usize>,
+    /// Optional topic pattern (`*`, `**`, `>`) to filter history by.
+    pattern: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct SearchParams {
+    #[serde(default)]
     query: String,
 }
 
 #[derive(Deserialize)]
 pub struct ForumParams {
     pattern: Option<String>,
+}
+
+/// Topics that only the hub itself publishes on. Clients may not forge
+/// decision outcomes, system/registry events, or lease reclaims.
+const RESERVED_PATTERNS: &[&str] = &["_decision.**", "_system.**", "_task.*.reclaimed"];
+
+/// True when `topic` is in a hub-reserved namespace (case-insensitively,
+/// since topic names are case-insensitive).
+pub fn is_reserved_topic(topic: &str) -> bool {
+    RESERVED_PATTERNS
+        .iter()
+        .any(|p| mellowmesh_core::topic::match_topic_with_options(p, topic, true))
+}
+
+/// Validate a user-supplied topic pattern, mapping failure to 400.
+pub fn check_pattern(pattern: &str) -> Result<(), (StatusCode, String)> {
+    mellowmesh_core::topic::validate_pattern(pattern)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid pattern: {e}")))
+}
+
+/// Parse a size such as `4KB`, `512B`, `1MB` or `2048` into bytes
+/// (binary multiples). Returns `None` when unparseable.
+pub fn parse_size(s: &str) -> Option<usize> {
+    let s = s.trim().to_ascii_uppercase();
+    let split = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let num: usize = num.parse().ok()?;
+    let mult: usize = match unit.trim() {
+        "" | "B" => 1,
+        "K" | "KB" | "KIB" => 1 << 10,
+        "M" | "MB" | "MIB" => 1 << 20,
+        "G" | "GB" | "GIB" => 1 << 30,
+        _ => return None,
+    };
+    num.checked_mul(mult)
+}
+
+/// Size of a message's content for `max_message_size` enforcement: the
+/// body plus the serialized structured payload.
+fn message_size(msg: &Message) -> usize {
+    let payload = msg
+        .payload
+        .as_ref()
+        .map(|p| serde_json::to_vec(p).map(|v| v.len()).unwrap_or(0))
+        .unwrap_or(0);
+    msg.body.len().saturating_add(payload)
 }
 
 async fn route_to_inbox(state: std::sync::Arc<AppState>, msg: Message) {
@@ -43,6 +95,36 @@ pub fn handle_publish(
             msg.id = format!("msg_{}", Ulid::new().to_string().to_lowercase());
         }
 
+        if let Err(e) = mellowmesh_core::topic::Topic::new(&msg.topic) {
+            return Err(format!("Invalid topic: {e}"));
+        }
+
+        // Resolve persistence policy and enforce its size limit before any
+        // side effect (registry sync, mention routing, broadcast).
+        let policy = state.policy_config.resolve(&msg.topic).clone();
+        if let Some(max) = policy.max_message_size.as_deref() {
+            match parse_size(max) {
+                Some(limit) => {
+                    let size = message_size(&msg);
+                    if size > limit {
+                        state
+                            .metrics
+                            .publisher_rejections_total
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Err(format!(
+                            "Message too large for topic '{}': {size} bytes (max {max})",
+                            msg.topic
+                        ));
+                    }
+                }
+                None => tracing::warn!(
+                    "Ignoring unparseable max_message_size '{}' for topic '{}'",
+                    max,
+                    msg.topic
+                ),
+            }
+        }
+
         // Intercept registry synchronization events
         if msg.topic == "_system.registry.named_topic" {
             let action = msg
@@ -57,12 +139,14 @@ pub fn handle_publish(
                         serde_json::from_str::<mellowmesh_core::topic::NamedTopic>(&msg.body)
                     {
                         let _ = state.store.register_named_topic(&named_topic);
+                        state.caches.named_topics.invalidate();
                     }
                 }
                 "remove" => {
                     let name = msg.body.trim();
                     if !name.is_empty() {
                         let _ = state.store.remove_named_topic(name);
+                        state.caches.named_topics.invalidate();
                     }
                 }
                 _ => {}
@@ -79,6 +163,7 @@ pub fn handle_publish(
                     serde_json::from_str::<mellowmesh_core::agent::AgentRegistration>(&msg.body)
                 {
                     let _ = state.store.register_agent(&agent);
+                    state.caches.agents.invalidate();
                 }
             }
         }
@@ -95,8 +180,13 @@ pub fn handle_publish(
             && !msg.topic.starts_with("_agent.")
             && (msg.topic.starts_with("_forum.") || msg.topic.starts_with("_project."))
         {
-            if let Ok(agents) = state.store.list_agents() {
-                let named_topics = state.store.list_named_topics().unwrap_or_default();
+            let store = &state.store;
+            if let Ok(agents) = state.caches.agents.get_or_load(|| store.list_agents()) {
+                let named_topics = state
+                    .caches
+                    .named_topics
+                    .get_or_load(|| store.list_named_topics())
+                    .unwrap_or_default();
                 let (new_body, mentions) =
                     mellowmesh_core::mentions::parse_mentions(&msg.body, &agents, &named_topics);
                 msg.body = new_body;
@@ -141,10 +231,6 @@ pub fn handle_publish(
             }
         }
 
-        if let Err(e) = mellowmesh_core::topic::Topic::new(&msg.topic) {
-            return Err(format!("Invalid topic: {e}"));
-        }
-
         if msg.timestamp.timestamp() <= 0 {
             msg.timestamp = Utc::now();
         }
@@ -167,8 +253,8 @@ pub fn handle_publish(
             }
         }
 
-        // JSON Schema Contract Validation
-        let matched_schemas = match state.store.get_schemas_for_topic(&msg.topic) {
+        // JSON Schema Contract Validation (compiled schemas are cached).
+        let all_schemas = match state.caches.load_schemas(&state.store) {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!(
@@ -179,6 +265,13 @@ pub fn handle_publish(
                 return Err(format!("Internal schema lookup failed: {e}"));
             }
         };
+        let matched_schemas: Vec<&crate::cache::CompiledSchema> = all_schemas
+            .iter()
+            .filter(|s| {
+                s.schema.status == "active"
+                    && mellowmesh_core::topic::match_topic(&s.schema.topic_pattern, &msg.topic)
+            })
+            .collect();
 
         if !matched_schemas.is_empty() {
             let requested_version = msg
@@ -191,13 +284,14 @@ pub fn handle_publish(
                 .cloned();
 
             let schema_to_validate = if let Some(ref ver) = requested_version {
-                matched_schemas.iter().find(|s| &s.version == ver)
+                matched_schemas.iter().find(|s| &s.schema.version == ver)
             } else {
                 matched_schemas.first()
             };
 
             match schema_to_validate {
-                Some(schema) => {
+                Some(compiled) => {
+                    let schema = &compiled.schema;
                     let json_value: serde_json::Value = if let Some(ref payload) = msg.payload {
                         payload.clone()
                     } else {
@@ -209,16 +303,8 @@ pub fn handle_publish(
                         }
                     };
 
-                    let schema_json: serde_json::Value =
-                        match serde_json::from_str(&schema.schema_content) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return Err(format!("Invalid stored schema JSON: {e}"));
-                            }
-                        };
-
-                    let compiled_schema = match jsonschema::JSONSchema::compile(&schema_json) {
-                        Ok(s) => s,
+                    let compiled_schema = match &compiled.validator {
+                        Ok(s) => s.clone(),
                         Err(e) => {
                             return Err(format!("Failed to compile JSON Schema: {e}"));
                         }
@@ -276,9 +362,6 @@ pub fn handle_publish(
             // Drop silently, return OK as per telemetry policy
             return Ok(msg);
         }
-
-        // Resolve persistence policy
-        let policy = state.policy_config.resolve(&msg.topic);
 
         // Broadcast in-memory (Hot path)
         state.registry.broadcast(&msg);
@@ -341,11 +424,35 @@ pub fn handle_publish(
     })
 }
 
+/// True for `_task.<id>.progress` (a claim-lease heartbeat).
+fn is_task_progress(topic: &str) -> bool {
+    topic
+        .strip_prefix("_task.")
+        .and_then(|rest| rest.strip_suffix(".progress"))
+        .map(|id| !id.is_empty() && !id.contains('.'))
+        .unwrap_or(false)
+}
+
+/// `POST /publish` — the client entry point. Internal publishers call
+/// [`handle_publish`] directly and are not subject to these checks.
 pub async fn publish_message(
     State(state): State<AppState>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Json(mut msg): Json<Message>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Hub-reserved namespaces: decision outcomes, system/registry events and
+    // lease reclaims are only ever published by the hub itself.
+    if is_reserved_topic(&msg.topic) {
+        state
+            .metrics
+            .publisher_rejections_total
+            .fetch_add(1, Ordering::Relaxed);
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!("Topic '{}' is reserved for the hub", msg.topic),
+        ));
+    }
+
     if !ctx.can_write(&msg.topic) {
         return Err((
             StatusCode::FORBIDDEN,
@@ -355,6 +462,10 @@ pub async fn publish_message(
             ),
         ));
     }
+
+    // Identity and time are assigned by the hub, never by the publisher.
+    msg.id = format!("msg_{}", Ulid::new().to_string().to_lowercase());
+    msg.timestamp = Utc::now();
 
     // Routing headers are set by the daemon, never by a publisher: a client
     // must not be able to suppress mention routing or forge a "routed" copy
@@ -368,26 +479,24 @@ pub async fn publish_message(
         // Bind provenance to the authenticated principal so a message's
         // origin can be trusted for audit.
         msg.owner = Some(p.id.clone());
+        // Agents, humans and nodes publish as themselves. Interfaces relay
+        // external identities (e.g. `telegram://123`) and keep `from`.
+        if matches!(p.kind.as_str(), "agent" | "human" | "node") {
+            msg.from = p.id.clone();
+        }
 
         // A claim-lease heartbeat (publishing on `_task.<id>.progress`) may
-        // only renew the lease of the agent that is actually authenticated —
-        // an agent cannot keep another agent's lease alive by spoofing `from`.
-        if p.kind == "agent" {
-            let is_progress = msg
-                .topic
-                .strip_prefix("_task.")
-                .and_then(|rest| rest.strip_suffix(".progress"))
-                .map(|id| !id.is_empty() && !id.contains('.'))
-                .unwrap_or(false);
-            if is_progress && msg.from != p.id {
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    format!(
-                        "Agent {} cannot publish a task heartbeat as {}",
-                        p.id, msg.from
-                    ),
-                ));
-            }
+        // only renew the lease of the principal that is actually
+        // authenticated — no non-human principal can keep another's lease
+        // alive by spoofing `from`.
+        if p.kind != "human" && is_task_progress(&msg.topic) && msg.from != p.id {
+            return Err((
+                StatusCode::FORBIDDEN,
+                format!(
+                    "{} {} cannot publish a task heartbeat as {}",
+                    p.kind, p.id, msg.from
+                ),
+            ));
         }
     }
 
@@ -406,13 +515,29 @@ fn filter_readable(msgs: Vec<Message>, ctx: &crate::auth::AuthContext) -> Vec<Me
         .collect()
 }
 
+/// Run a blocking store query on the blocking pool.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> anyhow::Result<T> {
+    tokio::task::spawn_blocking(f).await?
+}
+
 pub async fn get_history(
     State(state): State<AppState>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<HistoryParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let limit = params.limit.unwrap_or(100);
-    match state.store.get_history(limit) {
+    let limit = params.limit.unwrap_or(100).min(MAX_LIMIT);
+    if let Some(p) = &params.pattern {
+        check_pattern(p)?;
+    }
+    let store = state.store.clone();
+    let result = blocking(move || match params.pattern {
+        Some(p) => store.get_history_matching(&p, limit),
+        None => store.get_history(limit),
+    })
+    .await;
+    match result {
         Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -426,7 +551,11 @@ pub async fn search_messages(
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<SearchParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    match state.store.search_messages(&params.query) {
+    if params.query.trim().is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    let store = state.store.clone();
+    match blocking(move || store.search_messages(&params.query)).await {
         Ok(msgs) => Ok(Json(filter_readable(msgs, &ctx))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -439,7 +568,8 @@ pub async fn list_topics(
     State(state): State<AppState>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    match state.store.list_topics() {
+    let store = state.store.clone();
+    match blocking(move || store.list_topics()).await {
         Ok(topics) => {
             // A scoped principal only sees topics it is allowed to read, so
             // topic enumeration can't be used to map the whole namespace.
@@ -457,15 +587,23 @@ pub async fn list_topics(
     }
 }
 
+/// Messages shown in the forum view.
+const FORUM_LIMIT: usize = 200;
+
 pub async fn get_forum(
     State(state): State<AppState>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<ForumParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let pat = params.pattern.unwrap_or_else(|| "**".to_string());
-    match state.store.get_history(200) {
+    check_pattern(&pat)?;
+    let store = state.store.clone();
+    // Over-fetch matching messages, since telemetry/system topics are
+    // filtered out below.
+    let result = blocking(move || store.get_history_matching(&pat, MAX_LIMIT)).await;
+    match result {
         Ok(msgs) => {
-            let filtered: Vec<Message> = msgs
+            let mut filtered: Vec<Message> = msgs
                 .into_iter()
                 .filter(|m| {
                     let is_eligible = !m.topic.starts_with("_trace.")
@@ -473,16 +611,45 @@ pub async fn get_forum(
                         && !m.topic.contains(".scratch.")
                         && !m.topic.contains(".heartbeat")
                         && !m.topic.contains(".stream");
-                    is_eligible
-                        && mellowmesh_core::topic::match_topic(&pat, &m.topic)
-                        && ctx.can_read(&m.topic)
+                    is_eligible && ctx.can_read(&m.topic)
                 })
                 .collect();
+            // Keep the most recent FORUM_LIMIT, oldest first.
+            if filtered.len() > FORUM_LIMIT {
+                filtered.drain(..filtered.len() - FORUM_LIMIT);
+            }
             Ok(Json(filtered))
         }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to fetch history for forum: {e}"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_topics() {
+        assert!(is_reserved_topic("_decision.d1.responded"));
+        assert!(is_reserved_topic("_DECISION.d1.responded"));
+        assert!(is_reserved_topic("_system.presence.agent"));
+        assert!(is_reserved_topic("_system.registry.agent"));
+        assert!(is_reserved_topic("_task.t1.reclaimed"));
+        assert!(!is_reserved_topic("_task.t1.progress"));
+        assert!(!is_reserved_topic("_forum.general"));
+        assert!(!is_reserved_topic("_decisions.x"));
+    }
+
+    #[test]
+    fn sizes() {
+        assert_eq!(parse_size("4KB"), Some(4096));
+        assert_eq!(parse_size("512"), Some(512));
+        assert_eq!(parse_size("1 MB"), Some(1 << 20));
+        assert_eq!(parse_size("10b"), Some(10));
+        assert_eq!(parse_size("lots"), None);
+        assert_eq!(parse_size("99999999999999999999GB"), None);
     }
 }

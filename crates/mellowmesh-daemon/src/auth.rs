@@ -22,30 +22,66 @@ use mellowmesh_core::auth::{
 };
 use mellowmesh_core::e2e::REPLAY_WINDOW_SECS;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Mutex, OnceLock};
 use ulid::Ulid;
+
+/// How far in the future a sealed request's `ts` may be (clock skew).
+pub(crate) const MAX_FUTURE_SKEW_SECS: i64 = 30;
+
+/// True when a sealed request timestamp is inside the acceptance window:
+/// not older than [`REPLAY_WINDOW_SECS`] and not more than
+/// [`MAX_FUTURE_SKEW_SECS`] in the future.
+pub(crate) fn ts_acceptable(ts: i64, now: i64) -> bool {
+    now.saturating_sub(ts) <= REPLAY_WINDOW_SECS && ts.saturating_sub(now) <= MAX_FUTURE_SKEW_SECS
+}
+
+/// Recently-seen sealed-request ids with their expiry, plus a min-heap of
+/// expiries so pruning only touches entries that actually expired.
+#[derive(Default)]
+struct ReplayCache {
+    expiry: HashMap<String, i64>,
+    order: BinaryHeap<Reverse<(i64, String)>>,
+}
 
 /// Process-wide cache of recently-seen sealed-request ids, so a captured E2E
 /// envelope (request or subscription proof) cannot be replayed within the
 /// window. Ids are random 128-bit values; a global cache is sufficient.
-fn replay_cache() -> &'static Mutex<HashMap<String, i64>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn replay_cache() -> &'static Mutex<ReplayCache> {
+    static CACHE: OnceLock<Mutex<ReplayCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ReplayCache::default()))
 }
 
-/// Record a single-use id. Returns `true` if it is fresh, `false` if it was
-/// already seen inside the replay window (a replay). Expired ids are purged.
-pub(crate) fn register_jti(jti: &str, now: i64) -> bool {
+/// Record a single-use id carried by a request stamped `ts`. Returns `true`
+/// if it is fresh, `false` if it was already seen (a replay) or `ts` is
+/// outside the acceptance window. An id is remembered until
+/// `max(now, ts) + REPLAY_WINDOW_SECS`, i.e. for as long as a request
+/// carrying it could still be accepted.
+pub(crate) fn register_jti(jti: &str, ts: i64, now: i64) -> bool {
+    if !ts_acceptable(ts, now) {
+        return false;
+    }
     let mut cache = match replay_cache().lock() {
         Ok(c) => c,
         Err(poisoned) => poisoned.into_inner(),
     };
-    cache.retain(|_, ts| (now - *ts).abs() <= REPLAY_WINDOW_SECS);
-    if cache.contains_key(jti) {
+    while let Some(Reverse((exp, _))) = cache.order.peek() {
+        if *exp >= now {
+            break;
+        }
+        if let Some(Reverse((exp, id))) = cache.order.pop() {
+            if cache.expiry.get(&id) == Some(&exp) {
+                cache.expiry.remove(&id);
+            }
+        }
+    }
+    if cache.expiry.contains_key(jti) {
         return false;
     }
-    cache.insert(jti.to_string(), now);
+    let exp = now.max(ts) + REPLAY_WINDOW_SECS;
+    cache.expiry.insert(jti.to_string(), exp);
+    cache.order.push(Reverse((exp, jti.to_string())));
     true
 }
 
@@ -56,6 +92,9 @@ pub struct AuthPrincipal {
     pub kind: String,
     pub read_scopes: Vec<String>,
     pub write_scopes: Vec<String>,
+    /// SHA-256 of the bearer token the request authenticated with, so a
+    /// long-lived subscription can re-validate it.
+    pub token_hash: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -161,7 +200,11 @@ pub async fn auth_middleware(
     if bearer.is_none() && req.uri().path() == "/ws" {
         if let Some(envelope) = extract_e2e_proof(&req) {
             use mellowmesh_core::e2e::{open, SealedRequest, CTX_PROOF};
-            let key = match state.store.find_e2e_key(&envelope.key_id) {
+            let key_store = state.store.clone();
+            let key_id = envelope.key_id.clone();
+            let key_lookup =
+                tokio::task::spawn_blocking(move || key_store.find_e2e_key(&key_id)).await;
+            let key = match key_lookup.unwrap_or_else(|e| Err(anyhow::anyhow!(e))) {
                 Ok(Some(k)) => k,
                 Ok(None) => {
                     return (StatusCode::UNAUTHORIZED, "Unknown e2e key id").into_response()
@@ -180,12 +223,11 @@ pub async fn auth_middleware(
                 .and_then(|pt| serde_json::from_slice::<SealedRequest>(&pt).ok());
             let valid = match &proof {
                 Some(p) => {
-                    (now - p.ts).abs() <= REPLAY_WINDOW_SECS
-                        && p.method == "SUBSCRIBE"
+                    p.method == "SUBSCRIBE"
                         && p.path_and_query.starts_with("/ws")
                         && p.jti
                             .as_deref()
-                            .map(|j| register_jti(j, now))
+                            .map(|j| register_jti(j, p.ts, now))
                             .unwrap_or(false)
                 }
                 None => false,
@@ -206,22 +248,8 @@ pub async fn auth_middleware(
     }
 
     if let Some(token) = bearer {
-        match state.store.find_token_by_hash(&hash_token(&token)) {
-            Ok(Some(record)) => {
-                let kind = state
-                    .store
-                    .get_principal(&record.principal)
-                    .ok()
-                    .flatten()
-                    .map(|p| p.kind)
-                    .unwrap_or_else(|| kind_of_uri(&record.principal).to_string());
-                ctx.principal = Some(AuthPrincipal {
-                    id: record.principal,
-                    kind,
-                    read_scopes: record.read_scopes,
-                    write_scopes: record.write_scopes,
-                });
-            }
+        match resolve_token(&state, &token).await {
+            Ok(Some(principal)) => ctx.principal = Some(principal),
             Ok(None) => {
                 return (StatusCode::UNAUTHORIZED, "Invalid or revoked token").into_response();
             }
@@ -246,6 +274,53 @@ pub async fn auth_middleware(
     req.extensions_mut().insert(ctx);
     req.extensions_mut().insert(stream_e2e);
     next.run(req).await
+}
+
+/// Resolve a bearer token to its principal, via the short-lived token cache
+/// or (on a miss) SQLite on the blocking pool. `Ok(None)` means unknown or
+/// revoked.
+async fn resolve_token(state: &AppState, token: &str) -> anyhow::Result<Option<AuthPrincipal>> {
+    let token_hash = hash_token(token);
+    if let Some(p) = state.caches.get_token(&token_hash) {
+        return Ok(Some(p));
+    }
+    let store = state.store.clone();
+    let hash = token_hash.clone();
+    let resolved = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<AuthPrincipal>> {
+        let Some(record) = store.find_token_by_hash(&hash)? else {
+            return Ok(None);
+        };
+        let kind = store
+            .get_principal(&record.principal)
+            .ok()
+            .flatten()
+            .map(|p| p.kind)
+            .unwrap_or_else(|| kind_of_uri(&record.principal).to_string());
+        Ok(Some(AuthPrincipal {
+            id: record.principal,
+            kind,
+            read_scopes: record.read_scopes,
+            write_scopes: record.write_scopes,
+            token_hash: hash,
+        }))
+    })
+    .await??;
+    if let Some(p) = &resolved {
+        state.caches.put_token(token_hash, p.clone());
+    }
+    Ok(resolved)
+}
+
+/// True when the token behind `token_hash` is still valid (not revoked).
+/// Bypasses the token cache.
+pub(crate) async fn token_still_valid(state: &AppState, token_hash: &str) -> bool {
+    let store = state.store.clone();
+    let hash = token_hash.to_string();
+    match tokio::task::spawn_blocking(move || store.find_token_by_hash(&hash)).await {
+        Ok(Ok(found)) => found.is_some(),
+        // A transient lookup failure does not tear the subscription down.
+        _ => true,
+    }
 }
 
 /// True when the request may administer tokens: the owner principal, or an
@@ -366,6 +441,8 @@ pub async fn revoke_token(
         ));
     }
     let revoked = state.store.revoke_token(&id).map_err(internal)?;
+    // Revocation takes effect immediately, not after the cache TTL.
+    state.caches.clear_tokens();
     if revoked {
         Ok(StatusCode::OK)
     } else {
@@ -378,8 +455,9 @@ fn internal(e: anyhow::Error) -> (StatusCode, String) {
 }
 
 /// First-run bootstrap: if no tokens exist, create the owner principal and a
-/// full-access owner token. The plaintext is logged once and written next to
-/// the database so the local user can pick it up.
+/// full-access owner token. The plaintext is written (mode 0600 on unix) to
+/// `owner.token` next to the database so the local user can pick it up; it
+/// is never logged.
 pub fn bootstrap_owner(store: &mellowmesh_store::Store, db_path: &std::path::Path) -> String {
     if let Ok(Some(owner)) = store.get_config("owner_principal") {
         return owner;
@@ -416,25 +494,17 @@ pub fn bootstrap_owner(store: &mellowmesh_store::Store, db_path: &std::path::Pat
     let result = store
         .upsert_principal(&principal)
         .and_then(|_| store.insert_token(&record))
-        .and_then(|_| store.register_e2e_key(&plaintext))
+        // Linked to the token row so revoking the token deletes the key.
+        .and_then(|_| store.register_e2e_key_for_token(&record.id, &plaintext))
         .and_then(|_| store.set_config("owner_principal", &owner_uri));
     if let Err(e) = result {
         tracing::error!("Owner bootstrap failed: {}", e);
         return owner_uri;
     }
 
-    let token_file = db_path
-        .parent()
-        .map(|p| p.join("owner.token"))
-        .unwrap_or_else(|| std::path::PathBuf::from("owner.token"));
-    match std::fs::write(&token_file, &plaintext) {
+    let token_file = owner_token_path(db_path);
+    match write_secret_file(&token_file, plaintext.as_bytes()) {
         Ok(_) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(&token_file, std::fs::Permissions::from_mode(0o600));
-            }
             tracing::info!(
                 "Owner identity '{}' created. Owner token written to {:?} — keep it secret.",
                 owner_uri,
@@ -442,13 +512,117 @@ pub fn bootstrap_owner(store: &mellowmesh_store::Store, db_path: &std::path::Pat
             );
         }
         Err(e) => {
-            tracing::warn!(
-                "Owner identity '{}' created but token file could not be written ({}). Token (shown once): {}",
+            // Never log the plaintext token.
+            tracing::error!(
+                "Owner identity '{}' created but the token file {:?} could not be written: {}",
                 owner_uri,
-                e,
-                plaintext
+                token_file,
+                e
             );
         }
     }
     owner_uri
+}
+
+/// `owner.token` lives next to the SQLite database.
+pub fn owner_token_path(db_path: &std::path::Path) -> std::path::PathBuf {
+    match db_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.join("owner.token"),
+        _ => std::path::PathBuf::from("owner.token"),
+    }
+}
+
+/// Write a secret atomically: a fresh temporary file created with mode 0600
+/// on unix from the start (never readable by others, not even briefly), then
+/// renamed over `path`.
+fn write_secret_file(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension(format!("tmp.{}", Ulid::new().to_string().to_lowercase()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = (|| {
+        let mut file = options.open(&tmp)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_cache_rejects_reuse_and_out_of_window_timestamps() {
+        let now = Utc::now().timestamp();
+        let jti = format!("jti-{}", Ulid::new());
+        assert!(register_jti(&jti, now, now));
+        assert!(!register_jti(&jti, now, now), "a replay must be rejected");
+        // Too far in the future, or too old.
+        let future = now + MAX_FUTURE_SKEW_SECS + 1;
+        assert!(!register_jti(&format!("f-{}", Ulid::new()), future, now));
+        let stale = now - REPLAY_WINDOW_SECS - 1;
+        assert!(!register_jti(&format!("o-{}", Ulid::new()), stale, now));
+        // A slightly future-dated id is remembered until ts + window, not
+        // merely receipt time + window.
+        let fut = format!("s-{}", Ulid::new());
+        let ts = now + 20;
+        assert!(register_jti(&fut, ts, now));
+        let exp = *replay_cache()
+            .lock()
+            .unwrap()
+            .expiry
+            .get(&fut)
+            .expect("id is cached");
+        assert_eq!(exp, ts + REPLAY_WINDOW_SECS);
+    }
+
+    #[test]
+    fn owner_token_file_is_private_and_linked() {
+        let dir = std::env::temp_dir().join(format!(
+            "mm-owner-{}",
+            Ulid::new().to_string().to_lowercase()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("mellowmesh.db");
+        let store = mellowmesh_store::Store::new(&db).unwrap();
+        bootstrap_owner(&store, &db);
+        let token_file = dir.join("owner.token");
+        let token = std::fs::read_to_string(&token_file).unwrap();
+        assert!(token.starts_with("mm_"));
+        let record = store
+            .find_token_by_hash(&hash_token(&token))
+            .unwrap()
+            .expect("owner token stored");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&token_file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "owner.token must be mode 0600");
+        }
+        // No temporary files are left behind.
+        let leftovers = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .count();
+        assert_eq!(leftovers, 0);
+        // The e2e key is linked to the token: revoking deletes it.
+        let key_id = mellowmesh_core::e2e::derive_key_id(&token);
+        assert!(store.find_e2e_key(&key_id).unwrap().is_some());
+        store.revoke_token(&record.id).unwrap();
+        assert!(store.find_e2e_key(&key_id).unwrap().is_none());
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

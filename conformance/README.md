@@ -41,6 +41,7 @@ security-critical guarantees:
 | D3 | A decision cannot be answered twice (409). |
 | D4 | An unknown option id is refused (400), not silently recorded. |
 | D5 | An authenticated **agent** principal can never answer a decision (403). |
+| D6 | A client cannot publish a forged `_decision.<id>.responded` event — the topic is hub-reserved (403). |
 
 D2 is the one that matters most: a hub that records an approval when the human
 chose "reject" silently inverts the human's decision. If a hub fails only D2,
@@ -78,6 +79,12 @@ kill %1
 - Lease reclaim is checked both ways: T6 observes the REST state transition, and
   T9 subscribes over WebSocket (a minimal RFC 6455 client is built in — still no
   dependencies) and asserts the `_task.<id>.reclaimed` announcement and payload.
+  Binary frames are ignored, and a harness or connection problem in T9 is
+  reported as `ERROR` rather than crashing the run.
+- When a check's own setup fails (for example the hub refuses to create the
+  task or decision a check needs), the check is reported as `ERROR`, not
+  `FAIL`: the requirement could not be exercised. Either way the verdict is
+  "not conformant".
 - The reference implementation runs this exact kit against itself in its test
   suite (`reference_hub_passes_conformance_kit` in
   `crates/mellowmesh-daemon/tests/multi_agent.rs`), with a real agent token, and

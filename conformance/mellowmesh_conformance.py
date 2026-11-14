@@ -22,6 +22,11 @@ Notes
   task returns to `open`), and T9 subscribes over WebSocket (a minimal stdlib
   RFC 6455 client is built in) and asserts the `_task.<id>.reclaimed`
   announcement with its payload.
+* D6 checks that a client cannot publish a forged decision outcome on the
+  hub-reserved `_decision.<id>.responded` topic.
+* A check whose setup call fails (e.g. the hub cannot create a task) is
+  reported as ERROR rather than FAIL, and a harness problem in the WebSocket
+  check (T9) is reported instead of aborting the run.
 * Governance checks that require an authenticated *agent* principal (D5) run
   only when you pass `--agent-token` (a real bearer token the hub issued to an
   `agent://` principal). Without it they are reported as SKIPPED, and the
@@ -218,37 +223,58 @@ class Subscription:
         masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         self.sock.sendall(header + mask + masked)
 
+    def _read_frame(self):
+        """Read one frame: (fin, opcode, payload). Raises socket.timeout."""
+        b0, b1 = self._read_exact(2)
+        fin, opcode = bool(b0 & 0x80), b0 & 0x0F
+        n = b1 & 0x7F
+        if n == 126:
+            n = struct.unpack("!H", self._read_exact(2))[0]
+        elif n == 127:
+            n = struct.unpack("!Q", self._read_exact(8))[0]
+        mask = self._read_exact(4) if b1 & 0x80 else None
+        payload = self._read_exact(n)
+        if mask:
+            payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        return fin, opcode, payload
+
     def recv_text(self, deadline):
-        """Return the next text message, or None if `deadline` passes first."""
-        message = b""
+        """Return the next text message, or None if `deadline` passes first
+        or the connection closes. Binary messages are skipped, never mixed
+        into a text message."""
+        message, kind = b"", None
         while True:
             remaining = deadline - time.time()
             if remaining <= 0:
                 return None
             self.sock.settimeout(remaining)
             try:
-                b0, b1 = self._read_exact(2)
-            except socket.timeout:
+                fin, opcode, payload = self._read_frame()
+            except (socket.timeout, ConnectionError, OSError):
                 return None
-            fin, opcode = b0 & 0x80, b0 & 0x0F
-            n = b1 & 0x7F
-            if n == 126:
-                n = struct.unpack("!H", self._read_exact(2))[0]
-            elif n == 127:
-                n = struct.unpack("!Q", self._read_exact(8))[0]
-            mask = self._read_exact(4) if b1 & 0x80 else None
-            payload = self._read_exact(n)
-            if mask:
-                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
             if opcode == 0x9:  # ping
-                self._send(0xA, payload)
+                try:
+                    self._send(0xA, payload)
+                except OSError:
+                    return None
+                continue
+            if opcode == 0xA:  # pong
                 continue
             if opcode == 0x8:  # close
                 return None
-            if opcode in (0x1, 0x0):
-                message += payload
-                if fin:
+            if opcode == 0x1:  # text start
+                message, kind = payload, "text"
+            elif opcode == 0x2:  # binary start
+                message, kind = b"", "binary"
+            elif opcode == 0x0:  # continuation of the current message
+                if kind == "text":
+                    message += payload
+            else:
+                continue  # unknown opcode: ignore
+            if fin:
+                if kind == "text":
                     return message.decode("utf-8", "replace")
+                message, kind = b"", None
 
     def close(self):
         try:
@@ -340,46 +366,21 @@ def check_tasks(hub, rep, reclaim_timeout):
                 "could not create task")
 
     # T9 — the reclaim is ANNOUNCED on _task.<id>.reclaimed over WebSocket
-    st, t9 = hub.create_task("conformance T9")
-    tid9 = t9.get("id") if isinstance(t9, dict) else None
-    if not tid9:
+    try:
+        check_reclaim_announced(hub, rep, reclaim_timeout, A)
+    except Exception as e:  # never let a harness problem crash the run
         rep.add("T9", "§6.2", "Reclaim is announced on _task.<id>.reclaimed", ERROR,
-                "could not create task")
-    else:
-        try:
-            sub = Subscription(hub.base, f"_task.{tid9}.reclaimed", token=hub.token,
-                               timeout=hub.timeout)
-        except Exception as e:
-            rep.add("T9", "§6.2", "Reclaim is announced on _task.<id>.reclaimed", FAIL,
-                    f"WebSocket subscription failed: {e}")
-        else:
-            try:
-                time.sleep(0.3)  # let the subscription register before claiming
-                hub.claim(tid9, A, lease_seconds=2)
-                deadline = time.time() + reclaim_timeout
-                event, why = None, "no announcement received"
-                while event is None:
-                    text = sub.recv_text(deadline)
-                    if text is None:
-                        why = f"no announcement within {reclaim_timeout}s"
-                        break
-                    msg = _parse(text)
-                    if isinstance(msg, dict) and msg.get("topic") == f"_task.{tid9}.reclaimed":
-                        event = msg
-                payload = (event or {}).get("payload") or {}
-                ok = (event is not None and payload.get("status") == "open"
-                      and payload.get("previous_claimant") == A)
-                if event is not None and not ok:
-                    why = f"payload={payload} (expected status=open, previous_claimant={A})"
-                rep.add("T9", "§6.2",
-                        "Reclaim is announced on _task.<id>.reclaimed (WebSocket)",
-                        PASS if ok else FAIL, why)
-            finally:
-                sub.close()
+                f"{type(e).__name__}: {e}")
 
     # T7 — complete
     st, tc = hub.create_task("conformance T7")
     tid7 = tc.get("id") if isinstance(tc, dict) else None
+    if not tid7:
+        rep.add("T7", "§6.2", "A held task can be completed", ERROR,
+                f"could not create task: POST /tasks -> {st}")
+        rep.add("T8", "§6.2", "Completing an already-terminal task is refused", ERROR,
+                "could not create task")
+        return
     hub.claim(tid7, A, lease_seconds=120)
     st, r = hub.complete(tid7)
     done = hub.get_task(tid7) or {}
@@ -391,6 +392,42 @@ def check_tasks(hub, rep, reclaim_timeout):
     st, r = hub.complete(tid7)
     rep.add("T8", "§6.2", "Completing an already-terminal task is refused (409)",
             PASS if st == 409 else FAIL, f"re-complete -> {st} (expected 409)")
+
+
+def check_reclaim_announced(hub, rep, reclaim_timeout, A):
+    name = "Reclaim is announced on _task.<id>.reclaimed (WebSocket)"
+    st, t9 = hub.create_task("conformance T9")
+    tid9 = t9.get("id") if isinstance(t9, dict) else None
+    if not tid9:
+        rep.add("T9", "§6.2", name, ERROR, f"could not create task: POST /tasks -> {st}")
+        return
+    try:
+        sub = Subscription(hub.base, f"_task.{tid9}.reclaimed", token=hub.token,
+                           timeout=hub.timeout)
+    except Exception as e:
+        rep.add("T9", "§6.2", name, FAIL, f"WebSocket subscription failed: {e}")
+        return
+    try:
+        time.sleep(0.3)  # let the subscription register before claiming
+        hub.claim(tid9, A, lease_seconds=2)
+        deadline = time.time() + reclaim_timeout
+        event, why = None, "no announcement received"
+        while event is None:
+            text = sub.recv_text(deadline)
+            if text is None:
+                why = f"no announcement within {reclaim_timeout}s"
+                break
+            msg = _parse(text)
+            if isinstance(msg, dict) and msg.get("topic") == f"_task.{tid9}.reclaimed":
+                event = msg
+        payload = (event or {}).get("payload") or {}
+        ok = (event is not None and payload.get("status") == "open"
+              and payload.get("previous_claimant") == A)
+        if event is not None and not ok:
+            why = f"payload={payload} (expected status=open, previous_claimant={A})"
+        rep.add("T9", "§6.2", name, PASS if ok else FAIL, why)
+    finally:
+        sub.close()
 
 
 # ---------------------------------------------------------------------------
@@ -432,9 +469,27 @@ def check_decisions(hub, rep, agent_token):
     # D4 — an unknown option is rejected, not silently recorded
     st, d4 = hub.create_decision("conformance D4", options=_decision_opts())
     did4 = d4.get("id") if isinstance(d4, dict) else None
-    st, r = hub.respond(did4, "does-not-exist")
-    rep.add("D4", "§7.2", "An unknown option id is refused (400)",
-            PASS if st == 400 else FAIL, f"respond(bogus) -> {st} (expected 400)")
+    if not did4:
+        rep.add("D4", "§7.2", "An unknown option id is refused", ERROR,
+                f"could not create decision: POST /decisions -> {st}")
+    else:
+        st, r = hub.respond(did4, "does-not-exist")
+        rep.add("D4", "§7.2", "An unknown option id is refused (400)",
+                PASS if st == 400 else FAIL, f"respond(bogus) -> {st} (expected 400)")
+
+    # D6 — a client cannot forge a decision outcome by publishing on the
+    # hub-reserved `_decision.<id>.responded` topic
+    forged = {"id": "", "topic": f"_decision.{did}.responded",
+              "from": "human://conformance", "timestamp": "2026-01-01T00:00:00Z",
+              "content_type": "application/json",
+              "body": f"Decision {did} approved",
+              "payload": {"decision_id": did, "status": "approved",
+                          "option_id": "approve",
+                          "responded_by": "human://conformance"}}
+    st, r = hub.call("POST", "/publish", forged)
+    rep.add("D6", "§7.2",
+            "A client cannot publish a forged _decision.<id>.responded event (403)",
+            PASS if st == 403 else FAIL, f"publish -> {st} (expected 403)")
 
     # D5 — an agent principal may NEVER answer a decision (needs a real token)
     if agent_token:
