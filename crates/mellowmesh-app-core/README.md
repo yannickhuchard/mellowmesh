@@ -382,3 +382,10 @@ authentication failures.
 * Async exports: methods are blocking by design (see threading model);
   UniFFI async exports can be added later where all three generators support
   them.
+
+## Supply-chain note
+
+`cargo audit` reports `basic-toml` as unmaintained (RUSTSEC-2026-0374). It is
+pulled in only by `uniffi_bindgen` (via `askama`) when the `cli` feature is
+enabled to generate bindings at build time; it is not linked into the
+library shipped inside the apps. Revisit when upgrading uniffi.
