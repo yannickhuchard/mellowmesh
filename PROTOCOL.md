@@ -47,6 +47,10 @@ A hub exposes the protocol over HTTP and WebSocket.
 - A hub reached through a **relay** exposes the identical surface under a prefix,
   e.g. `https://<relay>/hub/<hub-id>/…` and `…/hub/<hub-id>/ws`. The relay
   forwards; it is not part of the protocol's trust model (§3.3).
+- A hub that listens on loopback SHOULD reject requests whose `Host` is not a
+  loopback name, and requests carrying an `Origin` other than its own (the
+  reference hub answers `403`), so web pages in a local browser cannot drive
+  the API or open subscriptions. Non-browser clients send no `Origin`.
 
 A conformant client MUST NOT depend on any transport detail beyond request /
 response JSON and the subscription frame format.
@@ -143,14 +147,24 @@ object:
 
 Rules:
 
-- `POST /publish` with this body publishes to `topic`. The hub MUST assign `id`
-  and `timestamp` if absent.
+- `POST /publish` with this body publishes to `topic`. Message `id` and
+  `timestamp` are **assigned by the hub**: the hub MUST ignore any
+  client-supplied `id` and `timestamp` and set its own (a unique id and the
+  hub's current time), and returns the stored message.
+- Clients MUST NOT be able to publish on the hub-reserved topics
+  `_decision.**`, `_system.**`, and `_task.<id>.reclaimed` (matched
+  case-insensitively); a hub MUST reject such a publish (the reference hub
+  answers `403`). Only the hub itself emits these events (§6, §7).
 - Subscribers to a matching pattern (§4.1) receive the message as one WS frame.
 - Under authentication, the hub MUST bind provenance to the authenticated
-  principal (e.g. stamping `owner`) and MUST NOT let a publisher forge routing
+  principal (stamping `owner`, and setting `from` to the principal for
+  `agent`, `human`, and `node` principals; `interface` principals relay
+  external identities in `from`) and MUST NOT let a publisher forge routing
   headers (`x-mentions`, the routed-copy marker) — those are hub-set (§8).
-- History is queryable: `GET /history?limit=N` and full-text `GET
-  /search?query=…`, both filtered to the caller's read scope.
+- History is queryable: `GET /history?limit=N[&pattern=<pattern>]` and
+  full-text `GET /search?query=…`, both filtered to the caller's read scope.
+  `limit` is capped (1000 in the reference hub); an invalid `pattern` is
+  rejected.
 
 ## 6. Tasks and the leased claim
 
@@ -234,7 +248,9 @@ Each option MAY declare an `outcome` of `approve`, `reject`, or `neutral`
 ### 7.2 Rules (normative)
 
 - **Create:** `POST /decisions`. Announced on `_decision.<id>.requested`. A new
-  decision MUST NOT start in a terminal (answered) status.
+  decision MUST NOT start in a terminal (answered) status. Under
+  authentication, `created_by` MUST be the authenticated principal (a body
+  value is ignored). A client-supplied `id` MUST match `^[A-Za-z0-9_-]{1,128}$`.
 - **Answer:** `POST /decisions/<id>/respond` with `{ "option_id": "…",
   "responded_by": "<human-uri?>" }`.
   - The recorded **status MUST derive from the chosen option's `outcome`**:
@@ -244,7 +260,11 @@ Each option MAY declare an `outcome` of `approve`, `reject`, or `neutral`
     answer.** `agent` and `node` principals MUST be rejected — an agent can never
     approve its own (or any) proposal.
   - An `interface` relay MUST resolve `responded_by` to a known `human://`
-    identity; it MUST NOT attribute an approval to an arbitrary string.
+    identity (a registered `human` principal, directly or through an identity
+    mapping); it MUST NOT attribute an approval to an arbitrary string.
+  - Under authentication, the responder (the human, or the human an
+    interface relays) MUST be the decision's `required_decider` or the hub
+    owner; any other responder MUST be rejected.
   - In open mode the responder MUST be recorded as unauthenticated (never a
     caller-supplied human), so provenance cannot be forged.
   - A principal MUST NOT answer its own proposal (`responded_by` ≠ `created_by`).
@@ -253,6 +273,11 @@ Each option MAY declare an `outcome` of `approve`, `reject`, or `neutral`
 - **Result:** announced on `_decision.<id>.responded` with `{ decision_id,
   status, option_id, responded_by }`. Agents waiting on the decision proceed only
   when `status == "approved"` and MUST NOT act when `status == "rejected"`.
+- **Reserved topics:** decision events are emitted only by the hub. Clients
+  MUST NOT be able to publish on `_decision.*` (nor on `_system.*` or
+  `_task.*.reclaimed`, §5); a hub MUST reject such publishes, so a
+  `_decision.<id>.responded` event can always be trusted as the hub's record
+  of the answer.
 
 ## 8. Mentions, named topics, and inbox routing
 

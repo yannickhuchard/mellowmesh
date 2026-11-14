@@ -94,7 +94,10 @@ Creates the coordination manager.
 * `config.daemonUrl` (`string`, default `"ws://127.0.0.1:40000/ws"`): Daemon WebSocket endpoint.
 * `config.daemonHttpUrl` (`string`, default `"http://127.0.0.1:40000"`): Daemon HTTP API base.
 * `config.broadcastChannelName` (`string`, default `"mellowmesh_broadcast"`): Cross-tab BroadcastChannel namespace.
-* `config.persistenceKey` (`string`, default `"mellowmesh_state"`): Key for LocalStorage state.
+* `config.persistenceKey` (`string | null`, default `"mellowmesh_state"`): Key for LocalStorage state (`null` disables persistence). Writes are debounced.
+* `config.maxHistory` (`number`, default `500`): Messages retained in standalone history; the oldest are dropped first. `0` means unlimited.
+* `config.saveDebounceMs` (`number`, default `250`): Delay used to coalesce LocalStorage writes.
+* `config.token` (`string`, optional): Bearer token for the daemon (client mode). Sent as `Authorization: Bearer <token>` on HTTP requests and as `?token=` on the WebSocket URL.
 
 ### `async init(wasmModule?)`
 Downloads, compiles WASM module, starts the database engine, restores state from LocalStorage (if standalone), or establishes WebSocket connections (if client).
@@ -107,10 +110,11 @@ Publishes a message to the fabric.
 * `message.payload` (optional): JSON payload.
 * *Returns*: The published message's unique ID (ULID).
 
-### `subscribe(pattern, callback)`
+### `subscribe(pattern, callback, options?)`
 Registers a callback to receive real-time messages.
 * `pattern`: Topic filter supporting wildcards (`*`, `>`, `**`).
 * `callback`: `(message) => void`
+* `options.caseInsensitive` (`boolean`, default `false`): Match topic segments case-insensitively.
 * *Returns*: Subscription ID.
 
 ### `unsubscribe(subId)`
@@ -123,7 +127,7 @@ Creates a new task. Task objects specify `id`, `title`, `description`, `priority
 Returns all tasks.
 
 ### `async claimTask(taskId, agentUri)`
-Claims a task for a specific agent.
+Claims a task for a specific agent. Only an open task, a task already held by the same agent, or a task whose claim lease (`claim_expires_at`) has expired can be claimed.
 * *Returns*: `true` if task was claimed successfully.
 
 ### `async completeTask(taskId)`
@@ -132,13 +136,16 @@ Marks a task as completed.
 ### `async createDecision(decision)`
 Submits a decision request for human review.
 * `decision.required_decider`: Human decider URI (e.g. `human://yannick`).
-* `decision.options`: Array of option objects (`{ id, label }`).
+* `decision.options`: Array of option objects (`{ id, label, outcome? }`). `outcome` is `"approve"`, `"reject"` or `"neutral"` and determines the recorded status (`approved`, `rejected`, `answered`).
 
 ### `async listDecisions()`
 Returns all decision requests.
 
-### `async respondDecision(decisionId, optionId)`
+### `async respondDecision(decisionId, optionId, responder?)`
 Records a response from a human decider.
+* `optionId` must be one of the decision's option ids.
+* `responder` (optional): Who is answering; in standalone mode it defaults to the decision's `required_decider`. The decision's creator cannot answer its own decision.
+* *Returns*: `true` if the response was recorded; `false` if the decision is unknown, already answered, the option is unknown, or the responder is the creator.
 
 ### `async readHistory(pattern, limit?)`
 Queries historical messages matching a pattern.

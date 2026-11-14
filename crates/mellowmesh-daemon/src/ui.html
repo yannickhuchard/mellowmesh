@@ -535,6 +535,15 @@
             transition: all 0.2s ease;
         }
 
+        label.decision-option {
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: 400;
+            font-size: 0.9rem;
+            color: var(--text-color);
+            margin-bottom: 0;
+        }
+
         .decision-option:hover {
             background: rgba(255, 255, 255, 0.02);
             border-color: rgba(255, 255, 255, 0.05);
@@ -563,6 +572,66 @@
 
         .option-pros { color: var(--accent-emerald); }
         .option-cons { color: var(--accent-pink); }
+
+        .decision-card.rejected {
+            border-left: 3px solid var(--accent-pink);
+        }
+
+        .option-outcome {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-muted);
+        }
+
+        .option-outcome.approve {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-emerald);
+        }
+
+        .option-outcome.reject {
+            background: rgba(236, 72, 153, 0.15);
+            color: var(--accent-pink);
+        }
+
+        .option-warning {
+            font-size: 0.75rem;
+            color: var(--accent-amber);
+        }
+
+        .empty-state {
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+
+        .token-banner {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin: 1rem 2rem 0 2rem;
+            padding: 0.6rem 0.9rem;
+            border-radius: 8px;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            background: rgba(245, 158, 11, 0.08);
+            font-size: 0.85rem;
+        }
+
+        .token-banner[hidden] {
+            display: none;
+        }
+
+        .token-banner input {
+            flex: 1 1 220px;
+            width: auto;
+        }
 
         .decision-result {
             font-size: 0.85rem;
@@ -820,11 +889,23 @@
             <div class="logo-symbol"></div>
             <h1>MellowMesh</h1>
         </div>
-        <div class="status-badge">
-            <div id="status-indicator" class="status-indicator connecting"></div>
-            <span id="status-text">Connecting to Fabric...</span>
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <div class="status-badge">
+                <div id="status-indicator" class="status-indicator connecting"></div>
+                <span id="status-text">Connecting to Fabric...</span>
+            </div>
+            <button type="button" id="token-open-btn" class="btn btn-sm btn-secondary">Access Token</button>
         </div>
     </header>
+
+    <!-- Access token entry (shown when the daemon answers 401, or on demand) -->
+    <form id="token-banner" class="token-banner" hidden>
+        <span id="token-banner-msg">This daemon requires an access token.</span>
+        <input type="password" id="token-input" autocomplete="off" spellcheck="false" placeholder="Paste a token (mm_...)">
+        <button type="submit" class="btn btn-sm">Save</button>
+        <button type="button" id="token-clear-btn" class="btn btn-sm btn-secondary">Forget</button>
+        <button type="button" id="token-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
+    </form>
 
     <main>
         <!-- Left Column: Publisher and Mappings -->
@@ -914,8 +995,8 @@
                         <input type="text" id="dec-input-sender" value="agent://yannick/codex" required>
                     </div>
                     <div class="form-group">
-                        <label>Options (JSON format)</label>
-                        <textarea id="dec-input-options" rows="3" required placeholder='[{"id":"opt_1","label":"SQLite","pros":["simple"],"cons":[]},{"id":"opt_2","label":"Redb","pros":["rust"],"cons":[]}]'></textarea>
+                        <label>Options (JSON: labels or {label, outcome})</label>
+                        <textarea id="dec-input-options" rows="3" required placeholder='[{"label":"Ship it","outcome":"approve"},{"label":"Hold","outcome":"reject"}]'></textarea>
                     </div>
                     <button type="submit" class="btn">Request Decision</button>
                 </form>
@@ -963,7 +1044,7 @@
                             Topic Discussion Forum
                         </h2>
                         <div style="width: 250px;">
-                            <input type="text" id="forum-filter-pattern" placeholder="Filter by pattern, e.g. _forum.**" oninput="loadForumHistory()">
+                            <input type="text" id="forum-filter-pattern" placeholder="Filter by pattern, e.g. _forum.**">
                         </div>
                     </div>
                     <div id="forum-container" class="forum-stream">
@@ -1008,6 +1089,7 @@
                     <div id="summaries-container" class="summaries-list">
                         <!-- Loaded dynamically -->
                     </div>
+                </div>
             </div>
 
             <!-- Tab 5: LLMWiki -->
@@ -1158,19 +1240,174 @@
             isPanning: false
         };
 
+        // ------------------------------------------------------------------
+        // Safe DOM helpers
+        // ------------------------------------------------------------------
+        // Everything that comes from the daemon (topics, senders, bodies,
+        // titles, option labels, wiki paths, mapping ids...) was written by
+        // agents or remote users and is treated as untrusted. It is rendered
+        // with textContent via h(), or through escapeHtml() — never by
+        // interpolating it into HTML or inline event handlers.
+        function h(tag, props, ...children) {
+            const el = document.createElement(tag);
+            if (props) {
+                for (const [key, value] of Object.entries(props)) {
+                    if (value === undefined || value === null || value === false) continue;
+                    if (key === 'className') el.className = value;
+                    else if (key === 'text') el.textContent = String(value);
+                    else if (key === 'style') el.style.cssText = value;
+                    else if (key === 'dataset') Object.assign(el.dataset, value);
+                    else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2), value);
+                    else el.setAttribute(key, value === true ? '' : String(value));
+                }
+            }
+            for (const child of children.flat()) {
+                if (child === undefined || child === null || child === false) continue;
+                el.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+            }
+            return el;
+        }
+
+        function replaceChildrenOf(container, nodes) {
+            container.replaceChildren(...nodes);
+        }
+
+        function emptyState(text) {
+            return h('div', { className: 'empty-state', text });
+        }
+
+        function formatTime(value) {
+            if (!value) return '';
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+        }
+
+        // ------------------------------------------------------------------
+        // Access token handling
+        // ------------------------------------------------------------------
+        const TOKEN_STORAGE_KEY = 'mellowmesh.dashboard.token';
+        let tokenPrompt = null; // { promise, resolve } while the entry field is open
+
+        function getToken() {
+            try {
+                return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function setToken(token) {
+            try {
+                if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+                else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+            } catch (e) {
+                // Storage unavailable (private mode, blocked site data): the
+                // token then only lives for this page view.
+            }
+            sessionToken = token || '';
+        }
+
+        // Fallback for when localStorage is unavailable.
+        let sessionToken = '';
+        function currentToken() {
+            return getToken() || sessionToken;
+        }
+
+        // Show the inline token field and resolve with the entered token (or
+        // null when cancelled). Concurrent 401s share a single prompt.
+        function requestToken(message) {
+            const banner = document.getElementById('token-banner');
+            document.getElementById('token-banner-msg').textContent = message;
+            banner.hidden = false;
+            if (!tokenPrompt) {
+                let resolve;
+                const promise = new Promise(r => { resolve = r; });
+                tokenPrompt = { promise, resolve };
+                setTimeout(() => document.getElementById('token-input').focus(), 0);
+            }
+            return tokenPrompt.promise;
+        }
+
+        function closeTokenPrompt(result) {
+            document.getElementById('token-banner').hidden = true;
+            document.getElementById('token-input').value = '';
+            if (tokenPrompt) {
+                const { resolve } = tokenPrompt;
+                tokenPrompt = null;
+                resolve(result);
+            }
+        }
+
+        function initTokenUi() {
+            document.getElementById('token-banner').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const value = document.getElementById('token-input').value.trim();
+                if (!value) return;
+                setToken(value);
+                closeTokenPrompt(value);
+                reconnectWebSocket();
+                loadAllData();
+            });
+            document.getElementById('token-cancel-btn').addEventListener('click', () => closeTokenPrompt(null));
+            document.getElementById('token-clear-btn').addEventListener('click', () => {
+                setToken('');
+                closeTokenPrompt(null);
+                reconnectWebSocket();
+            });
+            document.getElementById('token-open-btn').addEventListener('click', () => {
+                requestToken(currentToken()
+                    ? 'A token is stored for this dashboard. Paste a new one to replace it, or forget it.'
+                    : 'Paste an access token (e.g. the owner token) to authenticate this dashboard.');
+            });
+        }
+
+        // Single wrapper for every HTTP call the dashboard makes: adds the
+        // bearer token and, on 401, asks for a token once and retries.
+        async function apiFetch(path, opts = {}, attempt = 0) {
+            const headers = new Headers(opts.headers || {});
+            const token = currentToken();
+            if (token) headers.set('Authorization', 'Bearer ' + token);
+            const res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
+            if (res.status === 401 && attempt < 2) {
+                const entered = await requestToken(token
+                    ? 'The stored access token was rejected. Paste a valid token:'
+                    : 'This daemon requires an access token. Paste one to continue:');
+                if (entered) return apiFetch(path, opts, attempt + 1);
+            }
+            return res;
+        }
+
+        async function apiJson(path) {
+            const res = await apiFetch(path);
+            if (!res.ok) {
+                const err = new Error(`${res.status} ${res.statusText}`);
+                err.status = res.status;
+                throw err;
+            }
+            return res.json();
+        }
+
         // Initial setup on window load
         window.addEventListener('DOMContentLoaded', () => {
+            initTokenUi();
             initWebSocket();
             loadAllData();
             // Poll for updates periodically as fallback
             setInterval(loadAllData, 5000);
-            
-            // Set up click interception for markdown links in body view
+
+            // Debounce the forum filter so typing doesn't fire a request per key.
+            let forumFilterTimer = null;
+            document.getElementById('forum-filter-pattern').addEventListener('input', () => {
+                clearTimeout(forumFilterTimer);
+                forumFilterTimer = setTimeout(loadForumHistory, 250);
+            });
+
+            // Set up click interception for relative markdown links in body view
             document.getElementById('wiki-view-body').addEventListener('click', (e) => {
                 const a = e.target.closest('a');
                 if (a) {
                     const href = a.getAttribute('href');
-                    if (href && !href.match(/^[a-z]+:\/\//i) && href.endsWith('.md')) {
+                    if (href && !/^[a-z][a-z0-9+.\-]*:/i.test(href) && !href.startsWith('//') && href.endsWith('.md')) {
                         e.preventDefault();
                         selectWikiPage(href);
                     }
@@ -1181,9 +1418,9 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            
+
             document.getElementById(tabId).classList.add('active');
-            
+
             // Find btn corresponding
             const tabBtnIndex = {
                 'tab-forum': 0,
@@ -1208,13 +1445,327 @@
 
         // Fetch functions
         async function loadAllData() {
-            loadForumHistory();
-            loadTasks();
-            loadDecisions();
-            loadMappings();
-            loadSummaries();
+            // While the token field is open, don't queue more requests behind it.
+            if (tokenPrompt) return;
+            const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries];
             if (document.getElementById('tab-wiki').classList.contains('active')) {
-                loadWikiPages();
+                loaders.push(loadWikiPages);
+            }
+            await Promise.allSettled(loaders.map(fn => fn()));
+        }
+
+        // ------------------------------------------------------------------
+        // Forum
+        // ------------------------------------------------------------------
+        let forumRequestSeq = 0;
+
+        async function loadForumHistory() {
+            const container = document.getElementById('forum-container');
+            const pattern = document.getElementById('forum-filter-pattern').value.trim() || '**';
+            const seq = ++forumRequestSeq;
+            try {
+                const msgs = await apiJson(`/forum?pattern=${encodeURIComponent(pattern)}`);
+                if (seq !== forumRequestSeq) return; // a newer filter is in flight
+                renderForum(container, Array.isArray(msgs) ? msgs : []);
+            } catch (e) {
+                if (seq !== forumRequestSeq) return;
+                replaceChildrenOf(container, [emptyState(`Could not load messages (${e.message}).`)]);
+            }
+        }
+
+        function renderForum(container, msgs) {
+            if (msgs.length === 0) {
+                replaceChildrenOf(container, [emptyState('No messages match this pattern yet.')]);
+                return;
+            }
+            const cards = msgs.map(msg => {
+                const from = String(msg.from || '');
+                let variant = '';
+                if (from.startsWith('discord://')) variant = 'mock-discord';
+                else if (from.startsWith('telegram://')) variant = 'mock-telegram';
+                else if (from.startsWith('teams://')) variant = 'mock-teams';
+                else if (from.startsWith('human://')) variant = 'highlight';
+
+                let bodyText = msg.body || '';
+                if (!bodyText && msg.payload !== undefined && msg.payload !== null) {
+                    try { bodyText = JSON.stringify(msg.payload, null, 2); } catch (e) { bodyText = ''; }
+                }
+
+                return h('div', { className: `message-card ${variant}`.trim() },
+                    h('div', { className: 'msg-header' },
+                        h('span', { className: 'msg-sender', text: from }),
+                        h('span', { className: 'msg-topic', text: msg.topic || '' })
+                    ),
+                    h('div', { className: 'msg-body', text: bodyText }),
+                    h('div', { className: 'msg-time', text: formatTime(msg.timestamp) })
+                );
+            });
+            replaceChildrenOf(container, cards);
+        }
+
+        // ------------------------------------------------------------------
+        // Tasks
+        // ------------------------------------------------------------------
+        const TASK_PRIORITIES = new Set(['low', 'medium', 'high']);
+        const TASK_STATUS_CLASSES = new Set(['open', 'claimed', 'completed']);
+
+        async function loadTasks() {
+            const container = document.getElementById('tasks-container');
+            try {
+                const tasks = await apiJson('/tasks');
+                renderTasks(container, Array.isArray(tasks) ? tasks : []);
+            } catch (e) {
+                replaceChildrenOf(container, [emptyState(`Could not load tasks (${e.message}).`)]);
+            }
+        }
+
+        function renderTasks(container, tasks) {
+            if (tasks.length === 0) {
+                replaceChildrenOf(container, [emptyState('No tasks yet.')]);
+                return;
+            }
+            const cards = tasks.map(task => {
+                const status = String(task.status || 'open');
+                const statusClass = status === 'in_progress' ? 'claimed'
+                    : (TASK_STATUS_CLASSES.has(status) ? status : '');
+                const priority = String(task.priority || 'medium');
+                const priorityClass = TASK_PRIORITIES.has(priority) ? priority : '';
+
+                const caps = (task.required_capabilities || []).map(c => h('span', { className: 'task-cap', text: c }));
+                const topics = (task.topics || []).join(', ');
+
+                const assignmentLines = [h('div', { text: `Status: ${status}` })];
+                if (topics) assignmentLines.push(h('div', { text: `Topics: ${topics}` }));
+                assignmentLines.push(h('div', { text: `Created by: ${task.created_by || 'unknown'}` }));
+                if (task.claimed_by) assignmentLines.push(h('div', { text: `Claimed by: ${task.claimed_by}` }));
+                if (task.assigned_to) assignmentLines.push(h('div', { text: `Assigned to: ${task.assigned_to}` }));
+                if (task.claim_expires_at) assignmentLines.push(h('div', { text: `Lease expires: ${formatTime(task.claim_expires_at)}` }));
+
+                const actions = h('div', { className: 'task-actions' });
+                if (status === 'open') {
+                    const claimInput = h('input', {
+                        type: 'text',
+                        placeholder: 'Claim as (agent://... or human://...)',
+                        value: document.getElementById('task-input-sender').value || '',
+                        style: 'padding: 0.3rem 0.5rem; font-size: 0.75rem;'
+                    });
+                    actions.append(
+                        claimInput,
+                        h('button', {
+                            type: 'button',
+                            className: 'btn btn-sm',
+                            text: 'Claim',
+                            onclick: () => {
+                                const who = claimInput.value.trim();
+                                if (!who) { alert('Enter the identity to claim as.'); return; }
+                                claimTask(task.id, who);
+                            }
+                        })
+                    );
+                } else if (status === 'claimed' || status === 'in_progress') {
+                    actions.append(h('button', {
+                        type: 'button',
+                        className: 'btn btn-sm btn-secondary',
+                        text: 'Mark Complete',
+                        onclick: () => completeTask(task.id)
+                    }));
+                }
+
+                return h('div', { className: `task-card ${statusClass}`.trim() },
+                    h('div', null,
+                        h('div', { className: 'task-meta' },
+                            h('span', { className: 'task-id', text: task.id || '' }),
+                            h('span', { className: `task-priority ${priorityClass}`.trim(), text: priority })
+                        ),
+                        h('div', { className: 'task-title', style: 'margin-top: 0.5rem;', text: task.title || '' }),
+                        task.description ? h('div', { className: 'task-desc', style: 'margin-top: 0.25rem;', text: task.description }) : null,
+                        caps.length ? h('div', { className: 'task-caps', style: 'margin-top: 0.5rem;' }, caps) : null
+                    ),
+                    h('div', null,
+                        h('div', { className: 'task-assignment' }, assignmentLines),
+                        actions.childNodes.length ? actions : null
+                    )
+                );
+            });
+            replaceChildrenOf(container, cards);
+        }
+
+        // ------------------------------------------------------------------
+        // Decisions
+        // ------------------------------------------------------------------
+        const OUTCOME_LABELS = {
+            approve: 'approves',
+            reject: 'rejects',
+            neutral: 'neutral'
+        };
+
+        function optionOutcome(opt) {
+            const o = String((opt && opt.outcome) || 'neutral').toLowerCase();
+            return OUTCOME_LABELS[o] ? o : 'neutral';
+        }
+
+        function outcomeBadge(opt) {
+            const o = optionOutcome(opt);
+            const title = o === 'approve' ? 'Choosing this records the decision as APPROVED'
+                : o === 'reject' ? 'Choosing this records the decision as REJECTED'
+                : 'Choosing this records an answer without approving or rejecting (status: answered)';
+            return h('span', { className: `option-outcome ${o}`, title, text: OUTCOME_LABELS[o] });
+        }
+
+        // Flag options whose label reads like the opposite of what they do,
+        // e.g. a "Reject" button that actually approves.
+        function outcomeMismatch(opt) {
+            const label = String((opt && opt.label) || '').toLowerCase();
+            const o = optionOutcome(opt);
+            const soundsReject = /\b(reject|deny|decline|no|block|refuse|veto|cancel|hold)\b/.test(label);
+            const soundsApprove = /\b(approve|accept|allow|yes|ship|go|confirm|proceed|merge)\b/.test(label);
+            return (o === 'approve' && soundsReject && !soundsApprove)
+                || (o === 'reject' && soundsApprove && !soundsReject);
+        }
+
+        async function loadDecisions() {
+            const container = document.getElementById('decisions-container');
+            try {
+                const decisions = await apiJson('/decisions');
+                renderDecisions(container, Array.isArray(decisions) ? decisions : []);
+            } catch (e) {
+                replaceChildrenOf(container, [emptyState(`Could not load decisions (${e.message}).`)]);
+            }
+        }
+
+        function renderDecisions(container, decisions) {
+            // Keep a pending selection across the 5 s refresh.
+            const selected = new Map();
+            container.querySelectorAll('.decision-card').forEach(card => {
+                const checked = card.querySelector('input[type="radio"]:checked');
+                if (checked && card.dataset.decisionId) selected.set(card.dataset.decisionId, checked.value);
+            });
+
+            if (decisions.length === 0) {
+                replaceChildrenOf(container, [emptyState('No decisions requested yet.')]);
+                return;
+            }
+
+            const cards = decisions.map((dec, decIndex) => {
+                const status = String(dec.status || 'requested');
+                const options = Array.isArray(dec.options) ? dec.options : [];
+                const answered = !!dec.response_option_id;
+                const cardClass = status === 'approved' ? 'approved' : (status === 'rejected' ? 'rejected' : '');
+                const card = h('div', { className: `decision-card ${cardClass}`.trim(), dataset: { decisionId: String(dec.id || '') } });
+
+                card.append(
+                    h('div', { className: 'decision-question', text: dec.title || '' }),
+                    h('div', { style: 'margin-bottom: 0.75rem;', text: dec.question || '' }),
+                    h('div', { className: 'decision-meta' },
+                        h('span', { text: `ID: ${dec.id || ''}` }),
+                        h('span', { text: `By: ${dec.created_by || ''}` }),
+                        h('span', { text: `Decider: ${dec.required_decider || ''}` }),
+                        h('span', { text: `Status: ${status}` })
+                    )
+                );
+
+                if (answered) {
+                    const chosen = options.find(o => o.id === dec.response_option_id);
+                    const result = h('div', { className: 'decision-result' },
+                        `Answer: ${chosen ? chosen.label : dec.response_option_id}`,
+                        chosen ? outcomeBadge(chosen) : null
+                    );
+                    card.append(result);
+                    const who = dec.responded_by ? ` by ${dec.responded_by}` : '';
+                    const when = dec.response_timestamp ? ` at ${formatTime(dec.response_timestamp)}` : '';
+                    if (who || when) {
+                        card.append(h('div', { className: 'decision-meta', style: 'margin-top: 0.5rem; margin-bottom: 0;', text: `Answered${who}${when}` }));
+                    }
+                    return card;
+                }
+
+                const groupName = `decision-opt-${decIndex}`;
+                const optionsEl = h('div', { className: 'decision-options' });
+                options.forEach(opt => {
+                    const radio = h('input', { type: 'radio', name: groupName, value: String(opt.id || '') });
+                    if (selected.get(String(dec.id || '')) === String(opt.id || '')) radio.checked = true;
+                    const pros = (opt.pros || []).join(', ');
+                    const cons = (opt.cons || []).join(', ');
+                    optionsEl.append(h('label', { className: 'decision-option' },
+                        radio,
+                        h('div', { className: 'option-details' },
+                            h('div', { className: 'option-label' }, String(opt.label || opt.id || ''), outcomeBadge(opt)),
+                            outcomeMismatch(opt)
+                                ? h('div', { className: 'option-warning', text: `Check before choosing: this option ${OUTCOME_LABELS[optionOutcome(opt)]} the request despite its label.` })
+                                : null,
+                            (pros || cons) ? h('div', { className: 'option-pros-cons' },
+                                pros ? h('span', { className: 'option-pros', text: `+ ${pros}` }) : null,
+                                (pros && cons) ? '  ' : null,
+                                cons ? h('span', { className: 'option-cons', text: `- ${cons}` }) : null
+                            ) : null
+                        )
+                    ));
+                });
+                card.append(optionsEl, h('button', {
+                    type: 'button',
+                    className: 'btn btn-sm',
+                    text: 'Submit Answer',
+                    onclick: () => {
+                        const checked = optionsEl.querySelector('input[type="radio"]:checked');
+                        if (!checked) { alert('Please select an option first!'); return; }
+                        submitDecision(dec.id, checked.value);
+                    }
+                }));
+                return card;
+            });
+            replaceChildrenOf(container, cards);
+        }
+
+        // ------------------------------------------------------------------
+        // Identity mappings
+        // ------------------------------------------------------------------
+        async function loadMappings() {
+            const container = document.getElementById('mappings-container');
+            try {
+                const res = await apiFetch('/identity-mappings');
+                if (res.status === 403) {
+                    replaceChildrenOf(container, [emptyState('Identity mappings are visible to the owner token only.')]);
+                    return;
+                }
+                if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+                const mappings = await res.json();
+                if (!Array.isArray(mappings) || mappings.length === 0) {
+                    replaceChildrenOf(container, [emptyState('No identity mappings.')]);
+                    return;
+                }
+                replaceChildrenOf(container, mappings.map(m =>
+                    h('div', { className: 'mapping-item' },
+                        h('span', { text: m.external_id || '' }),
+                        h('span', { text: m.mellowmesh_id || '' })
+                    )
+                ));
+            } catch (e) {
+                replaceChildrenOf(container, [emptyState(`Could not load mappings (${e.message}).`)]);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Topic summaries
+        // ------------------------------------------------------------------
+        async function loadSummaries() {
+            const container = document.getElementById('summaries-container');
+            try {
+                const ctx = await apiJson('/context?topic=' + encodeURIComponent('**') + '&limit=1');
+                const summaries = (ctx && Array.isArray(ctx.summaries)) ? ctx.summaries.slice() : [];
+                if (summaries.length === 0) {
+                    replaceChildrenOf(container, [emptyState('No topic summaries have been stored yet.')]);
+                    return;
+                }
+                summaries.sort((a, b) => String(b.generated_at || '').localeCompare(String(a.generated_at || '')));
+                replaceChildrenOf(container, summaries.map(s =>
+                    h('div', { className: 'summary-card' },
+                        h('div', { className: 'summary-topic', text: s.topic || '' }),
+                        h('div', { className: 'summary-text', style: 'white-space: pre-wrap;', text: s.summary || '' }),
+                        h('div', { className: 'summary-time', text: formatTime(s.generated_at) })
+                    )
+                ));
+            } catch (e) {
+                replaceChildrenOf(container, [emptyState(`Could not load summaries (${e.message}).`)]);
             }
         }
 
@@ -1235,7 +1786,7 @@
             }
 
             try {
-                const res = await fetch(url);
+                const res = await apiFetch(url);
                 if (res.ok) {
                     currentWikiPages = await res.json();
                     renderWikiPagesList();
@@ -1247,24 +1798,25 @@
 
         function renderWikiPagesList() {
             const container = document.getElementById('wiki-pages-list');
-            if (currentWikiPages.length === 0) {
-                container.innerHTML = '<div style="color: var(--text-muted); text-align: center; margin-top: 1rem; font-size: 0.85rem;">No pages found.</div>';
+            if (!Array.isArray(currentWikiPages) || currentWikiPages.length === 0) {
+                replaceChildrenOf(container, [emptyState('No pages found.')]);
                 return;
             }
-            
-            container.innerHTML = currentWikiPages.map(page => {
+
+            replaceChildrenOf(container, currentWikiPages.map(page => {
                 const isActive = page.path === selectedPagePath;
                 const date = new Date(page.timestamp);
-                return `
-                    <div class="wiki-item ${isActive ? 'active' : ''}" onclick="selectWikiPage('${page.path.replace(/'/g, "\\'")}')">
-                        <div class="wiki-item-title">${escapeHtml(page.title)}</div>
-                        <div class="wiki-item-meta">
-                            <span style="font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-cyan);">${escapeHtml(page.doc_type)}</span>
-                            <span>${date.toLocaleDateString()}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+                return h('div', {
+                        className: `wiki-item ${isActive ? 'active' : ''}`.trim(),
+                        onclick: () => selectWikiPage(page.path)
+                    },
+                    h('div', { className: 'wiki-item-title', text: page.title || page.path || '' }),
+                    h('div', { className: 'wiki-item-meta' },
+                        h('span', { style: 'font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-cyan);', text: page.doc_type || '' }),
+                        h('span', { text: isNaN(date.getTime()) ? '' : date.toLocaleDateString() })
+                    )
+                );
+            }));
         }
 
         async function selectWikiPage(path) {
@@ -1275,7 +1827,7 @@
             renderWikiPagesList();
             
             try {
-                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`);
+                const res = await apiFetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`);
                 if (res.ok) {
                     const doc = await res.json();
                     selectedPageDoc = doc;
@@ -1330,7 +1882,7 @@
             const path = selectedPagePath;
             
             try {
-                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/graph`);
+                const res = await apiFetch(`/wiki/${encodeURIComponent(wiki)}/graph`);
                 if (res.ok) {
                     currentWikiGraph = await res.json();
                     
@@ -1344,6 +1896,12 @@
             }
         }
 
+        function wikiLinkPill(path) {
+            const node = currentWikiGraph.nodes.find(n => n.path === path);
+            const title = node ? node.title : path;
+            return h('span', { className: 'wiki-link-pill', text: title || path, onclick: () => selectWikiPage(path) });
+        }
+
         function renderBacklinksAndOutgoing(path) {
             const backlinksContainer = document.getElementById('wiki-backlinks-list');
             const outgoingContainer = document.getElementById('wiki-outgoing-list');
@@ -1353,22 +1911,14 @@
             
             if (backlinks.length > 0) {
                 document.getElementById('wiki-view-backlinks').style.display = 'block';
-                backlinksContainer.innerHTML = backlinks.map(b => {
-                    const node = currentWikiGraph.nodes.find(n => n.path === b);
-                    const title = node ? node.title : b;
-                    return `<span class="wiki-link-pill" onclick="selectWikiPage('${b.replace(/'/g, "\\'")}')">${escapeHtml(title)}</span>`;
-                }).join('');
+                replaceChildrenOf(backlinksContainer, backlinks.map(b => wikiLinkPill(b)));
             } else {
                 document.getElementById('wiki-view-backlinks').style.display = 'none';
             }
             
             if (outgoing.length > 0) {
                 document.getElementById('wiki-view-outgoing').style.display = 'block';
-                outgoingContainer.innerHTML = outgoing.map(o => {
-                    const node = currentWikiGraph.nodes.find(n => n.path === o);
-                    const title = node ? node.title : o;
-                    return `<span class="wiki-link-pill" onclick="selectWikiPage('${o.replace(/'/g, "\\'")}')">${escapeHtml(title)}</span>`;
-                }).join('');
+                replaceChildrenOf(outgoingContainer, outgoing.map(o => wikiLinkPill(o)));
             } else {
                 document.getElementById('wiki-view-outgoing').style.display = 'none';
             }
@@ -1449,12 +1999,45 @@
             return html;
         }
 
+        // Only relative links and absolute http(s) links are rendered as
+        // anchors; any other scheme (javascript:, data:, vbscript:, ...) is
+        // dropped and the link text is shown as plain text.
+        function sanitizeHref(href) {
+            const raw = String(href || '').trim();
+            if (!raw) return null;
+            // Browsers ignore control characters and whitespace inside a
+            // scheme (e.g. "java<TAB>script:"), so strip them before checking.
+            const probe = raw.replace(/[\u0000-\u0020\u007f-\u009f]/g, '');
+            const scheme = probe.match(/^([a-zA-Z][a-zA-Z0-9+.\-]*):/);
+            if (scheme) {
+                const name = scheme[1].toLowerCase();
+                return (name === 'http' || name === 'https') ? raw : null;
+            }
+            return raw; // relative path, #fragment, ?query or //host
+        }
+
+        function renderMarkdownLink(label, href) {
+            const safe = sanitizeHref(href);
+            const text = escapeHtml(label);
+            if (safe === null) return text;
+            const external = /^(https?:)?\/\//i.test(safe);
+            const extra = external ? ' target="_blank" rel="noopener noreferrer"' : '';
+            return `<a href="${escapeHtml(safe)}"${extra} style="color: var(--primary); text-decoration: none; border-bottom: 1px dashed var(--primary); transition: all 0.2s ease;">${text}</a>`;
+        }
+
         function parseMarkdownInline(text) {
-            let html = escapeHtml(text);
+            // Code spans and links are rendered first and parked in slots, so
+            // emphasis markers can't reach into them; everything else is
+            // HTML-escaped before the remaining markup is applied.
+            const slots = [];
+            const park = (fragment) => { slots.push(fragment); return `\u0000${slots.length - 1}\u0000`; };
+            let src = String(text || '').replace(/\u0000/g, '');
+            src = src.replace(/`([^`]*)`/g, (_, code) => park(`<code style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan);">${escapeHtml(code)}</code>`));
+            src = src.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, label, href) => park(renderMarkdownLink(label, href)));
+            let html = escapeHtml(src);
             html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            html = html.replace(/`(.*?)`/g, '<code style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan);">$1</code>');
-            html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" style="color: var(--primary); text-decoration: none; border-bottom: 1px dashed var(--primary); transition: all 0.2s ease;">$1</a>');
+            html = html.replace(/\u0000(\d+)\u0000/g, (_, i) => slots[Number(i)] || '');
             return html;
         }
 
@@ -1818,7 +2401,7 @@
             };
 
             try {
-                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`, {
+                const res = await apiFetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(path)}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -1840,7 +2423,7 @@
             
             const wiki = document.getElementById('wiki-select').value;
             try {
-                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(selectedPagePath)}`, {
+                const res = await apiFetch(`/wiki/${encodeURIComponent(wiki)}/pages/${encodeURIComponent(selectedPagePath)}`, {
                     method: 'DELETE'
                 });
                 if (res.ok) {
@@ -1859,7 +2442,7 @@
         async function syncWiki() {
             const wiki = document.getElementById('wiki-select').value;
             try {
-                const res = await fetch(`/wiki/${encodeURIComponent(wiki)}/sync`, {
+                const res = await apiFetch(`/wiki/${encodeURIComponent(wiki)}/sync`, {
                     method: 'POST'
                 });
                 if (res.ok) {
@@ -1874,8 +2457,8 @@
         }
 
         function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/&/g, '&amp;')
+            if (str === undefined || str === null) return '';
+            return String(str).replace(/&/g, '&amp;')
                       .replace(/</g, '&lt;')
                       .replace(/>/g, '&gt;')
                       .replace(/"/g, '&quot;')
@@ -1900,7 +2483,7 @@
             };
 
             try {
-                const res = await fetch('/publish', {
+                const res = await apiFetch('/publish', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(message)
@@ -1945,7 +2528,7 @@
             };
 
             try {
-                const res = await fetch('/tasks', {
+                const res = await apiFetch('/tasks', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(task)
@@ -1962,6 +2545,30 @@
             }
         }
 
+        // Each option may be a plain label or {label, outcome, ...}. Only
+        // "approve"/"reject" outcomes let a decision resolve to
+        // approved/rejected; anything else resolves to "answered".
+        function normalizeDecisionOptions(options) {
+            if (!Array.isArray(options) || options.length === 0) {
+                throw new Error('expected a non-empty JSON array');
+            }
+            const validOutcomes = new Set(['approve', 'reject', 'neutral']);
+            return options.map((opt, i) => {
+                const o = (typeof opt === 'string') ? { label: opt } : Object.assign({}, opt);
+                if (!o.id) o.id = `opt_${i + 1}`;
+                if (!o.label) o.label = String(o.id);
+                o.pros = Array.isArray(o.pros) ? o.pros : [];
+                o.cons = Array.isArray(o.cons) ? o.cons : [];
+                if (o.outcome !== undefined && o.outcome !== null) {
+                    o.outcome = String(o.outcome).toLowerCase();
+                    if (!validOutcomes.has(o.outcome)) {
+                        throw new Error(`unknown outcome "${o.outcome}" (use approve, reject or neutral)`);
+                    }
+                }
+                return o;
+            });
+        }
+
         async function handlePublishDecision(e) {
             e.preventDefault();
             const title = document.getElementById('dec-input-title').value.trim();
@@ -1972,9 +2579,9 @@
 
             let options = [];
             try {
-                options = JSON.parse(optionsStr);
+                options = normalizeDecisionOptions(JSON.parse(optionsStr));
             } catch (err) {
-                alert("Invalid JSON options format");
+                alert("Invalid options: " + err.message);
                 return;
             }
 
@@ -1991,7 +2598,7 @@
             };
 
             try {
-                const res = await fetch('/decisions', {
+                const res = await apiFetch('/decisions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(decision)
@@ -2014,7 +2621,7 @@
             const mellowmesh_id = document.getElementById('map-input-fm').value.trim();
 
             try {
-                const res = await fetch('/identity-mappings', {
+                const res = await apiFetch('/identity-mappings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ external_id, mellowmesh_id })
@@ -2033,7 +2640,7 @@
 
         async function claimTask(taskId, agentId) {
             try {
-                const res = await fetch(`/tasks/${taskId}/claim`, {
+                const res = await apiFetch(`/tasks/${encodeURIComponent(taskId)}/claim`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ claimed_by: agentId })
@@ -2050,7 +2657,7 @@
 
         async function completeTask(taskId) {
             try {
-                const res = await fetch(`/tasks/${taskId}/complete`, {
+                const res = await apiFetch(`/tasks/${encodeURIComponent(taskId)}/complete`, {
                     method: 'POST'
                 });
                 if (res.ok) {
@@ -2063,15 +2670,13 @@
             }
         }
 
-        async function submitDecision(decId) {
-            const selected = document.querySelector(`input[name="dec-opt-${decId}"]:checked`);
-            if (!selected) {
+        async function submitDecision(decId, optionId) {
+            if (!optionId) {
                 alert("Please select an option first!");
                 return;
             }
-            const optionId = selected.value;
             try {
-                const res = await fetch(`/decisions/${decId}/respond`, {
+                const res = await apiFetch(`/decisions/${encodeURIComponent(decId)}/respond`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ option_id: optionId })
@@ -2087,48 +2692,70 @@
         }
 
         // WebSocket initialization
+        let wsReconnectTimer = null;
+
         function initWebSocket() {
             const statusInd = document.getElementById('status-indicator');
             const statusText = document.getElementById('status-text');
 
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${proto}//${window.location.host}/ws?pattern=**`;
+            let wsUrl = `${proto}//${window.location.host}/ws?pattern=${encodeURIComponent('**')}`;
+            // Browsers can't set headers on the upgrade request, so the token
+            // travels as a query parameter (same origin only).
+            const token = currentToken();
+            if (token) wsUrl += `&token=${encodeURIComponent(token)}`;
 
-            ws = new WebSocket(wsUrl);
+            const socket = new WebSocket(wsUrl);
+            ws = socket;
 
-            ws.onopen = () => {
+            socket.onopen = () => {
                 statusInd.className = 'status-indicator';
-                statusText.innerText = 'Connected to Fabric';
+                statusText.textContent = 'Connected to Fabric';
             };
 
-            ws.onmessage = (event) => {
-                console.log("WebSocket message received:", event.data);
+            socket.onmessage = (event) => {
                 loadForumHistory();
-                
+
                 try {
                     const msg = JSON.parse(event.data);
-                    if (msg.topic.startsWith('_task.')) {
+                    const topic = typeof msg.topic === 'string' ? msg.topic : '';
+                    if (topic.startsWith('_task.')) {
                         loadTasks();
-                    } else if (msg.topic.startsWith('_decision.')) {
+                    } else if (topic.startsWith('_decision.')) {
                         loadDecisions();
-                    } else if (msg.topic.startsWith('_system.presence.')) {
+                    } else if (topic.startsWith('_system.presence.')) {
                         // ignore/no-op
-                    } else if (msg.topic.startsWith('_wiki.')) {
+                    } else if (topic.startsWith('_wiki.')) {
                         loadWikiPages();
                     }
                 } catch (e) {}
             };
 
-            ws.onclose = () => {
+            socket.onclose = () => {
+                if (ws !== socket) return; // replaced by reconnectWebSocket()
                 statusInd.className = 'status-indicator disconnected';
-                statusText.innerText = 'Disconnected. Reconnecting...';
-                setTimeout(initWebSocket, 3000);
+                statusText.textContent = currentToken()
+                    ? 'Disconnected. Reconnecting...'
+                    : 'Disconnected. Reconnecting... (an access token may be required)';
+                clearTimeout(wsReconnectTimer);
+                wsReconnectTimer = setTimeout(initWebSocket, 3000);
             };
 
-            ws.onerror = (err) => {
+            socket.onerror = (err) => {
                 console.error("WS error:", err);
-                ws.close();
+                socket.close();
             };
+        }
+
+        // Re-open the live stream, e.g. after the access token changed.
+        function reconnectWebSocket() {
+            clearTimeout(wsReconnectTimer);
+            const old = ws;
+            ws = null;
+            if (old) {
+                try { old.close(); } catch (e) {}
+            }
+            initWebSocket();
         }
     </script>
 </body>

@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 28 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 27 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -102,12 +102,13 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Conformance Kit](conformance/) | Verify any implementation against the protocol's `MUST` requirements |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
+| [Security Policy](SECURITY.md) | Supported versions and how to report a vulnerability privately |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
-| [SDKs & API](docs/api.md) | Rust SDK, REST, WebSocket, WASM/browser SDK, `mellowmesh://` launcher |
+| [SDKs & API](docs/api.md) | Rust SDK, REST, WebSocket, WASM/browser SDK |
 | [Governance](docs/governance.md) | Identity URIs, topic namespaces, agent interaction rules |
 | [Performance](docs/performance.md) | Benchmark methodology and honest numbers |
 | [Troubleshooting](docs/troubleshooting.md) | FAQ |
@@ -116,7 +117,7 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 
 The roadmap is public: [PRODUCT_PLAN.md](PRODUCT_PLAN.md). The short version — the current hub already gives one developer a coordinated agent fleet on one machine. Next comes enforced identity and scoped tokens (Phase 1), then secure remote reach so you can approve a decision from your phone at a café while your agents work at home (Phase 2). The hub stays MIT-licensed and yours, forever.
 
-Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub), the trust layer (principals, scoped tokens, decision integrity), desktop notifications, and the remote relay — live streaming included, so `mellowmesh tail` works from anywhere — are implemented and tested. MCP is served both over stdio and over Streamable HTTP, so remote assistants can join through the relay at `/hub/<id>/mcp`. The café approval works end to end today — over the relay via CLI/REST/MCP, as a Telegram button tap / Discord `!approve`, and fully end-to-end encrypted: set `MELLOWMESH_E2E=1` and **every** CLI command, SDK call, and live subscription is sealed with ChaCha20-Poly1305 keyed off your token — the relay operator sees only ciphertext, and the token itself never leaves the ciphertext. Phase 2's engineering is complete; native Discord buttons (needs a gateway) and the demo video remain. By default the daemon runs in open mode trusting localhost; `--require-auth` enforces tokens (and is forced on automatically when a relay is configured). See [security](docs/security.md) and [relay](docs/relay.md).
+Current status: **v0.1, early and moving fast.** The core loop (tasks, leases, decisions, pub/sub), the trust layer (principals, scoped tokens, decision integrity), desktop notifications, and the remote relay — live streaming included, so `mellowmesh tail` works from anywhere — are implemented and tested. MCP is served both over stdio and over Streamable HTTP, so remote assistants can join through the relay at `/hub/<id>/mcp`. The café approval works end to end today — over the relay via CLI/REST/MCP, as a Telegram button tap / Discord `!approve`, and fully end-to-end encrypted: with a token set, remote (non-loopback) hub URLs use it by default (`MELLOWMESH_E2E=0` opts out) and **every** CLI command, SDK call, and live subscription is sealed with ChaCha20-Poly1305 keyed off your token — the relay operator sees only ciphertext, and the token itself never leaves the ciphertext. Phase 2's engineering is complete; native Discord buttons (needs a gateway) and the demo video remain. By default the daemon runs in open mode trusting localhost; `--require-auth` enforces tokens (and is forced on automatically when a relay is configured). See [security](docs/security.md) and [relay](docs/relay.md).
 
 ## Design system
 

@@ -164,9 +164,10 @@ struct DaemonArgs {
 enum DaemonAction {
     /// Start the local daemon
     Start,
-    /// Stop the local daemon
+    /// Stop the local daemon (graceful shutdown, then the PID in mellowmeshd.pid)
     Stop {
-        /// Force stop immediately by killing the process
+        /// Skip the graceful shutdown and kill the PID recorded in
+        /// mellowmeshd.pid immediately
         #[arg(short, long)]
         force: bool,
     },
@@ -263,6 +264,10 @@ enum DecisionAction {
         created_by: String,
         #[arg(long)]
         decider: String,
+        /// Option label (repeatable). Prefix with `approve:`, `reject:` or
+        /// `neutral:` to set its outcome, e.g. `--option "approve:Ship it"
+        /// --option "reject:Hold"`; only approve/reject options make the
+        /// decision resolve to approved/rejected (plain labels: answered).
         #[arg(long = "option", short = 'o')]
         options: Vec<String>,
     },
@@ -381,14 +386,6 @@ pub enum SchemaAction {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Intercept custom protocol launch URLs (e.g. mellowmesh://start)
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1].starts_with("mellowmesh://") {
-        println!("Intercepted Custom Protocol URL: {}", args[1]);
-        println!("Automatically launching MellowMesh daemon...");
-        return commands::run_daemon_start(40000).await;
-    }
-
     let cli = Cli::parse();
 
     // Match commands that don't need a running client first

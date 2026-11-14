@@ -16,6 +16,16 @@ pub enum ClaimOutcome {
     NotClaimable { status: String },
 }
 
+/// Longest claim lease accepted, in seconds (one day). Longer requested
+/// leases are clamped to this value.
+pub const MAX_LEASE_SECONDS: u64 = 86_400;
+
+/// Clamps a requested lease to [`MAX_LEASE_SECONDS`]; the result always fits
+/// in an `i64`.
+fn cap_lease(lease_seconds: u64) -> i64 {
+    lease_seconds.min(MAX_LEASE_SECONDS) as i64
+}
+
 fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
@@ -77,7 +87,7 @@ impl Store {
                 artifacts_json,
                 decisions_json,
                 task.parent_id,
-                task.lease_seconds.map(|v| v as i64),
+                task.lease_seconds.map(cap_lease),
                 task.claim_expires_at
             ],
         )?;
@@ -120,9 +130,11 @@ impl Store {
         lease_seconds: Option<u64>,
     ) -> anyhow::Result<ClaimOutcome> {
         let conn = self.conn()?;
-        let lease = lease_seconds.unwrap_or(DEFAULT_LEASE_SECONDS);
+        let lease = cap_lease(lease_seconds.unwrap_or(DEFAULT_LEASE_SECONDS));
         let now = now_rfc3339();
-        let expires_at = (Utc::now() + chrono::Duration::seconds(lease as i64))
+        let expires_at = chrono::Duration::try_seconds(lease)
+            .and_then(|d| Utc::now().checked_add_signed(d))
+            .ok_or_else(|| anyhow::anyhow!("invalid lease duration"))?
             .to_rfc3339_opts(SecondsFormat::Secs, true);
 
         let updated = conn.execute(
@@ -132,7 +144,7 @@ impl Store {
                  OR claimed_by = ?2
                  OR (status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?5)
              ) AND status NOT IN ('completed', 'cancelled', 'failed')",
-            params![id, claimed_by, lease as i64, expires_at, now],
+            params![id, claimed_by, lease, expires_at, now],
         )?;
 
         if updated > 0 {
@@ -220,5 +232,72 @@ impl Store {
             params![id],
         )?;
         Ok(updated > 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_task(id: &str, lease_seconds: Option<u64>) -> Task {
+        Task {
+            id: id.to_string(),
+            title: "t".to_string(),
+            description: None,
+            created_from: None,
+            created_by: "human://test".to_string(),
+            status: "open".to_string(),
+            priority: "low".to_string(),
+            topics: vec![],
+            required_capabilities: vec![],
+            assigned_to: None,
+            claimed_by: None,
+            deadline: None,
+            artifacts: vec![],
+            decisions: vec![],
+            parent_id: None,
+            lease_seconds,
+            claim_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn test_huge_lease_is_capped_without_panic() {
+        let store = Store::new_in_memory().unwrap();
+        store.insert_task(&open_task("task_huge", None)).unwrap();
+        let before = Utc::now();
+        let outcome = store
+            .claim_task("task_huge", "agent://x/y", Some(u64::MAX))
+            .unwrap();
+        let ClaimOutcome::Claimed { lease_expires_at } = outcome else {
+            panic!("expected a claim, got {outcome:?}");
+        };
+        let expires = chrono::DateTime::parse_from_rfc3339(&lease_expires_at)
+            .unwrap()
+            .with_timezone(&Utc);
+        let max = chrono::Duration::seconds(MAX_LEASE_SECONDS as i64);
+        assert!(expires <= Utc::now() + max + chrono::Duration::seconds(1));
+        assert!(expires >= before + max - chrono::Duration::seconds(1));
+
+        let task = store.get_task("task_huge").unwrap().unwrap();
+        assert_eq!(task.lease_seconds, Some(MAX_LEASE_SECONDS));
+        // Heartbeat renewal works with the capped lease.
+        assert!(store.renew_claim("task_huge", "agent://x/y").unwrap());
+
+        // A huge lease supplied at creation time is capped too.
+        store
+            .insert_task(&open_task("task_huge2", Some(u64::MAX)))
+            .unwrap();
+        assert_eq!(
+            store.get_task("task_huge2").unwrap().unwrap().lease_seconds,
+            Some(MAX_LEASE_SECONDS)
+        );
+        let i64_max_plus = (i64::MAX as u64) + 1;
+        assert!(matches!(
+            store
+                .claim_task("task_huge2", "agent://x/y", Some(i64_max_plus))
+                .unwrap(),
+            ClaimOutcome::Claimed { .. }
+        ));
     }
 }

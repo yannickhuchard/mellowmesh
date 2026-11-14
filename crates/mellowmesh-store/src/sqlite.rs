@@ -280,6 +280,61 @@ impl Store {
             [],
         )?;
 
+        // Indexes for the hot query paths (history, topic-prefix filters,
+        // lease sweeps, wiki backlinks).
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+             CREATE INDEX IF NOT EXISTS idx_messages_topic_timestamp ON messages(topic, timestamp);
+             CREATE INDEX IF NOT EXISTS idx_tasks_status_claim_expires ON tasks(status, claim_expires_at);
+             CREATE INDEX IF NOT EXISTS idx_wiki_links_target ON wiki_links(wiki, target_path);",
+        )?;
+
+        // One-off migrations, each recorded by name once applied.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        self.run_once(&conn, "messages_fts_rowid_v1", |tx| {
+            // Rebuild the message FTS index from the messages table so each
+            // indexed message has exactly one FTS row whose rowid equals the
+            // message's rowid (older versions could index an id repeatedly
+            // or index content that differs from the stored message).
+            tx.execute_batch(
+                "DELETE FROM messages_fts;
+                 INSERT INTO messages_fts (rowid, id, topic, body)
+                     SELECT rowid, id, topic, body FROM messages
+                     WHERE persistence_mode = 'queryable';",
+            )?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    /// Runs `f` in a transaction unless a migration called `name` has
+    /// already been recorded, then records it.
+    fn run_once(
+        &self,
+        conn: &rusqlite::Connection,
+        name: &str,
+        f: impl FnOnce(&rusqlite::Transaction) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        let tx =
+            rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+        let applied: bool = tx
+            .prepare("SELECT 1 FROM schema_migrations WHERE name = ?1")?
+            .exists(params![name])?;
+        if !applied {
+            f(&tx)?;
+            tx.execute(
+                "INSERT INTO schema_migrations (name, applied_at) VALUES (?1, ?2)",
+                params![name, chrono::Utc::now().to_rfc3339()],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -933,6 +988,64 @@ mod tests {
 
         let retrieved_task = store.get_task("task_2").unwrap().unwrap();
         assert_eq!(retrieved_task.parent_id, Some("task_1".to_string()));
+    }
+
+    #[test]
+    fn test_migrations_add_indexes_and_rebuild_message_fts() {
+        let store = Store::new_in_memory().unwrap();
+        {
+            let conn = store.conn().unwrap();
+            for idx in [
+                "idx_messages_timestamp",
+                "idx_messages_topic_timestamp",
+                "idx_tasks_status_claim_expires",
+                "idx_wiki_links_target",
+            ] {
+                let n: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                        params![idx],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(n, 1, "missing index {idx}");
+            }
+
+            // Simulate a database written by an older version: duplicate FTS
+            // rows for one id and an FTS row whose content differs from the
+            // stored message.
+            conn.execute_batch(
+                "INSERT INTO messages (id, topic, from_identity, timestamp, content_type, body, persistence_mode)
+                     VALUES ('m_old', 't.a', 'a', '2026-01-01T00:00:00+00:00', 'text/plain', 'real body', 'queryable');
+                 INSERT INTO messages (id, topic, from_identity, timestamp, content_type, body, persistence_mode)
+                     VALUES ('m_ev', 't.a', 'a', '2026-01-01T00:00:00+00:00', 'text/plain', 'event body', 'event_log');
+                 INSERT INTO messages_fts (id, topic, body) VALUES ('m_old', 't.a', 'real body');
+                 INSERT INTO messages_fts (id, topic, body) VALUES ('m_old', 't.b', 'spoofed body');
+                 DELETE FROM schema_migrations WHERE name = 'messages_fts_rowid_v1';",
+            )
+            .unwrap();
+        }
+        // Migrations are idempotent and re-run the recorded-once step.
+        store.run_migrations().unwrap();
+        store.run_migrations().unwrap();
+
+        let conn = store.conn().unwrap();
+        let rows: Vec<(i64, String, String)> = conn
+            .prepare("SELECT rowid, id, body FROM messages_fts")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        let msg_rowid: i64 = conn
+            .query_row("SELECT rowid FROM messages WHERE id = 'm_old'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![(msg_rowid, "m_old".to_string(), "real body".to_string())]
+        );
     }
 
     #[test]

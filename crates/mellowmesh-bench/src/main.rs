@@ -2,18 +2,147 @@ use chrono::Utc;
 use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::message::Message;
+use std::net::TcpStream;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::{Barrier, Mutex};
+use std::time::Duration;
+use tokio::sync::Barrier;
 use tokio::time::Instant;
+
+const BENCH_PORT: u16 = 40001;
+
+/// A daemon spawned exclusively for this benchmark run, backed by a throwaway
+/// database in a private temporary directory. Dropping it terminates exactly
+/// the process it started (never any other `mellowmeshd`) and removes the
+/// temporary directory.
+struct BenchDaemon {
+    child: Option<Child>,
+    data_dir: PathBuf,
+}
+
+impl BenchDaemon {
+    fn spawn(port: u16) -> anyhow::Result<Self> {
+        if is_port_open(port) {
+            anyhow::bail!(
+                "Port {port} is already in use; refusing to benchmark against a daemon \
+                 this run did not start"
+            );
+        }
+
+        let data_dir = std::env::temp_dir().join(format!(
+            "mellowmesh-bench-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&data_dir)?;
+        let db_path = data_dir.join("bench.db");
+
+        let child = Command::new(daemon_binary())
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--db")
+            .arg(&db_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        let child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&data_dir);
+                return Err(anyhow::anyhow!("Failed to launch mellowmeshd: {e}"));
+            }
+        };
+
+        let mut daemon = BenchDaemon {
+            child: Some(child),
+            data_dir,
+        };
+        daemon.wait_ready(port)?;
+        Ok(daemon)
+    }
+
+    fn wait_ready(&mut self, port: u16) -> anyhow::Result<()> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            if let Some(child) = self.child.as_mut() {
+                if let Some(status) = child.try_wait()? {
+                    anyhow::bail!("mellowmeshd exited early with {status}");
+                }
+            }
+            if is_port_open(port) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        anyhow::bail!("Timeout waiting for mellowmeshd to start on port {port}")
+    }
+
+    /// The owner token the daemon bootstraps next to its database on first run.
+    fn owner_token(&self) -> Option<String> {
+        read_token(&self.data_dir.join("owner.token"))
+    }
+
+    fn shutdown(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.data_dir);
+    }
+}
+
+impl Drop for BenchDaemon {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn read_token(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
+fn is_port_open(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok()
+}
+
+/// Prefer the `mellowmeshd` built next to this binary; fall back to `PATH`.
+fn daemon_binary() -> PathBuf {
+    let name = if cfg!(windows) {
+        "mellowmeshd.exe"
+    } else {
+        "mellowmeshd"
+    };
+    if let Ok(mut exe) = std::env::current_exe() {
+        exe.pop();
+        let local = exe.join(name);
+        if local.exists() {
+            return local;
+        }
+    }
+    PathBuf::from(name)
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let port = 40001;
+    let port = BENCH_PORT;
     println!("Starting MellowMesh Benchmarking Suite...");
-    println!("Launching daemon on test port {port}...");
+    println!("Launching isolated daemon on test port {port}...");
 
-    // Auto-start on port 40001
-    let _client = MellowMeshClient::connect_with_port(port).await?;
+    let mut daemon = BenchDaemon::spawn(port)?;
+
+    // Talk to the benchmark daemon directly (ignoring any remote-hub env
+    // configuration) and authenticate as its freshly bootstrapped owner.
+    let mut client = MellowMeshClient::loopback(port);
+    if let Some(token) = daemon.owner_token() {
+        client = client.with_token(token);
+    }
 
     let num_subscribers = 50;
     let num_publishers = 10;
@@ -24,57 +153,58 @@ async fn main() -> anyhow::Result<()> {
     println!("Registering subscribers ({num_subscribers} concurrent WebSocket connections)...");
 
     let start_barrier = Arc::new(Barrier::new(num_publishers + 1));
-    let delivery_counter = Arc::new(Mutex::new(0));
-    let latencies = Arc::new(Mutex::new(Vec::new()));
+    let delivery_counter = Arc::new(AtomicUsize::new(0));
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
 
     let mut ws_handles = Vec::new();
 
-    // Spawn subscribers
+    // Spawn subscribers. Each keeps its own latency samples; they are merged
+    // after the run so the hot path takes no shared lock.
     for i in 0..num_subscribers {
-        let client_clone = MellowMeshClient::connect_with_port(port).await?;
+        let client = client.clone();
         let delivery_counter = delivery_counter.clone();
-        let latencies = latencies.clone();
+        let mut stop_rx = stop_rx.clone();
 
         let handle = tokio::spawn(async move {
-            let mut stream = match client_clone.subscribe("_test.**").await {
+            let mut latencies: Vec<i64> = Vec::with_capacity(total_messages);
+            let mut stream = match client.subscribe("_test.**").await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("Subscriber {i} failed to connect: {e:?}");
-                    return;
+                    return latencies;
                 }
             };
 
-            while let Some(msg_res) = stream.next().await {
+            while latencies.len() < total_messages {
+                let msg_res = tokio::select! {
+                    next = stream.next() => match next {
+                        Some(r) => r,
+                        None => break,
+                    },
+                    _ = stop_rx.changed() => break,
+                };
                 if let Ok(m) = msg_res {
-                    let now = Utc::now();
-                    let latency = now
+                    let latency = Utc::now()
                         .signed_duration_since(m.timestamp)
                         .num_microseconds()
                         .unwrap_or(0);
-
-                    let mut count = delivery_counter.lock().await;
-                    *count += 1;
-
-                    let mut lats = latencies.lock().await;
-                    lats.push(latency);
-
-                    if *count >= expected_deliveries {
-                        break;
-                    }
+                    latencies.push(latency);
+                    delivery_counter.fetch_add(1, Ordering::Relaxed);
                 }
             }
+            latencies
         });
         ws_handles.push(handle);
     }
 
     // Wait a brief moment to make sure WebSockets are fully connected
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
     println!("Subscribers ready. Spawning {num_publishers} publisher tasks...");
 
     // Spawn publishers
     let mut pub_handles = Vec::new();
     for p in 0..num_publishers {
-        let client_clone = MellowMeshClient::connect_with_port(port).await?;
+        let client = client.clone();
         let start_barrier = start_barrier.clone();
 
         let handle = tokio::spawn(async move {
@@ -92,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
                     payload: None,
                     parent_id: None,
                 };
-                if let Err(e) = client_clone.publish(&msg).await {
+                if let Err(e) = client.publish(&msg).await {
                     eprintln!("Publisher {p} failed to publish: {e:?}");
                 }
             }
@@ -112,48 +242,37 @@ async fn main() -> anyhow::Result<()> {
     println!("Publishing completed in {publish_duration:?}.");
 
     // Wait for subscribers to receive all deliveries (with a timeout of 15s)
-    let timeout = tokio::time::Duration::from_secs(15);
+    let timeout = Duration::from_secs(15);
     let start_delivery_wait = Instant::now();
 
     while start_delivery_wait.elapsed() < timeout {
-        let count = *delivery_counter.lock().await;
-        if count >= expected_deliveries {
+        if delivery_counter.load(Ordering::Relaxed) >= expected_deliveries {
             break;
         }
-        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     let total_duration = start_time.elapsed();
-    let final_count = *delivery_counter.lock().await;
+    let final_count = delivery_counter.load(Ordering::Relaxed);
 
     println!("Benchmarking finished. Shutting down daemon...");
 
-    // Abort active WS tasks
+    // Stop subscribers that are still waiting and merge their samples.
+    let _ = stop_tx.send(true);
+    let mut lats: Vec<i64> = Vec::with_capacity(final_count);
     for h in ws_handles {
-        h.abort();
+        if let Ok(samples) = h.await {
+            lats.extend(samples);
+        }
     }
 
-    // Kill the daemon process by name
-    #[cfg(windows)]
-    {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/IM", "mellowmeshd.exe", "/F"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = std::process::Command::new("pkill")
-            .arg("mellowmeshd")
-            .status();
-    }
+    // Terminate only the daemon this run spawned and remove its database.
+    daemon.shutdown();
 
     // Compute stats
     let publish_throughput = total_messages as f64 / publish_duration.as_secs_f64();
     let delivery_throughput = final_count as f64 / total_duration.as_secs_f64();
 
-    let lats = latencies.lock().await;
     let avg_latency_us = if !lats.is_empty() {
         let sum: i64 = lats.iter().sum();
         sum as f64 / lats.len() as f64

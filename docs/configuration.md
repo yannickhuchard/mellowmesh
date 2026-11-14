@@ -17,6 +17,13 @@ Options:
   -h, --help             Print help
 ```
 
+`--peer` without a pattern syncs `_forum.**` only; pass `addr=pattern` to
+widen it. Set `MELLOWMESH_PEER_TOKEN` to authenticate to a peer: it is sent
+as an `Authorization: Bearer` header on the WebSocket handshake. Inbound peer
+traffic on `_decision.*`, `_task.*.reclaimed` and `_system.*` (except
+`_system.registry.*`) is dropped. The daemon writes `owner.token` (mode 0600)
+and `mellowmeshd.pid` next to its database.
+
 ### Client CLI (`mellowmesh`)
 
 Use the global `-p` / `--port` argument to target specific daemon instances:
@@ -40,10 +47,12 @@ mellowmesh --port 45000 status
 | `MELLOWMESH_NOTIFICATIONS` | Set to `off` to disable desktop notifications for decisions and task reclaims. | enabled |
 | `MELLOWMESH_RELAY_URL` | Relay server to dial for remote reachability (e.g. `https://relay.example.com`). Enabling this **forces `--require-auth`**. See [relay](relay.md). | unset |
 | `MELLOWMESH_URL` | Client-side: full base URL of a remote hub (`https://relay.example.com/hub/<id>`), used by the CLI/SDK instead of `127.0.0.1`. | unset (local) |
-| `MELLOWMESH_E2E` | Client-side: set to `1` to seal **every** CLI command and SDK call (including live subscriptions) end-to-end — the relay sees only ciphertext, and the token never leaves the ciphertext. Requires a token. See [relay](relay.md). | off |
+| `MELLOWMESH_E2E` | Client-side: end-to-end sealing of **every** CLI command and SDK call (including live subscriptions) — the relay sees only ciphertext, and the token never leaves the ciphertext. On by default for a remote (non-loopback) `MELLOWMESH_URL` when a token is set; `1` forces it on, `0` opts out. See [relay](relay.md). | auto (on for remote URLs) |
+| `MELLOWMESH_RELAY_STATE` | Relay server: file that persists hub-id bindings (same as `mellowmesh-relay --state-file`). Set it in production. See [relay](relay.md). | unset (in memory) |
 | `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram connector: decision cards with inline approve/reject buttons + message bridging. See [connectors](connectors.md). | unset (idle) |
 | `DISCORD_TOKEN`, `DISCORD_CHANNEL_ID` | Discord connector: decision announcements with `!approve` + message bridging. | unset (idle) |
-| `TEAMS_WEBHOOK_URL`, `TEAMS_OUTGOING_WEBHOOK_KEY` | Teams webhook bridge. | unset (idle) |
+| `TEAMS_WEBHOOK_URL`, `TEAMS_OUTGOING_WEBHOOK_KEY` | Teams webhook bridge. The inbound receiver starts only when `TEAMS_OUTGOING_WEBHOOK_KEY` is set. See [connectors](connectors.md). | unset (idle) |
+| `TEAMS_BIND` | Listen address of the Teams inbound receiver. | `127.0.0.1:40002` |
 | `MELLOWMESH_CONNECTOR_MOCKS` | Set to `1` to run connectors in demo simulation mode when no credentials are configured. | off |
 | `RUST_LOG` | Logging filter level (`trace`, `debug`, `info`, `warn`, `error`). | `info` |
 

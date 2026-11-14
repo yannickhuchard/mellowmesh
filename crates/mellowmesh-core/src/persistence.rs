@@ -128,19 +128,30 @@ pub fn parse_retention(retention: &str) -> Option<chrono::Duration> {
     if s.is_empty() || s == "forever" || s == "policy" {
         return None;
     }
-    let (digits, unit) = s.split_at(s.len() - 1);
-    let value: i64 = digits.parse().ok()?;
-    if value < 0 {
+    let unit = s.chars().last()?;
+    let digits = &s[..s.len() - unit.len_utf8()];
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    match unit {
-        "s" => Some(chrono::Duration::seconds(value)),
-        "m" => Some(chrono::Duration::minutes(value)),
-        "h" => Some(chrono::Duration::hours(value)),
-        "d" => Some(chrono::Duration::days(value)),
-        _ => None,
+    let value: i64 = digits.parse().ok()?;
+    let multiplier: i64 = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 60 * 60,
+        'd' => 24 * 60 * 60,
+        _ => return None,
+    };
+    let secs = value.checked_mul(multiplier)?;
+    if secs > MAX_RETENTION_SECS {
+        return None;
     }
+    chrono::Duration::try_seconds(secs)
 }
+
+/// Upper bound accepted by [`parse_retention`] (about 100 years). Longer
+/// values are treated as invalid, i.e. never purge, so that subtracting the
+/// duration from the current time can never overflow.
+pub const MAX_RETENTION_SECS: i64 = 100 * 366 * 24 * 60 * 60;
 
 #[cfg(test)]
 mod tests {
@@ -168,6 +179,32 @@ mod tests {
         assert_eq!(parse_retention("10x"), None);
         assert_eq!(parse_retention("d"), None);
         assert_eq!(parse_retention("-5d"), None);
+        assert_eq!(parse_retention("+5d"), None);
+    }
+
+    #[test]
+    fn test_parse_retention_multibyte_does_not_panic() {
+        assert_eq!(parse_retention("5é"), None);
+        assert_eq!(parse_retention("é"), None);
+        assert_eq!(parse_retention("5日"), None);
+        assert_eq!(parse_retention("é5d"), None);
+    }
+
+    #[test]
+    fn test_parse_retention_huge_values_are_rejected() {
+        assert_eq!(parse_retention("99999999999d"), None);
+        assert_eq!(parse_retention("9223372036854775807s"), None);
+        assert_eq!(parse_retention("99999999999999999999999d"), None);
+        assert_eq!(
+            parse_retention("36500d"),
+            Some(chrono::Duration::days(36500))
+        );
+        assert_eq!(parse_retention("40000d"), None);
+        // Whatever is accepted can be subtracted from now without panicking.
+        for r in ["36500d", "876000h", "52560000m"] {
+            let d = parse_retention(r).unwrap();
+            let _ = chrono::Utc::now() - d;
+        }
     }
 
     #[test]

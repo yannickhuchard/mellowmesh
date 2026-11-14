@@ -140,14 +140,21 @@ impl Store {
         let mut results = Vec::new();
 
         let docs = if !query.trim().is_empty() {
-            // Using FTS search
+            // Using FTS search. The user's text is quoted as a single FTS5
+            // phrase (so punctuation such as `'`, `+` or `-` is never parsed
+            // as query syntax) and restricted to the title, description and
+            // body columns.
+            let fts_query = format!(
+                "{{title description body}} : {}",
+                crate::message_store::fts5_phrase(query)
+            );
             let mut stmt = conn.prepare(
                 "SELECT w.wiki, w.path, w.doc_type, w.title, w.description, w.tags, w.timestamp, w.resource, w.body
-                 FROM wiki_pages w
-                 JOIN wiki_pages_fts f ON w.wiki = f.wiki AND w.path = f.path
-                 WHERE w.wiki = ?1 AND f.body MATCH ?2"
+                 FROM (SELECT DISTINCT wiki, path FROM wiki_pages_fts WHERE wiki_pages_fts MATCH ?2) f
+                 JOIN wiki_pages w ON w.wiki = f.wiki AND w.path = f.path
+                 WHERE w.wiki = ?1"
             )?;
-            let rows = stmt.query_map(params![wiki, query], |row| self.row_to_doc(row))?;
+            let rows = stmt.query_map(params![wiki, fts_query], |row| self.row_to_doc(row))?;
             let mut list = Vec::new();
             for r in rows {
                 list.push(r?);
@@ -184,11 +191,10 @@ impl Store {
             results.push(doc);
         }
 
-        // Fetch links for each matching document
+        // Fetch links for each matching document (one prepared statement).
+        let mut link_stmt = conn
+            .prepare("SELECT target_path FROM wiki_links WHERE wiki = ?1 AND source_path = ?2")?;
         for doc in &mut results {
-            let mut link_stmt = conn.prepare(
-                "SELECT target_path FROM wiki_links WHERE wiki = ?1 AND source_path = ?2",
-            )?;
             let link_rows =
                 link_stmt.query_map(params![doc.wiki, doc.path], |r| r.get::<_, String>(0))?;
             for link in link_rows {
@@ -322,5 +328,109 @@ mod tests {
             .get_wiki_incoming_links("default", "auth/keys.md")
             .unwrap()
             .is_empty());
+    }
+
+    fn page(path: &str, title: &str, description: Option<&str>, body: &str) -> OKFDocument {
+        OKFDocument {
+            wiki: "default".to_string(),
+            path: path.to_string(),
+            doc_type: "note".to_string(),
+            title: title.to_string(),
+            description: description.map(str::to_string),
+            tags: vec![],
+            timestamp: Utc::now(),
+            resource: None,
+            body: body.to_string(),
+            links: vec![],
+        }
+    }
+
+    #[test]
+    fn test_wiki_search_handles_punctuation() {
+        let store = Store::new_in_memory().unwrap();
+        store
+            .save_wiki_page(&page(
+                "a.md",
+                "Style",
+                None,
+                "Please don't use C++ for the foo-bar service.",
+            ))
+            .unwrap();
+        for q in [
+            "don't",
+            "C++",
+            "foo-bar",
+            "\"quoted",
+            "a AND OR NOT",
+            "*",
+            "(",
+            "+++",
+        ] {
+            let res = store.search_wiki("default", q, None, None);
+            assert!(res.is_ok(), "query {q:?} failed: {res:?}");
+        }
+        assert_eq!(
+            store
+                .search_wiki("default", "don't", None, None)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .search_wiki("default", "C++", None, None)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .search_wiki("default", "foo-bar", None, None)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .search_wiki("default", "rust", None, None)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_wiki_search_covers_title_and_description() {
+        let store = Store::new_in_memory().unwrap();
+        store
+            .save_wiki_page(&page("t.md", "Kubernetes Runbook", None, "body text"))
+            .unwrap();
+        store
+            .save_wiki_page(&page(
+                "d.md",
+                "Other",
+                Some("Postgres failover"),
+                "body text",
+            ))
+            .unwrap();
+        let by_title = store
+            .search_wiki("default", "kubernetes", None, None)
+            .unwrap();
+        assert_eq!(by_title.len(), 1);
+        assert_eq!(by_title[0].path, "t.md");
+        let by_desc = store
+            .search_wiki("default", "failover", None, None)
+            .unwrap();
+        assert_eq!(by_desc.len(), 1);
+        assert_eq!(by_desc[0].path, "d.md");
+        // Text in the `wiki`/`path` columns is not searched.
+        assert!(store
+            .search_wiki("default", "default", None, None)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .search_wiki("default", "body", None, None)
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

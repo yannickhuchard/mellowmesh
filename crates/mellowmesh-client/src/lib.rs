@@ -1,5 +1,6 @@
 pub mod autostart;
 pub mod mcp;
+pub mod sanitize;
 
 use futures_util::Stream;
 use futures_util::StreamExt;
@@ -10,6 +11,11 @@ use mellowmesh_core::task::Task;
 use mellowmesh_core::telemetry::TraceSession;
 pub use mellowmesh_core::topic::NamedTopic;
 use reqwest::Method;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Maximum `limit` the daemon accepts on `/history`.
+const MAX_HISTORY_LIMIT: usize = 1000;
 
 #[derive(Clone)]
 pub struct MellowMeshClient {
@@ -18,12 +24,11 @@ pub struct MellowMeshClient {
     /// Transparent end-to-end encryption: when enabled (and a token is
     /// present), every API call is sealed and sent through `/e2e/request`
     /// instead of plain HTTP — a relay in the middle sees only ciphertext.
-    e2e: bool,
-    http: reqwest::Client,
-    /// A client with NO default Authorization header, used to POST E2E
-    /// envelopes. The bearer token travels sealed *inside* the ciphertext,
-    /// so it must never appear as a header the relay can read.
-    plain_http: reqwest::Client,
+    ///
+    /// `Some(_)` is an explicit choice (`with_e2e` or `MELLOWMESH_E2E`);
+    /// `None` means "default": on for a non-local base URL with a token,
+    /// off otherwise.
+    e2e: Option<bool>,
 }
 
 /// Response from the single dispatch point, uniform across the plain and
@@ -42,7 +47,10 @@ impl ApiResponse {
         if self.is_success() {
             Ok(self)
         } else {
-            Err(anyhow::anyhow!("{context} failed: {}", self.body))
+            Err(anyhow::anyhow!(
+                "{context} failed: {}",
+                sanitize::sanitize_text(&self.body)
+            ))
         }
     }
 
@@ -51,17 +59,19 @@ impl ApiResponse {
     }
 }
 
-fn build_http(token: &Option<String>) -> reqwest::Client {
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(t) = token {
-        if let Ok(value) = reqwest::header::HeaderValue::from_str(&format!("Bearer {t}")) {
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
-    }
-    reqwest::Client::builder()
-        .default_headers(headers)
-        .build()
-        .unwrap_or_default()
+/// The process-wide HTTP client. Building a `reqwest::Client` is expensive
+/// (connection pool, TLS setup), so every `MellowMeshClient` shares this one.
+/// It carries NO default headers: the bearer token is attached per request,
+/// which keeps the E2E envelope POST free of any Authorization header.
+fn shared_http() -> &'static reqwest::Client {
+    static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
 }
 
 /// Remote base URL override (e.g. `https://relay.example.com/hub/<hub_id>`),
@@ -74,16 +84,89 @@ fn remote_base_url() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-fn e2e_env_enabled() -> bool {
-    matches!(
-        std::env::var("MELLOWMESH_E2E").unwrap_or_default().as_str(),
-        "1" | "true" | "yes"
-    )
+/// Parse an E2E switch value: `Some(true)` for 1/true/yes, `Some(false)` for
+/// 0/false/no, `None` (use the default) for anything else.
+fn parse_e2e_switch(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
+fn e2e_env_setting() -> Option<bool> {
+    std::env::var("MELLOWMESH_E2E")
+        .ok()
+        .and_then(|v| parse_e2e_switch(&v))
 }
 
 /// Percent-encode a query-string value.
 fn enc(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+/// Percent-encode one URL path segment. Only RFC 3986 unreserved characters
+/// (`A-Z a-z 0-9 - . _ ~`) pass through; everything else, including `/`,
+/// `?`, `#` and `%`, is encoded as `%XX`. Empty, `.` and `..` segments are
+/// rejected: URL resolution would otherwise collapse them and change which
+/// endpoint the request reaches.
+fn path_segment(value: &str) -> anyhow::Result<String> {
+    if value.is_empty() || value == "." || value == ".." {
+        anyhow::bail!("Invalid identifier {value:?}: must not be empty, '.' or '..'");
+    }
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    Ok(out)
+}
+
+/// Percent-encode a multi-segment relative path (e.g. a wiki page path such
+/// as `procedures/deploy.md`): each `/`-separated segment is encoded with
+/// [`path_segment`], so empty, `.` and `..` segments are rejected.
+fn path_segments(value: &str) -> anyhow::Result<String> {
+    value
+        .split('/')
+        .map(path_segment)
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|parts| parts.join("/"))
+}
+
+/// `/wiki/<wiki>/pages/<page path>` with every component encoded.
+fn wiki_page_path(wiki: &str, page: &str) -> anyhow::Result<String> {
+    Ok(format!(
+        "/wiki/{}/pages/{}",
+        path_segment(wiki)?,
+        path_segments(page)?
+    ))
+}
+
+/// Build the `/history` path, optionally filtered server-side by a topic
+/// pattern. The limit is clamped to what the daemon accepts.
+fn history_path(limit: usize, pattern: Option<&str>) -> String {
+    let limit = limit.min(MAX_HISTORY_LIMIT);
+    match pattern {
+        Some(p) => format!("/history?limit={limit}&pattern={}", enc(p)),
+        None => format!("/history?limit={limit}"),
+    }
+}
+
+/// True when `base_url`'s host is this machine, parsed properly (so that
+/// `http://127.0.0.1@evil.com` or `http://localhost.evil.com` do not count).
+fn url_is_local(base_url: &str) -> bool {
+    let Ok(url) = url::Url::parse(base_url) else {
+        return false;
+    };
+    match url.host() {
+        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
 }
 
 impl MellowMeshClient {
@@ -93,14 +176,11 @@ impl MellowMeshClient {
         let token = std::env::var("MELLOWMESH_TOKEN")
             .ok()
             .filter(|t| !t.trim().is_empty());
-        let http = build_http(&token);
         let base_url = remote_base_url().unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
         Self {
             base_url,
             token,
-            e2e: e2e_env_enabled(),
-            http,
-            plain_http: reqwest::Client::new(),
+            e2e: e2e_env_setting(),
         }
     }
 
@@ -113,16 +193,13 @@ impl MellowMeshClient {
         Self {
             base_url: format!("http://127.0.0.1:{port}"),
             token: None,
-            e2e: false,
-            http: reqwest::Client::new(),
-            plain_http: reqwest::Client::new(),
+            e2e: Some(false),
         }
     }
 
     /// Use an explicit bearer token instead of the `MELLOWMESH_TOKEN` env var.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
-        self.http = build_http(&self.token);
         self
     }
 
@@ -134,30 +211,34 @@ impl MellowMeshClient {
     }
 
     /// Enable or disable transparent end-to-end encryption explicitly,
-    /// overriding the `MELLOWMESH_E2E` env var.
+    /// overriding both the `MELLOWMESH_E2E` env var and the default (which
+    /// is on for a non-local base URL with a token).
     pub fn with_e2e(mut self, enabled: bool) -> Self {
-        self.e2e = enabled;
+        self.e2e = Some(enabled);
         self
     }
 
+    /// Whether E2E is requested: the explicit setting if there is one,
+    /// otherwise on for a remote (non-local) hub when a token is present.
+    fn e2e_requested(&self) -> bool {
+        self.e2e
+            .unwrap_or_else(|| self.token.is_some() && !self.is_local())
+    }
+
     fn e2e_enabled(&self) -> bool {
-        self.e2e && self.token.is_some()
+        self.e2e_requested() && self.token.is_some()
     }
 
     /// True when the base URL is this machine (no relay in the path), so a
     /// bearer token on the wire never reaches a third party.
     fn is_local(&self) -> bool {
-        let b = self
-            .base_url
-            .trim_start_matches("https://")
-            .trim_start_matches("http://");
-        b.starts_with("127.0.0.1") || b.starts_with("localhost") || b.starts_with("[::1]")
+        url_is_local(&self.base_url)
     }
 
     /// Guard against the silent-plaintext-downgrade footgun: if E2E was asked
     /// for but no token is present, refuse rather than sending in the clear.
     fn ensure_e2e_consistent(&self) -> anyhow::Result<()> {
-        if self.e2e && self.token.is_none() {
+        if self.e2e_requested() && self.token.is_none() {
             anyhow::bail!(
                 "MELLOWMESH_E2E is enabled but no token is set — refusing to send in plaintext. \
                  Set MELLOWMESH_TOKEN (E2E derives its key from the token)."
@@ -182,9 +263,10 @@ impl MellowMeshClient {
                 .await?;
             return Ok(ApiResponse { status, body: text });
         }
-        let mut req = self
-            .http
-            .request(method, format!("{}{}", self.base_url, path_and_query));
+        let mut req = shared_http().request(method, format!("{}{}", self.base_url, path_and_query));
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
         if let Some(b) = &body {
             req = req.json(b);
         }
@@ -230,8 +312,7 @@ impl MellowMeshClient {
 
         // Use the header-less client: the token is inside the ciphertext and
         // must never leak to the relay as an Authorization header.
-        let resp = self
-            .plain_http
+        let resp = shared_http()
             .post(format!("{}/e2e/request", self.base_url))
             .json(&envelope)
             .send()
@@ -255,8 +336,8 @@ impl MellowMeshClient {
 
     pub async fn connect_with_port(port: u16) -> anyhow::Result<Self> {
         // A remote hub URL means there is no local daemon to autostart.
-        if remote_base_url().is_none() && !autostart::is_daemon_running(port) {
-            autostart::spawn_daemon(port)?;
+        if remote_base_url().is_none() && !autostart::is_daemon_running_async(port).await {
+            autostart::spawn_daemon_async(port).await?;
         }
         Ok(Self::new(port))
     }
@@ -284,6 +365,7 @@ impl MellowMeshClient {
             derive_key, derive_key_id, new_jti, open, seal, Envelope, SealedRequest, CTX_PROOF,
             CTX_STREAM,
         };
+        use tokio_tungstenite::tungstenite::Message as WsMessage;
 
         self.ensure_e2e_consistent()?;
 
@@ -331,7 +413,8 @@ impl MellowMeshClient {
                 if !self.is_local() {
                     anyhow::bail!(
                         "Refusing to send a bearer token in a relay subscription URL. \
-                         Enable end-to-end encryption (MELLOWMESH_E2E=1) to subscribe remotely."
+                         End-to-end encryption is required to subscribe remotely \
+                         (it is on by default for remote hubs; unset MELLOWMESH_E2E=0)."
                     );
                 }
                 url.query_pairs_mut().append_pair("token", token);
@@ -341,32 +424,59 @@ impl MellowMeshClient {
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(url.as_str()).await?;
 
-        let stream = ws_stream.map(move |msg_res| match msg_res {
-            Ok(msg) => {
-                if msg.is_text() {
-                    let text = msg.to_text().unwrap();
-                    let payload = if let Some(key) = &e2e_key {
-                        let envelope: Envelope = serde_json::from_str(text)?;
-                        String::from_utf8(open(key, CTX_STREAM, &envelope)?)?
-                    } else {
-                        text.to_string()
-                    };
-                    let m: Message = serde_json::from_str(&payload)?;
-                    Ok(m)
-                } else {
-                    Err(anyhow::anyhow!("Non-text websocket message received"))
-                }
-            }
-            Err(e) => Err(anyhow::Error::from(e)),
-        });
+        let decode = move |text: &str| -> anyhow::Result<Message> {
+            let payload = if let Some(key) = &e2e_key {
+                let envelope: Envelope = serde_json::from_str(text)?;
+                String::from_utf8(open(key, CTX_STREAM, &envelope)?)?
+            } else {
+                text.to_string()
+            };
+            Ok(serde_json::from_str(&payload)?)
+        };
+
+        // Control frames are not messages: tungstenite answers pings itself,
+        // so Ping/Pong are skipped; a Close frame ends the stream cleanly.
+        // Binary frames are not part of the protocol and are ignored.
+        let stream = ws_stream
+            .take_while(|res| futures_util::future::ready(!matches!(res, Ok(WsMessage::Close(_)))))
+            .filter_map(move |res| {
+                let item = match res {
+                    Ok(WsMessage::Text(text)) => Some(decode(&text)),
+                    Ok(_) => None,
+                    Err(e) => Some(Err(anyhow::Error::from(e))),
+                };
+                futures_util::future::ready(item)
+            });
         Ok(stream)
     }
 
     pub async fn get_history(&self, limit: usize) -> anyhow::Result<Vec<Message>> {
-        self.send(Method::GET, &format!("/history?limit={limit}"), None)
+        self.send(Method::GET, &history_path(limit, None), None)
             .await?
             .ensure("Get history")?
             .json()
+    }
+
+    /// The most recent `limit` messages (at most 1000) whose topic matches
+    /// `pattern`, filtered server-side so the limit applies to matching
+    /// messages rather than to the global history. Results are re-checked
+    /// against the pattern locally, so an older daemon that ignores the
+    /// `pattern` parameter still yields only matching messages.
+    pub async fn get_history_matching(
+        &self,
+        pattern: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<Message>> {
+        let messages: Vec<Message> = self
+            .send(Method::GET, &history_path(limit, Some(pattern)), None)
+            .await?
+            .ensure("Get history")?
+            .json()?;
+        Ok(messages
+            .into_iter()
+            .filter(|m| mellowmesh_core::topic::match_topic(pattern, &m.topic))
+            .take(limit)
+            .collect())
     }
 
     pub async fn search_messages(&self, query: &str) -> anyhow::Result<Vec<Message>> {
@@ -422,7 +532,7 @@ impl MellowMeshClient {
     pub async fn remove_named_topic(&self, name: &str) -> anyhow::Result<()> {
         self.send(
             Method::DELETE,
-            &format!("/named-topics/{}", enc(name)),
+            &format!("/named-topics/{}", path_segment(name)?),
             None,
         )
         .await?
@@ -463,7 +573,7 @@ impl MellowMeshClient {
         }
         self.send(
             Method::POST,
-            &format!("/tasks/{task_id}/claim"),
+            &format!("/tasks/{}/claim", path_segment(task_id)?),
             Some(payload),
         )
         .await?
@@ -472,7 +582,8 @@ impl MellowMeshClient {
     }
 
     pub async fn complete_task(&self, task_id: &str) -> anyhow::Result<()> {
-        self.send(Method::POST, &format!("/tasks/{task_id}/complete"), None)
+        let path = format!("/tasks/{}/complete", path_segment(task_id)?);
+        self.send(Method::POST, &path, None)
             .await?
             .ensure("Complete task")?;
         Ok(())
@@ -516,7 +627,7 @@ impl MellowMeshClient {
         }
         self.send(
             Method::POST,
-            &format!("/decisions/{decision_id}/respond"),
+            &format!("/decisions/{}/respond", path_segment(decision_id)?),
             Some(payload),
         )
         .await?
@@ -551,7 +662,8 @@ impl MellowMeshClient {
     }
 
     pub async fn disable_trace(&self, id: &str) -> anyhow::Result<()> {
-        self.send(Method::DELETE, &format!("/traces/{id}"), None)
+        let path = format!("/traces/{}", path_segment(id)?);
+        self.send(Method::DELETE, &path, None)
             .await?
             .ensure("Disable trace")?;
         Ok(())
@@ -660,7 +772,7 @@ impl MellowMeshClient {
         if let Some(t) = tag {
             params.push(format!("tag={}", enc(t)));
         }
-        let mut path = format!("/wiki/{wiki}/pages");
+        let mut path = format!("/wiki/{}/pages", path_segment(wiki)?);
         if !params.is_empty() {
             path.push('?');
             path.push_str(&params.join("&"));
@@ -676,7 +788,8 @@ impl MellowMeshClient {
         wiki: &str,
         path: &str,
     ) -> anyhow::Result<mellowmesh_core::okf::OKFDocument> {
-        self.send(Method::GET, &format!("/wiki/{wiki}/pages/{path}"), None)
+        let url_path = wiki_page_path(wiki, path)?;
+        self.send(Method::GET, &url_path, None)
             .await?
             .ensure("Get wiki page")?
             .json()
@@ -696,7 +809,7 @@ impl MellowMeshClient {
     ) -> anyhow::Result<mellowmesh_core::okf::OKFDocument> {
         self.send(
             Method::POST,
-            &format!("/wiki/{wiki}/pages/{path}"),
+            &wiki_page_path(wiki, path)?,
             Some(serde_json::json!({
                 "doc_type": doc_type,
                 "title": title,
@@ -712,21 +825,24 @@ impl MellowMeshClient {
     }
 
     pub async fn delete_wiki_page(&self, wiki: &str, path: &str) -> anyhow::Result<()> {
-        self.send(Method::DELETE, &format!("/wiki/{wiki}/pages/{path}"), None)
+        let url_path = wiki_page_path(wiki, path)?;
+        self.send(Method::DELETE, &url_path, None)
             .await?
             .ensure("Delete wiki page")?;
         Ok(())
     }
 
     pub async fn sync_wiki(&self, wiki: &str) -> anyhow::Result<()> {
-        self.send(Method::POST, &format!("/wiki/{wiki}/sync"), None)
+        let path = format!("/wiki/{}/sync", path_segment(wiki)?);
+        self.send(Method::POST, &path, None)
             .await?
             .ensure("Sync wiki")?;
         Ok(())
     }
 
     pub async fn get_wiki_graph(&self, wiki: &str) -> anyhow::Result<serde_json::Value> {
-        self.send(Method::GET, &format!("/wiki/{wiki}/graph"), None)
+        let path = format!("/wiki/{}/graph", path_segment(wiki)?);
+        self.send(Method::GET, &path, None)
             .await?
             .ensure("Get wiki graph")?
             .json()
@@ -813,7 +929,8 @@ impl MellowMeshClient {
     }
 
     pub async fn revoke_token(&self, id: &str) -> anyhow::Result<()> {
-        self.send(Method::DELETE, &format!("/auth/tokens/{id}"), None)
+        let path = format!("/auth/tokens/{}", path_segment(id)?);
+        self.send(Method::DELETE, &path, None)
             .await?
             .ensure("Revoke token")?;
         Ok(())
@@ -832,5 +949,135 @@ impl MellowMeshClient {
         .await?
         .ensure("Remove schema")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_segment_encodes_reserved_characters() {
+        assert_eq!(path_segment("task_01abc").unwrap(), "task_01abc");
+        assert_eq!(path_segment("a-b.c_d~e").unwrap(), "a-b.c_d~e");
+        assert_eq!(path_segment("../shutdown?").unwrap(), "..%2Fshutdown%3F");
+        assert_eq!(path_segment("a/b").unwrap(), "a%2Fb");
+        assert_eq!(path_segment("Mario Galaxy").unwrap(), "Mario%20Galaxy");
+        assert_eq!(path_segment("x#y%z").unwrap(), "x%23y%25z");
+        assert_eq!(path_segment("é").unwrap(), "%C3%A9");
+    }
+
+    #[test]
+    fn path_segment_rejects_dot_segments_and_empty() {
+        assert!(path_segment("..").is_err());
+        assert!(path_segment(".").is_err());
+        assert!(path_segment("").is_err());
+        // Dots inside a longer segment are harmless.
+        assert_eq!(path_segment("...").unwrap(), "...");
+    }
+
+    #[test]
+    fn encoded_ids_cannot_escape_their_route() {
+        // A crafted id must stay a single segment under its route after URL
+        // resolution.
+        let path = format!("/tasks/{}/complete", path_segment("../shutdown?").unwrap());
+        let url = url::Url::parse(&format!("http://127.0.0.1:40000{path}")).unwrap();
+        assert_eq!(url.path(), "/tasks/..%2Fshutdown%3F/complete");
+        assert_eq!(url.query(), None);
+    }
+
+    #[test]
+    fn wiki_paths_encode_each_segment() {
+        assert_eq!(
+            wiki_page_path("default", "procedures/deploy.md").unwrap(),
+            "/wiki/default/pages/procedures/deploy.md"
+        );
+        assert_eq!(
+            wiki_page_path("my wiki", "a b/c?d.md").unwrap(),
+            "/wiki/my%20wiki/pages/a%20b/c%3Fd.md"
+        );
+        assert!(wiki_page_path("default", "../../shutdown").is_err());
+        assert!(wiki_page_path("default", "a/./b").is_err());
+        assert!(wiki_page_path("default", "a//b").is_err());
+        assert!(wiki_page_path("default", "/abs").is_err());
+        assert!(wiki_page_path("..", "page.md").is_err());
+        assert!(wiki_page_path("a/b", "page.md")
+            .unwrap()
+            .starts_with("/wiki/a%2Fb/pages/"));
+    }
+
+    #[test]
+    fn is_local_parses_the_host() {
+        assert!(url_is_local("http://127.0.0.1:40000"));
+        assert!(url_is_local("http://localhost:40000"));
+        assert!(url_is_local("http://LOCALHOST"));
+        assert!(url_is_local("http://[::1]:40000"));
+        assert!(url_is_local("https://127.0.0.1"));
+        assert!(!url_is_local("http://127.0.0.1@evil.com"));
+        assert!(!url_is_local("http://127.0.0.1:40000@evil.com"));
+        assert!(!url_is_local("http://localhost.evil.com"));
+        assert!(!url_is_local("http://127.0.0.1.evil.com"));
+        assert!(!url_is_local("https://relay.example.com/hub/abc"));
+        assert!(!url_is_local("not a url"));
+    }
+
+    #[test]
+    fn history_path_encodes_pattern_and_clamps_limit() {
+        assert_eq!(history_path(20, None), "/history?limit=20");
+        assert_eq!(
+            history_path(20, Some("_project.**")),
+            "/history?limit=20&pattern=_project.**"
+        );
+        assert_eq!(
+            history_path(5, Some("_forum.games.mario galaxy&x=1")),
+            "/history?limit=5&pattern=_forum.games.mario+galaxy%26x%3D1"
+        );
+        assert_eq!(history_path(50_000, None), "/history?limit=1000");
+    }
+
+    #[test]
+    fn e2e_switch_parsing() {
+        assert_eq!(parse_e2e_switch("1"), Some(true));
+        assert_eq!(parse_e2e_switch("TRUE"), Some(true));
+        assert_eq!(parse_e2e_switch("yes"), Some(true));
+        assert_eq!(parse_e2e_switch("0"), Some(false));
+        assert_eq!(parse_e2e_switch("false"), Some(false));
+        assert_eq!(parse_e2e_switch("No"), Some(false));
+        assert_eq!(parse_e2e_switch(""), None);
+        assert_eq!(parse_e2e_switch("maybe"), None);
+    }
+
+    fn client(base: &str, token: Option<&str>, e2e: Option<bool>) -> MellowMeshClient {
+        MellowMeshClient {
+            base_url: base.to_string(),
+            token: token.map(str::to_string),
+            e2e,
+        }
+    }
+
+    #[test]
+    fn e2e_defaults_on_for_remote_hubs_with_a_token() {
+        // Remote + token: on by default.
+        assert!(client("https://relay.example.com/hub/x", Some("t"), None).e2e_enabled());
+        // Remote without token: off, and not an error (nothing was requested).
+        let c = client("https://relay.example.com/hub/x", None, None);
+        assert!(!c.e2e_enabled());
+        assert!(c.ensure_e2e_consistent().is_ok());
+        // Local + token: off by default.
+        assert!(!client("http://127.0.0.1:40000", Some("t"), None).e2e_enabled());
+        // Explicit opt-out wins for remote hubs.
+        assert!(!client("https://relay.example.com/hub/x", Some("t"), Some(false)).e2e_enabled());
+        // Explicit opt-in works locally.
+        assert!(client("http://127.0.0.1:40000", Some("t"), Some(true)).e2e_enabled());
+        // Explicitly requested without a token is a hard error.
+        assert!(client("http://127.0.0.1:40000", None, Some(true))
+            .ensure_e2e_consistent()
+            .is_err());
+        // Builder overrides.
+        let c = MellowMeshClient::loopback(1)
+            .with_base_url("https://relay.example.com/hub/x")
+            .with_token("t");
+        assert!(!c.e2e_enabled(), "loopback() pins E2E off");
+        assert!(c.with_e2e(true).e2e_enabled());
     }
 }

@@ -17,6 +17,15 @@ mellowmesh status
 mellowmesh daemon start|stop|restart|clean
 ```
 
+`daemon stop` asks the local daemon (always on `127.0.0.1`, never a remote
+`MELLOWMESH_URL`) to shut down using the owner token from `owner.token` next
+to the database. If the daemon is still running after ~5 s, it stops only the
+process recorded in `mellowmeshd.pid` (same directory); `--force` skips the
+graceful step. `stop` and `clean` exit non-zero if the daemon survives, and
+`clean` deletes nothing in that case. A daemon auto-started by the CLI or the
+MCP server runs in its own process group and logs to `mellowmeshd.log` in the
+data directory.
+
 ## Pub/Sub Messaging
 
 Topics are dot-separated hierarchies. They can contain alphanumeric Unicode characters (uppercase, lowercase, CJK, Arabic, Cyrillic, Greek, umlauts, etc.), spaces, and emojis — but not control characters or the wildcard characters (`*`, `>`).
@@ -38,6 +47,10 @@ Three wildcard operators:
 ```bash
 mellowmesh read "_forum.**" --limit 10
 ```
+
+The pattern is applied by the daemon, so `--limit` counts matching messages
+(max 1000). Message text printed by the CLI has terminal escape sequences and
+control characters stripped.
 
 ### Stream live messages
 
@@ -95,12 +108,18 @@ mellowmesh decision create \
   --question "Should we set synchronous = OFF for speed?" \
   --created-by agent://yannick/coder \
   --decider human://yannick \
-  --option "Yes, max speed" \
-  --option "No, risk of corruption"
+  --option "approve:Yes, max speed" \
+  --option "reject:No, risk of corruption"
 
 mellowmesh decisions
 mellowmesh respond decision_01kteewy7vajqw828945mcsr2v option_2
 ```
+
+Prefix an option with `approve:` or `reject:` to give it an outcome; only those
+outcomes let the decision resolve to `approved` / `rejected`. An option
+without a prefix records the answer as `answered`.
+`mellowmesh respond` must be run by the decision's `required_decider` (or the
+hub owner) — agent tokens are refused.
 
 ## Security: Tokens, E2E, and MCP
 

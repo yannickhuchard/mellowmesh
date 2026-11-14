@@ -6,8 +6,21 @@ export interface BrowserMellowMeshConfig {
   daemonHttpUrl?: string;
   broadcastChannelName?: string | null;
   persistenceKey?: string | null;
+  /** Max messages retained in standalone history (oldest dropped first); 0 = unlimited. */
   maxHistory?: number;
+  /** Delay (ms) used to coalesce LocalStorage writes. Default 250. */
+  saveDebounceMs?: number;
+  /** Bearer token for the daemon (client mode): `Authorization: Bearer` on HTTP, `?token=` on the WebSocket. */
+  token?: string | null;
 }
+
+export interface SubscribeOptions {
+  caseInsensitive?: boolean;
+}
+
+export function encodeIdSegment(id: string): string;
+export function encodePathSegments(path: string): string;
+export function matchTopicPattern(pattern: string, topic: string, caseInsensitive?: boolean): boolean;
 
 export interface MellowMeshMessage {
   id?: string;
@@ -53,6 +66,8 @@ export interface DecisionOption {
   label: string;
   pros?: string[];
   cons?: string[];
+  /** approve -> "approved", reject -> "rejected", neutral/absent -> "answered". */
+  outcome?: 'approve' | 'reject' | 'neutral' | null;
 }
 
 export interface Decision {
@@ -75,12 +90,18 @@ export class BrowserMellowMesh {
   broadcastChannelName: string | null;
   persistenceKey: string | null;
   maxHistory: number;
+  saveDebounceMs: number;
+  token: string | null;
   initialized: boolean;
 
   constructor(config?: BrowserMellowMeshConfig);
-  init(wasmModule?: InitInput): Promise<InitOutput>;
+  init(wasmModule?: InitInput): Promise<void>;
   publish(message: MellowMeshMessage): Promise<string>;
-  subscribe(pattern: string, callback: (message: MellowMeshMessage) => void): string;
+  subscribe(
+    pattern: string,
+    callback: (message: MellowMeshMessage) => void,
+    options?: SubscribeOptions
+  ): string;
   unsubscribe(subId: string): boolean;
   registerAgent(agent: AgentRegistration): Promise<void>;
   listAgents(): Promise<AgentRegistration[]>;
@@ -90,8 +111,10 @@ export class BrowserMellowMesh {
   completeTask(taskId: string): Promise<boolean>;
   createDecision(decision: Decision): Promise<void>;
   listDecisions(): Promise<Decision[]>;
-  respondDecision(decisionId: string, optionId: string): Promise<boolean>;
+  respondDecision(decisionId: string, optionId: string, responder?: string): Promise<boolean>;
   readHistory(pattern: string, limit?: number): Promise<MellowMeshMessage[]>;
+  scheduleSave(): void;
+  saveStateLocally(): void;
   clearState(): void;
   close(): void;
 }
