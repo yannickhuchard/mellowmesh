@@ -13,6 +13,7 @@ use mellowmesh_core::message::Message;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -92,6 +93,34 @@ pub fn telegram_decision_keyboard(decision: &Decision) -> serde_json::Value {
     serde_json::json!({ "inline_keyboard": rows })
 }
 
+/// JSON body for a Discord channel message. Mentions are never parsed, so
+/// forwarded text such as `@everyone` cannot ping the channel.
+pub fn discord_message_body(content: &str) -> serde_json::Value {
+    serde_json::json!({
+        "content": content,
+        "allowed_mentions": { "parse": [] },
+    })
+}
+
+/// Newest message id in a Discord message list (snowflakes grow over time).
+fn discord_newest_id(msgs: &[serde_json::Value]) -> Option<String> {
+    msgs.iter()
+        .filter_map(|m| m["id"].as_str())
+        .max_by_key(|id| (id.len(), id.parse::<u64>().unwrap_or(0)))
+        .map(str::to_string)
+}
+
+/// Unique id for a message bridged in from an external interface.
+fn bridged_message_id(prefix: &str) -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}_{nanos}_{seq}")
+}
+
 /// Human-readable decision announcement for chat interfaces.
 pub fn decision_announcement(decision: &Decision) -> String {
     format!(
@@ -127,6 +156,9 @@ impl DiscordConnector {
         );
         let http_client = reqwest::Client::new();
         let mut last_message_id: Option<String> = None;
+        // Set after the first successful poll, which only records the
+        // channel's newest message id.
+        let mut primed = false;
 
         // Subscribe to MellowMesh messages to forward them to Discord
         let client_clone = self.client.clone();
@@ -142,12 +174,15 @@ impl DiscordConnector {
                     let discord_msg = format!("**{}** (via MellowMesh):\n{}", msg.from, msg.body);
                     let url =
                         format!("https://discord.com/api/v10/channels/{channel_id_str}/messages");
-                    let _ = http_client
+                    if let Err(e) = http_client
                         .post(&url)
                         .header("Authorization", format!("Bot {token_str}"))
-                        .json(&serde_json::json!({ "content": discord_msg }))
+                        .json(&discord_message_body(&discord_msg))
                         .send()
-                        .await;
+                        .await
+                    {
+                        warn!("Failed to post to Discord: {}", e.without_url());
+                    }
                 }
             }
         });
@@ -178,12 +213,15 @@ impl DiscordConnector {
                     );
                     let url =
                         format!("https://discord.com/api/v10/channels/{dec_channel}/messages");
-                    let _ = dec_http
+                    if let Err(e) = dec_http
                         .post(&url)
                         .header("Authorization", format!("Bot {dec_token}"))
-                        .json(&serde_json::json!({ "content": content }))
+                        .json(&discord_message_body(&content))
                         .send()
-                        .await;
+                        .await
+                    {
+                        warn!("Failed to post decision to Discord: {}", e.without_url());
+                    }
                 }
             }
         });
@@ -210,83 +248,96 @@ impl DiscordConnector {
                 Ok(res) if res.status().is_success() => {
                     success = true;
                     if let Ok(msgs) = res.json::<Vec<serde_json::Value>>().await {
-                        // Discord returns messages newest first if no "after", or oldest first if "after".
-                        // Let's sort or process them appropriately.
-                        let mut processed_any = false;
-                        for discord_msg in msgs.iter().rev() {
-                            if let (Some(id), Some(content), Some(author)) = (
-                                discord_msg["id"].as_str(),
-                                discord_msg["content"].as_str(),
-                                discord_msg["author"].as_object(),
-                            ) {
-                                // Skip bot messages to avoid loops
-                                if author.contains_key("bot")
-                                    && author["bot"].as_bool().unwrap_or(false)
-                                {
-                                    last_message_id = Some(id.to_string());
-                                    continue;
-                                }
+                        // First successful poll: only remember where the
+                        // channel currently ends. Messages (and `!approve`
+                        // commands) from before startup are never replayed.
+                        if !primed {
+                            primed = true;
+                            if let Some(newest) = discord_newest_id(&msgs) {
+                                last_message_id = Some(newest);
+                            }
+                        } else {
+                            // Discord returns messages newest first; process
+                            // them oldest first.
+                            for discord_msg in msgs.iter().rev() {
+                                if let (Some(id), Some(content), Some(author)) = (
+                                    discord_msg["id"].as_str(),
+                                    discord_msg["content"].as_str(),
+                                    discord_msg["author"].as_object(),
+                                ) {
+                                    // Skip bot messages to avoid loops
+                                    if author.contains_key("bot")
+                                        && author["bot"].as_bool().unwrap_or(false)
+                                    {
+                                        last_message_id = Some(id.to_string());
+                                        continue;
+                                    }
 
-                                let author_id = author["id"].as_str().unwrap_or("unknown");
-                                let author_name = author["username"].as_str().unwrap_or("unknown");
-                                let ext_id = format!("discord://{author_id}");
-                                let mellowmesh_id = resolve_identity(&self.client, &ext_id).await;
+                                    let author_id = author["id"].as_str().unwrap_or("unknown");
+                                    let author_name =
+                                        author["username"].as_str().unwrap_or("unknown");
+                                    let ext_id = format!("discord://{author_id}");
+                                    let mellowmesh_id =
+                                        resolve_identity(&self.client, &ext_id).await;
 
-                                // Decision approval command: relay the
-                                // human's answer instead of forwarding the
-                                // message to the forum.
-                                if let Some((dec_id, opt_id)) = parse_approve_command(content) {
-                                    let result = self
-                                        .client
-                                        .respond_decision_as(&dec_id, &opt_id, Some(&mellowmesh_id))
-                                        .await;
-                                    let reply = match &result {
+                                    // Decision approval command: relay the
+                                    // human's answer instead of forwarding the
+                                    // message to the forum.
+                                    if let Some((dec_id, opt_id)) = parse_approve_command(content) {
+                                        let result = self
+                                            .client
+                                            .respond_decision_as(
+                                                &dec_id,
+                                                &opt_id,
+                                                Some(&mellowmesh_id),
+                                            )
+                                            .await;
+                                        let reply = match &result {
                                         Ok(_) => format!(
                                             "✅ Recorded `{opt_id}` for `{dec_id}` (by {author_name})"
                                         ),
                                         Err(e) => format!("❌ Could not record decision: {e}"),
                                     };
-                                    let url = format!(
+                                        let url = format!(
                                         "https://discord.com/api/v10/channels/{channel_id}/messages"
                                     );
-                                    let _ = poll_client
-                                        .post(&url)
-                                        .header("Authorization", format!("Bot {token}"))
-                                        .json(&serde_json::json!({ "content": reply }))
-                                        .send()
-                                        .await;
+                                        if let Err(e) = poll_client
+                                            .post(&url)
+                                            .header("Authorization", format!("Bot {token}"))
+                                            .json(&discord_message_body(&reply))
+                                            .send()
+                                            .await
+                                        {
+                                            warn!(
+                                                "Failed to post reply to Discord: {}",
+                                                e.without_url()
+                                            );
+                                        }
+                                        last_message_id = Some(id.to_string());
+                                        continue;
+                                    }
+
+                                    info!(
+                                        "Discord message received from {} ({}): {}",
+                                        author_name, ext_id, content
+                                    );
+
+                                    let fm_msg = Message {
+                                        id: format!("msg_{id}"),
+                                        topic: "_forum.general".to_string(),
+                                        from: ext_id,
+                                        owner: Some(mellowmesh_id),
+                                        timestamp: chrono::Utc::now(),
+                                        content_type: "text/markdown".to_string(),
+                                        body: content.to_string(),
+                                        headers: None,
+                                        payload: None,
+                                        parent_id: None,
+                                    };
+
+                                    let _ = self.client.publish(&fm_msg).await;
                                     last_message_id = Some(id.to_string());
-                                    processed_any = true;
-                                    continue;
                                 }
-
-                                info!(
-                                    "Discord message received from {} ({}): {}",
-                                    author_name, ext_id, content
-                                );
-
-                                let fm_msg = Message {
-                                    id: format!("msg_{id}"),
-                                    topic: "_forum.general".to_string(),
-                                    from: ext_id,
-                                    owner: Some(mellowmesh_id),
-                                    timestamp: chrono::Utc::now(),
-                                    content_type: "text/markdown".to_string(),
-                                    body: content.to_string(),
-                                    headers: None,
-                                    payload: None,
-                                    parent_id: None,
-                                };
-
-                                let _ = self.client.publish(&fm_msg).await;
-                                last_message_id = Some(id.to_string());
-                                processed_any = true;
-                            }
-                        }
-                        if !processed_any && last_message_id.is_none() && !msgs.is_empty() {
-                            // If first poll, set the last_message_id to the newest message
-                            if let Some(newest_id) = msgs[0]["id"].as_str() {
-                                last_message_id = Some(newest_id.to_string());
                             }
                         }
                     }
@@ -295,7 +346,7 @@ impl DiscordConnector {
                     warn!("Discord API returned error status: {}", res.status());
                 }
                 Err(e) => {
-                    warn!("Failed to poll Discord API: {}", e);
+                    warn!("Failed to poll Discord API: {}", e.without_url());
                 }
             }
 
@@ -336,7 +387,7 @@ impl DiscordConnector {
             let mellowmesh_id = resolve_identity(&self.client, ext_id).await;
 
             let fm_msg = Message {
-                id: format!("msg_discord_{}", chrono::Utc::now().timestamp()),
+                id: bridged_message_id("msg_discord"),
                 topic: "_forum.general".to_string(),
                 from: ext_id.to_string(),
                 owner: Some(mellowmesh_id),
@@ -404,17 +455,21 @@ impl TelegramConnector {
                     if msg.from.starts_with("telegram://") {
                         continue;
                     }
-                    let telegram_msg = format!("*{}* (via MellowMesh):\n{}", msg.from, msg.body);
+                    // Plain text: arbitrary topic names and bodies would
+                    // otherwise need Markdown escaping to be accepted.
+                    let telegram_msg = format!("{} (via MellowMesh):\n{}", msg.from, msg.body);
                     let url = format!("https://api.telegram.org/bot{token_str}/sendMessage");
-                    let _ = http_client
+                    if let Err(e) = http_client
                         .post(&url)
                         .json(&serde_json::json!({
                             "chat_id": chat_id_str,
                             "text": telegram_msg,
-                            "parse_mode": "Markdown"
                         }))
                         .send()
-                        .await;
+                        .await
+                    {
+                        warn!("Failed to send Telegram message: {}", e.without_url());
+                    }
                 }
             }
         });
@@ -432,7 +487,7 @@ impl TelegramConnector {
                         continue;
                     };
                     let url = format!("https://api.telegram.org/bot{dec_token}/sendMessage");
-                    let _ = dec_http
+                    if let Err(e) = dec_http
                         .post(&url)
                         .json(&serde_json::json!({
                             "chat_id": dec_chat_id,
@@ -440,7 +495,10 @@ impl TelegramConnector {
                             "reply_markup": telegram_decision_keyboard(&decision),
                         }))
                         .send()
-                        .await;
+                        .await
+                    {
+                        warn!("Failed to send Telegram decision: {}", e.without_url());
+                    }
                 }
             }
         });
@@ -605,7 +663,8 @@ impl TelegramConnector {
                     warn!("Telegram API returned error status: {}", res.status());
                 }
                 Err(e) => {
-                    warn!("Failed to poll Telegram API: {}", e);
+                    // The request URL embeds the bot token; never log it.
+                    warn!("Failed to poll Telegram API: {}", e.without_url());
                 }
             }
 
@@ -646,7 +705,7 @@ impl TelegramConnector {
             let mellowmesh_id = resolve_identity(&self.client, ext_id).await;
 
             let fm_msg = Message {
-                id: format!("msg_telegram_{}", chrono::Utc::now().timestamp()),
+                id: bridged_message_id("msg_telegram"),
                 topic: "_forum.general".to_string(),
                 from: ext_id.to_string(),
                 owner: Some(mellowmesh_id),
@@ -682,32 +741,78 @@ impl InterfaceConnector for TelegramConnector {
 // ==========================================
 // 3. Teams Connector
 // ==========================================
+/// Default listen address of the Teams outgoing-webhook receiver.
+const TEAMS_DEFAULT_BIND: &str = "127.0.0.1:40002";
+
 pub struct TeamsConnector {
     client: MellowMeshClient,
     webhook_url: Option<String>,
+    /// Base64 HMAC key (`TEAMS_OUTGOING_WEBHOOK_KEY`) that inbound posts
+    /// must be signed with. Without it the receiver is not started.
+    receiver_key: Option<String>,
+    /// Receiver listen address (`TEAMS_BIND`, default `127.0.0.1:40002`).
+    bind_addr: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct TeamsWebhookPayload {
     text: String,
-    from: Option<String>,
+    /// Teams sends an object (`{"id": ..., "name": ..., "aadObjectId": ...}`);
+    /// a plain string is accepted too.
+    #[serde(default)]
+    from: Option<serde_json::Value>,
+}
+
+/// Sender of a Teams webhook post as `(stable id, display name)`.
+fn teams_sender(from: Option<&serde_json::Value>) -> (String, String) {
+    let non_empty = |v: Option<&serde_json::Value>| {
+        v.and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    match from {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => {
+            (s.trim().to_string(), s.trim().to_string())
+        }
+        Some(obj @ serde_json::Value::Object(_)) => {
+            let name = non_empty(obj.get("name"));
+            let id = non_empty(obj.get("id"))
+                .or_else(|| non_empty(obj.get("aadObjectId")))
+                .or_else(|| name.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            let name = name.unwrap_or_else(|| id.clone());
+            (id, name)
+        }
+        _ => ("unknown".to_string(), "unknown".to_string()),
+    }
 }
 
 impl TeamsConnector {
     pub fn new(client: MellowMeshClient) -> Self {
-        let webhook_url = std::env::var("TEAMS_WEBHOOK_URL").ok();
+        let non_empty = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
         Self {
             client,
-            webhook_url,
+            webhook_url: non_empty("TEAMS_WEBHOOK_URL"),
+            receiver_key: non_empty("TEAMS_OUTGOING_WEBHOOK_KEY"),
+            bind_addr: non_empty("TEAMS_BIND").unwrap_or_else(|| TEAMS_DEFAULT_BIND.to_string()),
         }
     }
 
     fn make_receiver_router(&self) -> Router {
         let client = self.client.clone();
+        let receiver_key = self.receiver_key.clone();
         Router::new().route("/webhook", post(move |headers: HeaderMap, body: Bytes| {
             let client = client.clone();
+            let receiver_key = receiver_key.clone();
             async move {
-                if let Ok(key_b64) = std::env::var("TEAMS_OUTGOING_WEBHOOK_KEY") {
+                // Every inbound post must carry a valid HMAC signature; with
+                // no key configured nothing is accepted.
+                let Some(key_b64) = receiver_key else {
+                    warn!("Rejected Teams webhook request: no TEAMS_OUTGOING_WEBHOOK_KEY configured");
+                    return Err((StatusCode::UNAUTHORIZED, "Webhook verification is not configured".to_string()));
+                };
+                {
                     let auth_header = match headers.get("Authorization").and_then(|h| h.to_str().ok()) {
                         Some(a) if a.starts_with("HMAC ") => &a[5..],
                         _ => {
@@ -746,8 +851,6 @@ impl TeamsConnector {
                         warn!("Unauthorized Teams webhook request: HMAC signature verification failed");
                         return Err((StatusCode::UNAUTHORIZED, "Signature verification failed".to_string()));
                     }
-                } else {
-                    info!("TEAMS_OUTGOING_WEBHOOK_KEY not set. Skipping signature verification (unauthenticated mode).");
                 }
 
                 let payload: TeamsWebhookPayload = match serde_json::from_slice(&body) {
@@ -758,14 +861,17 @@ impl TeamsConnector {
                     }
                 };
 
-                let from_user = payload.from.unwrap_or_else(|| "bob".to_string());
-                let ext_id = format!("teams://{from_user}");
+                let (sender_id, sender_name) = teams_sender(payload.from.as_ref());
+                let ext_id = format!("teams://{sender_id}");
                 let mellowmesh_id = resolve_identity(&client, &ext_id).await;
 
-                info!("Teams webhook message received from {}: {}", ext_id, payload.text);
+                info!(
+                    "Teams webhook message received from {} ({}): {}",
+                    sender_name, ext_id, payload.text
+                );
 
                 let fm_msg = Message {
-                    id: format!("msg_teams_{}", chrono::Utc::now().timestamp()),
+                    id: bridged_message_id("msg_teams"),
                     topic: "_forum.general".to_string(),
                     from: ext_id,
                     owner: Some(mellowmesh_id),
@@ -784,33 +890,50 @@ impl TeamsConnector {
     }
 
     async fn run_live(&self, webhook_url: &str) -> anyhow::Result<()> {
-        info!("Starting Live Teams Connector (Webhook Publisher + Webhook Receiver on port 40002)");
+        info!("Starting Live Teams Connector");
         let http_client = reqwest::Client::new();
 
         // Forward MellowMesh messages to Teams Incoming Webhook
         let client_clone = self.client.clone();
         let webhook_url_str = webhook_url.to_string();
-        tokio::spawn(async move {
+        let publisher = tokio::spawn(async move {
             if let Ok(mut sub) = client_clone.subscribe("_forum.**").await {
                 while let Some(Ok(msg)) = sub.next().await {
                     if msg.from.starts_with("teams://") {
                         continue;
                     }
                     let teams_msg = format!("**{}** (via MellowMesh):\n{}", msg.from, msg.body);
-                    let _ = http_client
+                    if let Err(e) = http_client
                         .post(&webhook_url_str)
                         .json(&serde_json::json!({
                             "text": teams_msg
                         }))
                         .send()
-                        .await;
+                        .await
+                    {
+                        // The webhook URL is a credential; keep it out of logs.
+                        warn!("Failed to post to Teams webhook: {}", e.without_url());
+                    }
                 }
             }
         });
 
-        // Start local listener for Teams Outgoing Webhooks (port 40002)
+        // Inbound posts are accepted only when they can be authenticated.
+        if self.receiver_key.is_none() {
+            warn!(
+                "TEAMS_OUTGOING_WEBHOOK_KEY not set: the inbound Teams webhook receiver is disabled \
+                 (outbound forwarding to Teams stays active)"
+            );
+            let _ = publisher.await;
+            return Ok(());
+        }
+
+        // Local listener for Teams Outgoing Webhooks.
+        let addr: SocketAddr = self
+            .bind_addr
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid TEAMS_BIND address '{}': {e}", self.bind_addr))?;
         let app = self.make_receiver_router();
-        let addr = SocketAddr::from(([0, 0, 0, 0], 40002));
         info!(
             "Teams Connector Outgoing Webhook receiver listening on: {}",
             addr
@@ -841,7 +964,7 @@ impl TeamsConnector {
             let mellowmesh_id = resolve_identity(&self.client, ext_id).await;
 
             let fm_msg = Message {
-                id: format!("msg_teams_{}", chrono::Utc::now().timestamp()),
+                id: bridged_message_id("msg_teams"),
                 topic: "_forum.general".to_string(),
                 from: ext_id.to_string(),
                 owner: Some(mellowmesh_id),
@@ -1026,55 +1149,151 @@ mod tests {
     use sha2::Sha256;
     use tower::ServiceExt;
 
+    const TEST_KEY: &str = "c2VjcmV0X2tleV9iYXNlNjRfZW5jb2RlZF92YWx1ZV9oZXJlXzEyMzQ1Njc4OTA="; // Valid base64
+
+    fn teams_connector(receiver_key: Option<&str>) -> TeamsConnector {
+        TeamsConnector {
+            client: MellowMeshClient::new(40019),
+            webhook_url: None,
+            receiver_key: receiver_key.map(str::to_string),
+            bind_addr: TEAMS_DEFAULT_BIND.to_string(),
+        }
+    }
+
+    fn sign(payload: &str) -> String {
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(&BASE64.decode(TEST_KEY).unwrap()).unwrap();
+        mac.update(payload.as_bytes());
+        BASE64.encode(mac.finalize().into_bytes())
+    }
+
+    fn webhook_request(payload: &str, auth: Option<String>) -> Request<axum::body::Body> {
+        let mut builder = Request::builder().method("POST").uri("/webhook");
+        if let Some(auth) = auth {
+            builder = builder.header("Authorization", auth);
+        }
+        builder
+            .body(axum::body::Body::from(payload.to_string()))
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn test_teams_webhook_signature_verification() {
-        let key_str = "c2VjcmV0X2tleV9iYXNlNjRfZW5jb2RlZF92YWx1ZV9oZXJlXzEyMzQ1Njc4OTA="; // Valid base64
-        let key_decoded = BASE64.decode(key_str).unwrap();
-
         let payload = r#"{"text":"hello","from":"alice"}"#;
-        type HmacSha256 = Hmac<Sha256>;
-        let mut mac = HmacSha256::new_from_slice(&key_decoded).unwrap();
-        mac.update(payload.as_bytes());
-        let correct_sig = mac.finalize().into_bytes();
-        let correct_sig_b64 = BASE64.encode(correct_sig);
+        let router = teams_connector(Some(TEST_KEY)).make_receiver_router();
 
-        // Scenario 1: Key is set in env, valid signature
-        std::env::set_var("TEAMS_OUTGOING_WEBHOOK_KEY", key_str);
-
-        let client = MellowMeshClient::new(40019);
-        let conn = TeamsConnector::new(client);
-        let router = conn.make_receiver_router();
-
-        let req = Request::builder()
-            .method("POST")
-            .uri("/webhook")
-            .header("Authorization", format!("HMAC {correct_sig_b64}"))
-            .body(axum::body::Body::from(payload))
+        // Scenario 1: valid signature
+        let res = router
+            .clone()
+            .oneshot(webhook_request(
+                payload,
+                Some(format!("HMAC {}", sign(payload))),
+            ))
+            .await
             .unwrap();
-
-        let res = router.clone().oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        // Scenario 2: Key is set, invalid signature
-        let req_invalid = Request::builder()
-            .method("POST")
-            .uri("/webhook")
-            .header("Authorization", "HMAC invalid_sig")
-            .body(axum::body::Body::from(payload))
+        // Scenario 2: invalid signature
+        let res_invalid = router
+            .clone()
+            .oneshot(webhook_request(payload, Some("HMAC invalid_sig".into())))
+            .await
             .unwrap();
-
-        let res_invalid = router.clone().oneshot(req_invalid).await.unwrap();
         assert_eq!(res_invalid.status(), StatusCode::UNAUTHORIZED);
 
-        // Scenario 3: Key is not set in env (unauthenticated bypass mode)
-        std::env::remove_var("TEAMS_OUTGOING_WEBHOOK_KEY");
-        let req_bypass = Request::builder()
-            .method("POST")
-            .uri("/webhook")
-            .body(axum::body::Body::from(payload))
+        // Scenario 3: unsigned request
+        let res_unsigned = router
+            .clone()
+            .oneshot(webhook_request(payload, None))
+            .await
             .unwrap();
+        assert_eq!(res_unsigned.status(), StatusCode::UNAUTHORIZED);
+    }
 
-        let res_bypass = router.clone().oneshot(req_bypass).await.unwrap();
-        assert_eq!(res_bypass.status(), StatusCode::OK);
+    #[tokio::test]
+    async fn test_teams_webhook_without_key_rejects_everything() {
+        // The receiver is not started without a key; even if its router were
+        // served, nothing would be accepted.
+        let conn = teams_connector(None);
+        assert_eq!(conn.bind_addr, "127.0.0.1:40002");
+        let router = conn.make_receiver_router();
+        let payload = r#"{"text":"hello","from":"alice"}"#;
+        let res = router
+            .clone()
+            .oneshot(webhook_request(payload, None))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let res = router
+            .oneshot(webhook_request(
+                payload,
+                Some(format!("HMAC {}", sign(payload))),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_teams_webhook_accepts_object_sender() {
+        let payload = r#"{"type":"message","text":"hi team","from":{"id":"29:1abc","name":"Alice","aadObjectId":"00000000-0000"}}"#;
+        let router = teams_connector(Some(TEST_KEY)).make_receiver_router();
+        let res = router
+            .oneshot(webhook_request(
+                payload,
+                Some(format!("HMAC {}", sign(payload))),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_teams_sender_extraction() {
+        let obj = serde_json::json!({"id": "29:1abc", "name": "Alice"});
+        assert_eq!(
+            teams_sender(Some(&obj)),
+            ("29:1abc".to_string(), "Alice".to_string())
+        );
+        let name_only = serde_json::json!({"name": "Alice"});
+        assert_eq!(
+            teams_sender(Some(&name_only)),
+            ("Alice".to_string(), "Alice".to_string())
+        );
+        let s = serde_json::json!("bob");
+        assert_eq!(
+            teams_sender(Some(&s)),
+            ("bob".to_string(), "bob".to_string())
+        );
+        assert_eq!(
+            teams_sender(None),
+            ("unknown".to_string(), "unknown".to_string())
+        );
+    }
+
+    #[test]
+    fn test_bridged_message_ids_are_unique() {
+        let ids: std::collections::HashSet<String> =
+            (0..1000).map(|_| bridged_message_id("msg_teams")).collect();
+        assert_eq!(ids.len(), 1000);
+        assert!(ids.iter().all(|id| id.starts_with("msg_teams_")));
+    }
+
+    #[test]
+    fn test_discord_body_suppresses_mentions() {
+        let body = discord_message_body("@everyone hello");
+        assert_eq!(body["content"], "@everyone hello");
+        assert_eq!(body["allowed_mentions"]["parse"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_discord_newest_id() {
+        let msgs = vec![
+            serde_json::json!({"id": "999"}),
+            serde_json::json!({"id": "1000"}),
+            serde_json::json!({"id": "998"}),
+        ];
+        assert_eq!(discord_newest_id(&msgs), Some("1000".to_string()));
+        assert_eq!(discord_newest_id(&[]), None);
     }
 }
