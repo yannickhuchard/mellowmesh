@@ -419,7 +419,7 @@ mod tests {
         // and the code can never silently drift apart again.
         assert_eq!(
             tools.len(),
-            28,
+            27,
             "MCP tool count changed — update README.md and docs/mcp.md to match"
         );
 
