@@ -154,6 +154,50 @@ The mall map is a pastel **clay diorama**: white buildings with colored
 roofs, soft shadows, round trees, a fountain with the MellowMesh "M", and an
 amber walkway to the next stop.
 
+## 7. Teams, your network, and task boards
+
+**Teams.** A team is a group of people and helpers sharing one room and one
+board (a "meeting room" with a member row: people as initials, helpers as
+blobs with the "AI" tag). Each team has its own closed room
+(`_team.<id>.chat`) and appears as a lane on every board and roadmap. Tabs
+inside a team: **Room · Board · Roadmap**.
+
+**Your network.** Plaza → *Your network* shows the network default
+(**Closed** / **Open**, a two-option switch with one plain sentence of
+consequence) and each space as a card with a glyph and a word — never color
+alone:
+
+| Glyph | Word | Who comes in |
+| :--- | :--- | :--- |
+| lock | Closed | members: chosen people, helpers, teams |
+| key | Private | only you |
+| open door | Open | anyone who can reach the hub (visitors read; write only if allowed) |
+
+Changing a space is reversible and says so ("nothing is deleted").
+
+**Boards (kanban).** The same five columns everywhere — **To do · Claimed ·
+Doing · Waiting · Done** (cancelled tasks are hidden). Cards show who does it
+(blob or initials), the time it has waited or worked, and a link chip when it
+depends on another task ("after the date"). Waiting columns use the amber
+tint; blocked cards carry a rose edge.
+
+* **To do tab = my board**: requests that need my answer on top, then my
+  tasks as column chips (phone) or columns (desktop). Hold a card to move it.
+* **Helper → Tasks**: that helper's board plus three numbers (done this
+  week, average working, average waiting).
+* **Team → Board**: the team's board.
+* **Master board** (desktop): every task in the network, grouped by team,
+  helper or person, with a live activity rail.
+
+**Roadmap (live).** One lane per person, helper and team on a time axis.
+Striped = waiting, solid indigo = working, green = done, dashed = planned;
+an amber outline marks the **critical path** (the chain that decides when
+everything ends). Elbow arrows show dependencies; a red *now* line moves in
+real time; KPIs on top (tasks today, working now, waiting on someone, average
+waiting, estimated end). Selecting a bar opens an inspector strip: waited,
+working so far, expected done, what it waits for and what it unblocks.
+Updates arrive through `_task.**` events — no refresh.
+
 ## Platform signatures
 
 | | iOS | macOS | Android | Windows |
@@ -167,8 +211,9 @@ amber walkway to the next stop.
 
 * Claude Design file (private, shareable from its page): design language,
   personas & first-use test, Character and Mall-map components, iPhone
-  (first run, Plaza, meeting room, To-do desk), Android (Shops, interruption
-  settings), macOS (group of people + helpers), Windows (organization
-  campus).
+  (first run, Plaza, meeting room, To-do desk, team room, my board), Android
+  (Shops, interruption settings, your network, a helper's task board), macOS
+  (group of people + helpers, master board), Windows (organization campus,
+  live roadmap).
 * Token export per platform (Swift asset catalog, Compose theme, WinUI
   resource dictionary) and the character rig when the shells start.
