@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MellowMesh hubs usually run on a PC at home and are reached over the home
+  Wi-Fi at http://<PC LAN IP>:40000, so cleartext must be allowed. The app
+  classifies every hub address (io.mellowmesh.core.Pairing.safety) and warns
+  in plain words when plain http would cross the internet; use https (for
+  example through a tunnel) for anything outside your home network.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
