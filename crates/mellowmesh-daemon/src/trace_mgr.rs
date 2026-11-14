@@ -37,15 +37,25 @@ impl TraceSessionManager {
         Ok(())
     }
 
-    pub fn disable_session(&self, id: &str) -> anyhow::Result<()> {
+    /// Disable a session. Returns `true` if it was active; disabling an
+    /// unknown or already-disabled session is a no-op (and does not touch
+    /// the active-sessions gauge).
+    pub fn disable_session(&self, id: &str) -> anyhow::Result<bool> {
         if let Some(mut ts) = self.store.get_trace_session(id)? {
+            if ts.status != "active" {
+                return Ok(false);
+            }
             ts.status = "disabled".to_string();
             self.store.insert_trace_session(&ts)?;
-            self.metrics
-                .trace_sessions_active
-                .fetch_sub(1, Ordering::Relaxed);
+            // Saturating: never wrap the gauge below zero.
+            let _ = self.metrics.trace_sessions_active.fetch_update(
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+                |v| Some(v.saturating_sub(1)),
+            );
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 
     pub fn check_trace_allowed(&self, msg: &Message) -> bool {

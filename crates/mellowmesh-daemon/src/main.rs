@@ -224,9 +224,11 @@ async fn main() -> anyhow::Result<()> {
                     pattern: pattern.to_string(),
                 }
             } else {
+                // Peers share the forum by default; anything wider must be
+                // asked for explicitly (`--peer addr=pattern`).
                 mellowmesh_daemon::peer::PeerConfig {
                     addr: s,
-                    pattern: "**".to_string(),
+                    pattern: mellowmesh_daemon::peer::DEFAULT_PEER_PATTERN.to_string(),
                 }
             }
         })
@@ -259,6 +261,8 @@ async fn main() -> anyhow::Result<()> {
         require_auth,
         owner,
         port: args.port,
+        http: mellowmesh_daemon::state::loopback_http_client(),
+        caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
     };
 
     // Background maintenance: lease reclaim + retention purge
@@ -282,6 +286,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("MellowMesh daemon listening on: {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    // PID file next to the database (and owner.token), written once the
+    // port is ours and removed on graceful shutdown.
+    let pid_file = mellowmesh_daemon::pidfile::pid_file_path(&db_path);
+    if let Err(e) = mellowmesh_daemon::pidfile::write_pid_file(&pid_file) {
+        tracing::warn!("Could not write PID file {:?}: {}", pid_file, e);
+    }
 
     // Initialize and start connectors. Under required auth they get their
     // own interface token (rotated each boot) so they can publish, subscribe,
@@ -333,17 +344,55 @@ async fn main() -> anyhow::Result<()> {
     connectors_mgr.start();
 
     let shutdown_trigger_clone = shutdown_trigger.clone();
-    axum::serve(listener, app)
+    let pid_file_on_timeout = pid_file.clone();
+    let served = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            shutdown_trigger_clone.notified().await;
+            tokio::select! {
+                _ = shutdown_trigger_clone.notified() => {}
+                _ = shutdown_signal() => {}
+            }
             tracing::info!("Received shutdown signal. Stopping daemon...");
+            // Do not let a lingering connection hold shutdown open forever.
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                tracing::warn!("Graceful shutdown timed out; exiting");
+                mellowmesh_daemon::pidfile::remove_pid_file(&pid_file_on_timeout);
+                std::process::exit(0);
+            });
         })
-        .await?;
+        .await;
+
+    mellowmesh_daemon::pidfile::remove_pid_file(&pid_file);
+    served?;
 
     // Allow a tiny window for any final writes or logs to finish
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     Ok(())
+}
+
+/// Resolves on Ctrl-C, or SIGTERM on unix.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => {
+                s.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
 }
 
 fn get_default_node_id() -> String {

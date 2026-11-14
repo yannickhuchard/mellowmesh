@@ -9,6 +9,7 @@ pub struct DaemonMetrics {
     pub messages_indexed_total: AtomicU64,
     pub persistence_write_failures_total: AtomicU64,
     pub dropped_persistence_messages_total: AtomicU64,
+    pub dropped_index_messages_total: AtomicU64,
     pub dead_letter_messages_total: AtomicU64,
 
     pub trace_sessions_active: AtomicU64,
@@ -43,6 +44,7 @@ pub struct MetricsSnapshot {
     pub index_lag_messages: usize,
     pub memory_builder_lag_messages: usize,
     pub dropped_persistence_messages_total: u64,
+    pub dropped_index_messages_total: u64,
     pub dead_letter_messages_total: u64,
 
     pub trace_sessions_active: u64,
@@ -88,6 +90,7 @@ impl DaemonMetrics {
             dropped_persistence_messages_total: self
                 .dropped_persistence_messages_total
                 .load(Ordering::Relaxed),
+            dropped_index_messages_total: self.dropped_index_messages_total.load(Ordering::Relaxed),
             dead_letter_messages_total: self.dead_letter_messages_total.load(Ordering::Relaxed),
 
             trace_sessions_active: self.trace_sessions_active.load(Ordering::Relaxed),

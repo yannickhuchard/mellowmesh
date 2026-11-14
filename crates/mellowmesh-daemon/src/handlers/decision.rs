@@ -22,13 +22,36 @@ pub struct ResponsePayload {
     responded_by: Option<String>,
 }
 
+/// Client-supplied decision ids become topic segments
+/// (`_decision.<id>.requested`), so they are restricted to `[A-Za-z0-9_-]`.
+fn valid_decision_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 pub async fn create_decision(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthContext>,
     Json(mut decision): Json<Decision>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if decision.id.is_empty() {
         decision.id = format!("decision_{}", Ulid::new().to_string().to_lowercase());
+    } else if !valid_decision_id(&decision.id) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Decision id must match ^[A-Za-z0-9_-]{1,128}$".to_string(),
+        ));
     }
+    // The proposer is the authenticated principal, never a body field.
+    if let Some(p) = &ctx.principal {
+        decision.created_by = p.id.clone();
+    }
+    // A new decision carries no answer.
+    decision.response_option_id = None;
+    decision.response_timestamp = None;
+    decision.responded_by = None;
     // A freshly created decision must be awaiting an answer. Reject a terminal
     // status at birth so a proposer can't ship a pre-"approved" decision.
     if !matches!(decision.status.as_str(), "requested" | "discussed") {
@@ -132,20 +155,33 @@ pub async fn respond_decision(
         Some(p) if p.kind == "human" => p.id.clone(),
         Some(p) if p.kind == "interface" => {
             let ext = payload.responded_by.clone().unwrap_or_default();
-            let human = state
+            // The external id resolves through an identity mapping, or is a
+            // `human://` id itself; either way the result must be a known
+            // principal of kind `human`.
+            let candidate = state
                 .store
                 .get_mellowmesh_id(&ext)
                 .ok()
                 .flatten()
-                .filter(|h| h.starts_with("human://"))
-                .or_else(|| ext.starts_with("human://").then(|| ext.clone()));
+                .unwrap_or_else(|| ext.clone());
+            let human = if candidate.starts_with("human://") {
+                state
+                    .store
+                    .get_principal(&candidate)
+                    .ok()
+                    .flatten()
+                    .filter(|pr| pr.kind == "human")
+                    .map(|pr| pr.id)
+            } else {
+                None
+            };
             match human {
                 Some(h) => format!("{} (via {})", h, p.id),
                 None => {
                     return Err((
                         StatusCode::FORBIDDEN,
                         format!(
-                            "Interface {} may only relay a human:// identity that maps to a known principal (got {:?})",
+                            "Interface {} may only relay a known human principal, directly or via an identity mapping (got {:?})",
                             p.id, payload.responded_by
                         ),
                     ))
@@ -170,6 +206,21 @@ pub async fn respond_decision(
         return Err((
             StatusCode::FORBIDDEN,
             "A principal cannot answer its own decision proposal".to_string(),
+        ));
+    }
+
+    // Under authentication, only the decision's required decider (or the
+    // hub owner) may answer it.
+    if ctx.principal.is_some()
+        && responder_core != decision.required_decider
+        && responder_core != state.owner
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Only the required decider ({}) or the hub owner may answer decision {}",
+                decision.required_decider, decision_id
+            ),
         ));
     }
 

@@ -63,14 +63,16 @@ pub async fn claim_task(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     use mellowmesh_store::task_store::ClaimOutcome;
 
-    // An authenticated agent may only claim as itself — no impersonation.
+    // An authenticated non-human principal (agent, node, interface) may only
+    // claim as itself — no impersonation. Humans supervise the fleet and may
+    // assign work.
     if let Some(p) = &ctx.principal {
-        if p.kind == "agent" && p.id != payload.claimed_by {
+        if p.kind != "human" && p.id != payload.claimed_by {
             return Err((
                 StatusCode::FORBIDDEN,
                 format!(
-                    "Agent {} cannot claim a task as {}",
-                    p.id, payload.claimed_by
+                    "{} {} cannot claim a task as {}",
+                    p.kind, p.id, payload.claimed_by
                 ),
             ));
         }

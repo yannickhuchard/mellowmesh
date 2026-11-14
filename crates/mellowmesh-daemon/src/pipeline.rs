@@ -10,6 +10,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::Notify;
 
+/// How long a BlockPublisher publish waits for persistence queue space
+/// before failing.
+pub const BLOCK_PUBLISHER_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct BoundedQueue<T> {
     queue: Mutex<VecDeque<T>>,
     capacity: usize,
@@ -27,14 +31,39 @@ impl<T> BoundedQueue<T> {
         }
     }
 
-    pub async fn push(&self, item: T, overflow_policy: OverflowPolicy) -> Result<(), &'static str> {
+    /// Enqueue `item`. Returns `Ok(true)` when the oldest queued item was
+    /// dropped to make room (DropOldest), `Ok(false)` otherwise. Under
+    /// BlockPublisher the caller waits for space for at most
+    /// [`BLOCK_PUBLISHER_TIMEOUT`].
+    pub async fn push(
+        &self,
+        item: T,
+        overflow_policy: OverflowPolicy,
+    ) -> Result<bool, &'static str> {
+        self.push_with_timeout(item, overflow_policy, BLOCK_PUBLISHER_TIMEOUT)
+            .await
+    }
+
+    /// [`Self::push`] with an explicit BlockPublisher wait bound.
+    pub async fn push_with_timeout(
+        &self,
+        item: T,
+        overflow_policy: OverflowPolicy,
+        block_timeout: Duration,
+    ) -> Result<bool, &'static str> {
+        let deadline = tokio::time::Instant::now() + block_timeout;
         loop {
+            // Register interest before checking, so a wake-up between the
+            // check and the wait cannot be missed.
+            let space = self.notify_tx.notified();
+            tokio::pin!(space);
+            space.as_mut().enable();
             {
                 let mut q = self.queue.lock().unwrap();
                 if q.len() < self.capacity {
                     q.push_back(item);
                     self.notify_rx.notify_one();
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 match overflow_policy {
@@ -43,14 +72,16 @@ impl<T> BoundedQueue<T> {
                         q.pop_front();
                         q.push_back(item);
                         self.notify_rx.notify_one();
-                        return Ok(());
+                        return Ok(true);
                     }
                     _ => {
                         return Err("Dropped due to overflow policy");
                     }
                 }
             }
-            self.notify_tx.notified().await;
+            if tokio::time::timeout_at(deadline, space).await.is_err() {
+                return Err("Timed out waiting for queue space");
+            }
         }
     }
 
@@ -59,7 +90,7 @@ impl<T> BoundedQueue<T> {
             {
                 let mut q = self.queue.lock().unwrap();
                 if let Some(item) = q.pop_front() {
-                    self.notify_tx.notify_one();
+                    self.notify_tx.notify_waiters();
                     return item;
                 }
             }
@@ -79,7 +110,9 @@ impl<T> BoundedQueue<T> {
                             items.push(item);
                         }
                     }
-                    self.notify_tx.notify_one();
+                    // Space freed for possibly many items: wake every
+                    // blocked publisher, not just one.
+                    self.notify_tx.notify_waiters();
                     return items;
                 }
             }
@@ -182,11 +215,32 @@ impl PersistencePipeline {
         pm: PersistableMessage,
         policy: OverflowPolicy,
     ) -> Result<(), &'static str> {
-        self.persist_queue.push(pm, policy).await
+        if self.persist_queue.push(pm, policy).await? {
+            // DropOldest evicted a queued message: it will never be stored.
+            self.metrics
+                .dropped_persistence_messages_total
+                .fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .overflow_events_total
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
     }
 
     pub async fn queue_index(&self, im: IndexableMessage) -> Result<(), &'static str> {
-        self.index_queue.push(im, OverflowPolicy::DropOldest).await
+        if self
+            .index_queue
+            .push(im, OverflowPolicy::DropOldest)
+            .await?
+        {
+            self.metrics
+                .dropped_index_messages_total
+                .fetch_add(1, Ordering::Relaxed);
+            self.metrics
+                .overflow_events_total
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
     }
 
     pub fn persist_queue_depth(&self) -> usize {
@@ -195,5 +249,53 @@ impl PersistencePipeline {
 
     pub fn index_queue_depth(&self) -> usize {
         self.index_queue.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn drop_oldest_reports_the_drop() {
+        let q = BoundedQueue::new(1);
+        assert_eq!(q.push(1, OverflowPolicy::DropOldest).await, Ok(false));
+        assert_eq!(q.push(2, OverflowPolicy::DropOldest).await, Ok(true));
+        assert_eq!(q.pop().await, 2);
+    }
+
+    #[tokio::test]
+    async fn blocked_publisher_times_out() {
+        let q = BoundedQueue::new(1);
+        q.push(1, OverflowPolicy::BlockPublisher).await.unwrap();
+        let r = q
+            .push_with_timeout(2, OverflowPolicy::BlockPublisher, Duration::from_millis(50))
+            .await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn all_blocked_publishers_wake_when_space_frees() {
+        let q = Arc::new(BoundedQueue::new(2));
+        q.push(0, OverflowPolicy::BlockPublisher).await.unwrap();
+        q.push(0, OverflowPolicy::BlockPublisher).await.unwrap();
+        let mut waiters = Vec::new();
+        for i in 1..=2 {
+            let q = q.clone();
+            waiters.push(tokio::spawn(async move {
+                q.push(i, OverflowPolicy::BlockPublisher).await
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // One batch frees both slots; both blocked publishers must proceed.
+        assert_eq!(q.pop_batch(10).await.len(), 2);
+        for w in waiters {
+            let r = tokio::time::timeout(Duration::from_secs(2), w)
+                .await
+                .expect("blocked publisher was not woken")
+                .unwrap();
+            assert_eq!(r, Ok(false));
+        }
+        assert_eq!(q.len(), 2);
     }
 }
