@@ -100,6 +100,7 @@ fn test_task_lifecycle() {
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        ..Default::default()
     };
 
     node.create_task(serde_wasm_bindgen::to_value(&task).unwrap())
@@ -332,6 +333,7 @@ fn test_state_serialization() {
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        ..Default::default()
     };
     node.create_task(serde_wasm_bindgen::to_value(&task).unwrap())
         .unwrap();

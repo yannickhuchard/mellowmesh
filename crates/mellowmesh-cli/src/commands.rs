@@ -475,6 +475,7 @@ pub async fn run_task_create(
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        ..Default::default()
     };
     client.create_task(&task).await?;
     println!("Task created successfully.");
@@ -1076,6 +1077,7 @@ fn demo_task(id: &str, title: &str, topic: &str) -> Task {
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        ..Default::default()
     }
 }
 

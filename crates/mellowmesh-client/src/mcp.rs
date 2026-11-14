@@ -43,6 +43,18 @@ const READ_TOOLS: &[&str] = &[
     "list_named_topics",
 ];
 
+/// A list of strings from a tool argument (missing or malformed: empty).
+fn string_list(args: &serde_json::Value, key: &str) -> Vec<String> {
+    args.get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A text content block with untrusted content sanitized.
 fn text_block(text: impl AsRef<str>) -> anyhow::Result<Vec<serde_json::Value>> {
     Ok(vec![serde_json::json!({
@@ -286,6 +298,15 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                     "parent_id": {
                         "type": "string",
                         "description": "Optional parent task or message identifier for lineage tracing"
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Ids of tasks that must be completed first"
+                    },
+                    "team": {
+                        "type": "string",
+                        "description": "Team id (slug) the task belongs to"
                     }
                 },
                 "required": ["title", "topics", "capabilities"]
@@ -872,6 +893,12 @@ pub async fn handle_tool_call(
                 .get("parent_id")
                 .and_then(|p| p.as_str())
                 .map(|s| s.to_string());
+            let depends_on = string_list(&args, "depends_on");
+            let team = args
+                .get("team")
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.is_empty())
+                .map(|s| s.to_string());
 
             let task = mellowmesh_core::task::Task {
                 id: format!("task_{}", ulid::Ulid::new().to_string().to_lowercase()),
@@ -891,6 +918,9 @@ pub async fn handle_tool_call(
                 parent_id,
                 lease_seconds: None,
                 claim_expires_at: None,
+                depends_on,
+                team,
+                ..Default::default()
             };
             client.create_task(&task).await?;
             text_block(format!("Task created successfully with ID: {}", task.id))

@@ -213,6 +213,22 @@ impl Store {
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN lease_seconds INTEGER", []);
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN claim_expires_at TEXT", []);
 
+        // Task boards: dependencies, team, hub-set lifecycle timestamps.
+        for column in [
+            "depends_on TEXT NOT NULL DEFAULT '[]'",
+            "team TEXT",
+            "created_at TEXT",
+            "claimed_at TEXT",
+            "started_at TEXT",
+            "completed_at TEXT",
+            "blocked_from TEXT",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE tasks ADD COLUMN {column}"), []);
+        }
+
+        // Network access control: network setting, spaces, teams.
+        crate::network_store::migrate(&conn)?;
+
         // Auth: principals, bearer tokens, and decision audit trail
         conn.execute(
             "CREATE TABLE IF NOT EXISTS principals (
@@ -563,6 +579,7 @@ mod tests {
             parent_id: None,
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         };
 
         store.insert_task(&task).unwrap();
@@ -606,6 +623,7 @@ mod tests {
             parent_id: None,
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         }
     }
 
@@ -983,6 +1001,7 @@ mod tests {
             parent_id: Some("task_1".to_string()),
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         };
         store.insert_task(&task).unwrap();
 
