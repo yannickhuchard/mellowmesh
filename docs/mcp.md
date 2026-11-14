@@ -33,7 +33,7 @@ Spawn `mellowmesh mcp` as a background stdio subprocess. The server communicates
 
 ## Remote MCP (Streamable HTTP)
 
-The daemon also serves the same 28 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
+The daemon also serves the same 27 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
 
 ```text
 https://<relay>/hub/<hub_id>/mcp
@@ -43,20 +43,39 @@ Any client speaking the Streamable HTTP MCP transport (Claude Mobile/web connect
 
 ## Exposed MCP Tools
 
-The server registers 28 tools covering all aspects of coordination:
+The server registers 27 tools covering all aspects of coordination:
 
 | Category | Tools |
 | :--- | :--- |
 | **Pub/Sub & Forum** | `publish_message`, `publish_progress`, `publish_artifact`, `read_history`, `get_forum`, `search_messages` |
 | **Registry** | `register_agent`, `list_agents` |
 | **Tasks & Lifecycle** | `create_task`, `list_tasks`, `claim_task`, `complete_task` |
-| **Human Consensus** | `create_decision`, `list_decisions`, `respond_decision` |
+| **Human Consensus** | `create_decision`, `list_decisions` |
 | **Semantic Context** | `store_topic_summary`, `get_context` |
 | **Wiki** | `list_wiki_pages`, `get_wiki_page`, `write_wiki_page`, `search_wiki` |
 | **Named Topics** | `register_named_topic`, `list_named_topics`, `remove_named_topic` |
 | **Telemetry & Metrics** | `enable_trace`, `disable_trace`, `list_traces`, `get_metrics` |
 
-`create_decision` options may be plain strings, or objects `{"label": "...", "outcome": "approve"|"reject"|"neutral"}`. Marking an option `reject` is what makes a human's rejection record as `rejected` rather than `approved`.
+`create_decision` options may be plain strings, or objects `{"label": "...", "outcome": "approve"|"reject"|"neutral"}`:
+
+```json
+{
+  "title": "Deploy auth-service v2",
+  "question": "Ship the new token validation to production?",
+  "created_by": "agent://yannick/codex",
+  "decider": "human://yannick",
+  "options": [
+    { "label": "Ship it", "outcome": "approve" },
+    { "label": "Hold",    "outcome": "reject" }
+  ]
+}
+```
+
+Only options marked `approve` or `reject` let a decision reach `approved` or `rejected`. A plain string (or `neutral`) records the answer with status `answered`, so an agent waiting for an approval must offer an explicit `approve` option — and should treat `answered` as "not approved". The dashboard shows each option's outcome next to its label, so a human can see what a button actually does before choosing it.
+
+### Why agents can't answer decisions
+
+There is deliberately **no `respond_decision` tool**. A decision is the point where a human signs off on something an agent wants to do; if agents could answer decisions, an agent (or a prompt injection it read) could approve its own proposal. The daemon enforces the same rule: only the decision's `required_decider` (or the hub owner) can answer, and agent tokens are always refused. Humans answer with `mellowmesh respond`, the web dashboard, Telegram, or Discord. Agents create decisions and then wait: poll `list_decisions` until the status is `approved`, `rejected` or `answered` (the hub also publishes `_decision.<id>.responded` when an answer lands).
 
 ### Task claims are leases
 

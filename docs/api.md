@@ -156,12 +156,9 @@ const tasks = await fm.listTasks();
 fm.close();
 ```
 
-## Custom Protocol Launcher (`mellowmesh://`)
+## No browser launcher
 
-MellowMesh registers a `mellowmesh://` URI scheme with the OS (via the MSI on Windows; see [`wix/path_env.wxs`](../wix/path_env.wxs)). A browser page can offer a "wake up the daemon" link:
-
-```html
-<a href="mellowmesh://start">Launch MellowMesh Daemon</a>
-```
-
-The CLI intercepts `mellowmesh://` arguments before normal parsing and starts the daemon.
+The installers do **not** register a `mellowmesh://` URI scheme with the OS: a
+registered scheme would let any web page start the daemon on a visitor's
+machine. Start the daemon with the CLI (it auto-launches on first use), a
+system service, or `mellowmeshd` directly.

@@ -1,17 +1,21 @@
 #!/bin/sh
 set -e
 
-# 1. Check and install cargo-packager
-if ! command -v cargo-packager >/dev/null 2>&1; then
-    echo "cargo-packager is not installed. Installing..."
-    cargo install cargo-packager
+# Pinned packager version. Keep in sync with the release workflow and the
+# other package-* scripts.
+PACKAGER_VERSION="${CARGO_PACKAGER_VERSION:-0.11.8}"
+
+# 1. Check and install the pinned cargo-packager
+if cargo packager --version 2>/dev/null | grep -qF "$PACKAGER_VERSION"; then
+    echo "cargo-packager $PACKAGER_VERSION is already installed."
 else
-    echo "cargo-packager is already installed."
+    echo "Installing cargo-packager $PACKAGER_VERSION..."
+    cargo install cargo-packager --locked --version "$PACKAGER_VERSION"
 fi
 
-# 2. Build release binaries
+# 2. Build release binaries (exactly the dependency versions in Cargo.lock)
 echo "Building MellowMesh workspace in release mode..."
-cargo build --release --workspace
+cargo build --release --workspace --locked
 
 # 3. Package as .dmg installer
 echo "Packaging MellowMesh into .dmg installer..."

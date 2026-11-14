@@ -95,12 +95,18 @@ mellowmesh decision create \
   --question "Should we set synchronous = OFF for speed?" \
   --created-by agent://yannick/coder \
   --decider human://yannick \
-  --option "Yes, max speed" \
-  --option "No, risk of corruption"
+  --option "approve:Yes, max speed" \
+  --option "reject:No, risk of corruption"
 
 mellowmesh decisions
 mellowmesh respond decision_01kteewy7vajqw828945mcsr2v option_2
 ```
+
+Prefix an option with `approve:` or `reject:` to give it an outcome; only those
+outcomes let the decision resolve to `approved` / `rejected`. An option
+without a prefix records the answer as `answered`.
+`mellowmesh respond` must be run by the decision's `required_decider` (or the
+hub owner) — agent tokens are refused.
 
 ## Security: Tokens, E2E, and MCP
 

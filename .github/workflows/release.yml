@@ -5,6 +5,16 @@ on:
     tags:
       - 'v*'
 
+# Installers are uploaded as workflow artifacts only; no release is created,
+# so read access is sufficient.
+permissions:
+  contents: read
+
+env:
+  # Keep in sync with the default in package-deb.sh, package-dmg.sh and
+  # package-msi.ps1.
+  CARGO_PACKAGER_VERSION: 0.11.8
+
 jobs:
   build-and-package:
     name: Package for ${{ matrix.os }}
@@ -13,37 +23,66 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            script: ./package-deb.sh
+            script: sh ./package-deb.sh
             shell: bash
           - os: macos-latest
-            script: ./package-dmg.sh
+            script: sh ./package-dmg.sh
             shell: bash
           - os: windows-latest
             script: .\package-msi.ps1
             shell: powershell
-    
+
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
-      # Required for Windows MSI builds (cargo-packager uses WiX)
-      - name: Install WiX (Windows Only)
-        if: matrix.os == 'windows-latest'
-        run: dotnet tool install --global wix
+      # The packaging scripts would install it too; installing the pinned
+      # version here keeps the toolchain explicit in the workflow log.
+      # (cargo-packager downloads and hash-verifies the WiX 3 toolset it
+      # needs for MSI builds, so no separate WiX install is required.)
+      - name: Install cargo-packager
+        shell: bash
+        run: cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION"
 
       # Execute native packaging script
       - name: Compile and Package
         shell: ${{ matrix.shell }}
         run: ${{ matrix.script }}
 
+      - name: Generate SHA-256 checksums
+        shell: bash
+        working-directory: target/release
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.msi *.deb *.dmg )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No installers were produced" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$f" > "$f.sha256"
+            else
+              shasum -a 256 "$f" > "$f.sha256"
+            fi
+            cat "$f.sha256"
+          done
+
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installers-${{ matrix.os }}
+          if-no-files-found: error
           path: |
             target/release/*.msi
             target/release/*.deb
             target/release/*.dmg
+            target/release/*.sha256
