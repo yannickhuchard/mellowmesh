@@ -7,7 +7,8 @@
 //! hub's link, executed by the daemon against its local API (including its
 //! own bearer-token authentication), and the response is relayed back.
 //!
-//! The relay stores nothing and can read only what passes through it —
+//! The relay stores only hub-id → SHA-256(link key) bindings (optionally
+//! persisted to a state file) and can read only what passes through it —
 //! deploy it behind TLS. Self-hosting is a first-class use case.
 
 use axum::{
@@ -24,13 +25,26 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use mellowmesh_core::relay::RelayFrame;
 use std::collections::HashMap;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify, Semaphore};
 use ulid::Ulid;
 
 /// How long a forwarded request may wait for the daemon's answer.
 const FORWARD_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum length of a hub id.
+pub const MAX_HUB_ID_LEN: usize = 64;
+
+/// Maximum number of hub-id → key bindings the relay keeps.
+pub const MAX_KNOWN_HUBS: usize = 100_000;
+
+/// Maximum number of forwarded requests in flight per linked hub.
+pub const MAX_INFLIGHT_PER_HUB: usize = 256;
+
+/// Per-stream buffer between the link reader and the remote subscriber.
+const STREAM_BUFFER: usize = 256;
 
 /// One event for a live subscription stream held open by a remote client.
 enum StreamEvent {
@@ -38,13 +52,26 @@ enum StreamEvent {
     Close,
 }
 
+/// Relay-side end of a live subscription stream.
+struct StreamSlot {
+    events: mpsc::Sender<StreamEvent>,
+    /// Signalled when the stream must end immediately (the subscriber fell
+    /// too far behind, or the hub link dropped).
+    cancel: Arc<Notify>,
+}
+
+type PendingMap = Arc<Mutex<HashMap<String, oneshot::Sender<RelayFrame>>>>;
+type StreamMap = Arc<Mutex<HashMap<String, StreamSlot>>>;
+
 struct Hub {
     /// Frames to send down the daemon link.
     to_daemon: mpsc::Sender<RelayFrame>,
     /// In-flight forwarded requests awaiting a response frame.
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<RelayFrame>>>>,
+    pending: PendingMap,
     /// Live subscription streams: stream id → events for the remote client.
-    streams: Arc<Mutex<HashMap<String, mpsc::Sender<StreamEvent>>>>,
+    streams: StreamMap,
+    /// Bounds the number of concurrently forwarded requests.
+    inflight: Arc<Semaphore>,
 }
 
 #[derive(Clone, Default)]
@@ -56,6 +83,160 @@ pub struct RelayState {
     /// sleep, daemon restart, network blip). Trust-on-first-use: the first
     /// registration of an id binds the key; later registrations must match.
     known_keys: Arc<Mutex<HashMap<String, String>>>,
+    /// Where `known_keys` is persisted, if anywhere. `None` keeps bindings
+    /// in memory only (they are lost on restart).
+    state_file: Option<Arc<PathBuf>>,
+    /// Serializes state-file writes so snapshots land in order.
+    persist_lock: Arc<Mutex<()>>,
+}
+
+/// Why a registration was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegisterError {
+    /// The hub id is empty, too long, or uses characters outside `[A-Za-z0-9_-]`.
+    InvalidHubId,
+    /// The hub id is bound to a different link key.
+    KeyMismatch,
+    /// The relay already holds [`MAX_KNOWN_HUBS`] bindings.
+    Full,
+    /// The new binding could not be written to the state file.
+    Persist,
+}
+
+impl RegisterError {
+    fn message(self) -> &'static str {
+        match self {
+            RegisterError::InvalidHubId => {
+                "Invalid hub id: 1-64 characters from [A-Za-z0-9_-] required"
+            }
+            RegisterError::KeyMismatch => "Hub id is registered with a different link key",
+            RegisterError::Full => "Relay has reached its hub registration limit",
+            RegisterError::Persist => "Relay could not persist the hub registration",
+        }
+    }
+}
+
+/// Whether `hub_id` is 1..=64 characters of `[A-Za-z0-9_-]`.
+pub fn is_valid_hub_id(hub_id: &str) -> bool {
+    !hub_id.is_empty()
+        && hub_id.len() <= MAX_HUB_ID_LEN
+        && hub_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+impl RelayState {
+    /// A relay whose hub-id → key bindings are persisted as JSON at `path`.
+    /// Existing bindings are loaded now; every new binding rewrites the file
+    /// atomically (temp file + rename). A missing file starts empty; an
+    /// unreadable or malformed file is an error.
+    pub fn with_state_file(path: PathBuf) -> anyhow::Result<Self> {
+        let known: HashMap<String, String> = match std::fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
+                anyhow::anyhow!("relay state file {} is not valid: {e}", path.display())
+            })?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "cannot read relay state file {}: {e}",
+                    path.display()
+                ))
+            }
+        };
+        Ok(Self {
+            known_keys: Arc::new(Mutex::new(known)),
+            state_file: Some(Arc::new(path)),
+            ..Self::default()
+        })
+    }
+
+    /// Number of hub-id → key bindings currently known.
+    pub fn known_hub_count(&self) -> usize {
+        self.known_keys.lock().unwrap().len()
+    }
+
+    /// Check `hub_id` against its bound key hash, binding it on first use.
+    fn claim(&self, hub_id: &str, key_hash: &str) -> Result<(), RegisterError> {
+        if !is_valid_hub_id(hub_id) {
+            return Err(RegisterError::InvalidHubId);
+        }
+        {
+            let mut known = self.known_keys.lock().unwrap();
+            match known.get(hub_id) {
+                Some(stored) => {
+                    return if ct_eq(stored, key_hash) {
+                        Ok(())
+                    } else {
+                        Err(RegisterError::KeyMismatch)
+                    };
+                }
+                None => {
+                    if known.len() >= MAX_KNOWN_HUBS {
+                        return Err(RegisterError::Full);
+                    }
+                    known.insert(hub_id.to_string(), key_hash.to_string());
+                }
+            }
+        }
+        if let Err(e) = self.persist() {
+            tracing::error!("Failed to persist relay state: {e}");
+            // Fail closed: a binding that is not on disk would be lost on
+            // restart, so refuse it rather than accept it silently.
+            let mut known = self.known_keys.lock().unwrap();
+            if known.get(hub_id).map(String::as_str) == Some(key_hash) {
+                known.remove(hub_id);
+            }
+            return Err(RegisterError::Persist);
+        }
+        Ok(())
+    }
+
+    /// Write the current bindings to the state file, if one is configured.
+    fn persist(&self) -> std::io::Result<()> {
+        let Some(path) = self.state_file.as_deref() else {
+            return Ok(());
+        };
+        let _guard = self.persist_lock.lock().unwrap();
+        let snapshot = self.known_keys.lock().unwrap().clone();
+        let bytes = serde_json::to_vec(&snapshot)?;
+        write_atomic(path, &bytes)
+    }
+}
+
+/// Replace `path` with `bytes` via a temp file in the same directory and a
+/// rename, so a crash never leaves a truncated state file behind.
+fn write_atomic(path: &FsPath, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("state file path has no file name"))?
+        .to_string_lossy()
+        .into_owned();
+    let tmp = path.with_file_name(format!(".{file_name}.tmp.{}", std::process::id()));
+    let written = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return written;
+    }
+    #[cfg(unix)]
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// Constant-time comparison of two hex hashes of equal length.
@@ -69,6 +250,13 @@ fn ct_eq(a: &str, b: &str) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+fn error_frame_text(message: &str) -> String {
+    serde_json::to_string(&RelayFrame::Error {
+        message: message.to_string(),
+    })
+    .unwrap_or_default()
 }
 
 pub fn create_router(state: RelayState) -> Router {
@@ -100,63 +288,55 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
         Some(RelayFrame::Register { hub_id, link_key }) => (hub_id, link_key),
         _ => {
             let _ = ws_tx
-                .send(WsMessage::Text(
-                    serde_json::to_string(&RelayFrame::Error {
-                        message: "First frame must be a register frame".to_string(),
-                    })
-                    .unwrap_or_default(),
-                ))
+                .send(WsMessage::Text(error_frame_text(
+                    "First frame must be a register frame",
+                )))
                 .await;
             return;
         }
     };
-
-    let (to_daemon_tx, mut to_daemon_rx) = mpsc::channel::<RelayFrame>(256);
-    let pending: Arc<Mutex<HashMap<String, oneshot::Sender<RelayFrame>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let streams: Arc<Mutex<HashMap<String, mpsc::Sender<StreamEvent>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
 
     // Claim (or re-claim) the hub id. The key is checked against a DURABLE
     // binding that outlives disconnects, so a stranger cannot grab a hub id
     // while its owner is briefly offline. Only the SHA-256 of the key is kept,
     // so the relay never holds the link key in the clear.
     let key_hash = mellowmesh_core::auth::hash_token(&link_key);
-    let accepted = {
-        let mut known = state.known_keys.lock().unwrap();
-        let key_matches = match known.get(&hub_id) {
-            Some(stored) => ct_eq(stored, &key_hash),
-            None => {
-                // Trust-on-first-use: first registration binds the key.
-                known.insert(hub_id.clone(), key_hash.clone());
-                true
-            }
-        };
-        drop(known);
-        if key_matches {
-            let mut hubs = state.hubs.lock().unwrap();
-            hubs.insert(
-                hub_id.clone(),
-                Arc::new(Hub {
-                    to_daemon: to_daemon_tx,
-                    pending: pending.clone(),
-                    streams: streams.clone(),
-                }),
-            );
-        }
-        key_matches
+    let claim = {
+        let state = state.clone();
+        let hub_id = hub_id.clone();
+        // Claiming may write the state file; keep that off the async workers.
+        tokio::task::spawn_blocking(move || state.claim(&hub_id, &key_hash))
+            .await
+            .unwrap_or(Err(RegisterError::Persist))
     };
-    if !accepted {
+    if let Err(e) = claim {
+        match e {
+            // Do not echo an unvalidated id into the logs.
+            RegisterError::InvalidHubId => {
+                tracing::warn!("Rejected registration with an invalid hub id")
+            }
+            _ => tracing::warn!("Rejected registration for hub '{}': {:?}", hub_id, e),
+        }
         let _ = ws_tx
-            .send(WsMessage::Text(
-                serde_json::to_string(&RelayFrame::Error {
-                    message: "Hub id is registered with a different link key".to_string(),
-                })
-                .unwrap_or_default(),
-            ))
+            .send(WsMessage::Text(error_frame_text(e.message())))
             .await;
         return;
     }
+
+    let (to_daemon_tx, mut to_daemon_rx) = mpsc::channel::<RelayFrame>(256);
+    let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+    let streams: StreamMap = Arc::new(Mutex::new(HashMap::new()));
+    let this_hub = Arc::new(Hub {
+        to_daemon: to_daemon_tx,
+        pending: pending.clone(),
+        streams: streams.clone(),
+        inflight: Arc::new(Semaphore::new(MAX_INFLIGHT_PER_HUB)),
+    });
+    state
+        .hubs
+        .lock()
+        .unwrap()
+        .insert(hub_id.clone(), this_hub.clone());
     tracing::info!("Hub '{}' linked", hub_id);
 
     let _ = ws_tx
@@ -181,7 +361,8 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
     });
 
     // Reader: response and stream frames from the daemon → waiting HTTP
-    // handlers and open subscription streams.
+    // handlers and open subscription streams. The reader never awaits a
+    // consumer, so one slow subscriber cannot stall the whole link.
     let pending_reader = pending.clone();
     let streams_reader = streams.clone();
     let mut reader = tokio::spawn(async move {
@@ -197,18 +378,33 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
                                 }
                             }
                             RelayFrame::StreamData { stream_id, text } => {
-                                let sender = {
-                                    let streams = streams_reader.lock().unwrap();
-                                    streams.get(&stream_id).cloned()
+                                let mut streams = streams_reader.lock().unwrap();
+                                let overflowed = match streams.get(&stream_id) {
+                                    Some(slot) => matches!(
+                                        slot.events.try_send(StreamEvent::Data(text)),
+                                        Err(mpsc::error::TrySendError::Full(_))
+                                    ),
+                                    None => false,
                                 };
-                                if let Some(tx) = sender {
-                                    let _ = tx.send(StreamEvent::Data(text)).await;
+                                if overflowed {
+                                    // The subscriber is not keeping up: end
+                                    // its stream. Its handler then tells the
+                                    // daemon to close the local subscription.
+                                    if let Some(slot) = streams.remove(&stream_id) {
+                                        slot.cancel.notify_one();
+                                    }
+                                    tracing::warn!(
+                                        "Closing stream '{}': subscriber too slow",
+                                        stream_id
+                                    );
                                 }
                             }
                             RelayFrame::StreamClose { stream_id } => {
-                                let sender = streams_reader.lock().unwrap().remove(&stream_id);
-                                if let Some(tx) = sender {
-                                    let _ = tx.send(StreamEvent::Close).await;
+                                // Removing the slot drops the sender, so the
+                                // handler ends once buffered data is drained.
+                                let slot = streams_reader.lock().unwrap().remove(&stream_id);
+                                if let Some(slot) = slot {
+                                    let _ = slot.events.try_send(StreamEvent::Close);
                                 }
                             }
                             _ => {}
@@ -221,23 +417,49 @@ async fn handle_link(socket: WebSocket, state: RelayState) {
         }
     });
 
+    // Wait for either half to end, then make sure the other has fully
+    // stopped (so the daemon-bound receiver is dropped before cleanup).
     tokio::select! {
-        _ = (&mut writer) => { reader.abort(); }
-        _ = (&mut reader) => { writer.abort(); }
+        _ = (&mut writer) => {
+            reader.abort();
+            let _ = reader.await;
+        }
+        _ = (&mut reader) => {
+            writer.abort();
+            let _ = writer.await;
+        }
     }
 
-    // Drop the hub registration only if it still points at this connection's
-    // channel (a reconnect may already have replaced it).
-    let mut hubs = state.hubs.lock().unwrap();
-    if let Some(hub) = hubs.get(&hub_id) {
-        if hub.to_daemon.is_closed() {
+    // Drop the hub registration only if it is still this connection's entry
+    // (a reconnect may already have replaced it).
+    {
+        let mut hubs = state.hubs.lock().unwrap();
+        if hubs
+            .get(&hub_id)
+            .is_some_and(|hub| Arc::ptr_eq(hub, &this_hub))
+        {
             hubs.remove(&hub_id);
             tracing::info!("Hub '{}' unlinked", hub_id);
         }
     }
-    drop(hubs);
-    // Dropping the senders ends every live stream attached to this link.
-    streams.lock().unwrap().clear();
+
+    // Fail every request still waiting on this link right away. Requests
+    // that arrive later find the daemon channel closed and fail on send.
+    let waiters: Vec<_> = pending.lock().unwrap().drain().collect();
+    for (id, tx) in waiters {
+        let _ = tx.send(RelayFrame::Response {
+            id,
+            status: StatusCode::BAD_GATEWAY.as_u16(),
+            content_type: Some("text/plain; charset=utf-8".to_string()),
+            body: Some("Hub link dropped while forwarding".to_string()),
+        });
+    }
+
+    // End every live stream attached to this link.
+    let slots: Vec<_> = streams.lock().unwrap().drain().collect();
+    for (_, slot) in slots {
+        slot.cancel.notify_one();
+    }
 }
 
 /// Remote client opening a live subscription stream through the relay.
@@ -265,8 +487,15 @@ async fn hub_stream_handler(
 
 async fn handle_hub_stream(socket: WebSocket, hub: Arc<Hub>, query: Option<String>) {
     let stream_id = format!("str_{}", Ulid::new().to_string().to_lowercase());
-    let (ev_tx, mut ev_rx) = mpsc::channel::<StreamEvent>(256);
-    hub.streams.lock().unwrap().insert(stream_id.clone(), ev_tx);
+    let (ev_tx, mut ev_rx) = mpsc::channel::<StreamEvent>(STREAM_BUFFER);
+    let cancel = Arc::new(Notify::new());
+    hub.streams.lock().unwrap().insert(
+        stream_id.clone(),
+        StreamSlot {
+            events: ev_tx,
+            cancel: cancel.clone(),
+        },
+    );
 
     if hub
         .to_daemon
@@ -284,10 +513,16 @@ async fn handle_hub_stream(socket: WebSocket, hub: Arc<Hub>, query: Option<Strin
     let (mut ws_tx, mut ws_rx) = socket.split();
     loop {
         tokio::select! {
+            _ = cancel.notified() => break,
             event = ev_rx.recv() => match event {
                 Some(StreamEvent::Data(text)) => {
-                    if ws_tx.send(WsMessage::Text(text)).await.is_err() {
-                        break;
+                    tokio::select! {
+                        sent = ws_tx.send(WsMessage::Text(text)) => {
+                            if sent.is_err() {
+                                break;
+                            }
+                        }
+                        _ = cancel.notified() => break,
                     }
                 }
                 Some(StreamEvent::Close) | None => break,
@@ -338,6 +573,23 @@ async fn forward(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    // The link protocol carries bodies as text; refuse anything that would
+    // not survive that unchanged instead of corrupting it.
+    let body = if body.is_empty() {
+        None
+    } else {
+        match String::from_utf8(body.to_vec()) {
+            Ok(text) => Some(text),
+            Err(_) => {
+                return (
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "The relay forwards UTF-8 request bodies only".to_string(),
+                )
+                    .into_response();
+            }
+        }
+    };
+
     let hub = {
         let hubs = state.hubs.lock().unwrap();
         hubs.get(&hub_id).cloned()
@@ -346,6 +598,14 @@ async fn forward(
         return (
             StatusCode::BAD_GATEWAY,
             format!("Hub '{hub_id}' is not connected to this relay"),
+        )
+            .into_response();
+    };
+
+    let Ok(_permit) = hub.inflight.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many requests in flight for this hub".to_string(),
         )
             .into_response();
     };
@@ -360,32 +620,27 @@ async fn forward(
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string()),
-        body: if body.is_empty() {
-            None
-        } else {
-            Some(String::from_utf8_lossy(&body).to_string())
-        },
+        body,
     };
 
     let (resp_tx, resp_rx) = oneshot::channel();
     hub.pending.lock().unwrap().insert(id.clone(), resp_tx);
 
-    if hub.to_daemon.send(frame).await.is_err() {
-        hub.pending.lock().unwrap().remove(&id);
-        return (
-            StatusCode::BAD_GATEWAY,
-            "Hub link dropped while forwarding".to_string(),
-        )
-            .into_response();
-    }
+    let outcome = tokio::time::timeout(FORWARD_TIMEOUT, async {
+        if hub.to_daemon.send(frame).await.is_err() {
+            return None;
+        }
+        Some(resp_rx.await)
+    })
+    .await;
 
-    match tokio::time::timeout(FORWARD_TIMEOUT, resp_rx).await {
-        Ok(Ok(RelayFrame::Response {
+    match outcome {
+        Ok(Some(Ok(RelayFrame::Response {
             status,
             content_type,
             body,
             ..
-        })) => {
+        }))) => {
             let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
             let mut response = (status, body.unwrap_or_default()).into_response();
             if let Some(ct) = content_type {
@@ -397,7 +652,15 @@ async fn forward(
             }
             response
         }
-        Ok(_) => (
+        Ok(None) | Ok(Some(Err(_))) => {
+            hub.pending.lock().unwrap().remove(&id);
+            (
+                StatusCode::BAD_GATEWAY,
+                "Hub link dropped while forwarding".to_string(),
+            )
+                .into_response()
+        }
+        Ok(Some(Ok(_))) => (
             StatusCode::BAD_GATEWAY,
             "Malformed hub response".to_string(),
         )
@@ -410,5 +673,85 @@ async fn forward(
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hub_id_validation() {
+        assert!(is_valid_hub_id("hub1"));
+        assert!(is_valid_hub_id("01hzz-abc_DEF"));
+        assert!(is_valid_hub_id(&"a".repeat(MAX_HUB_ID_LEN)));
+        assert!(!is_valid_hub_id(""));
+        assert!(!is_valid_hub_id(&"a".repeat(MAX_HUB_ID_LEN + 1)));
+        assert!(!is_valid_hub_id("bad id"));
+        assert!(!is_valid_hub_id("hub/../x"));
+        assert!(!is_valid_hub_id("hüb"));
+    }
+
+    #[test]
+    fn claim_binds_on_first_use_and_checks_later() {
+        let state = RelayState::default();
+        assert_eq!(state.claim("hub1", "aaaa"), Ok(()));
+        assert_eq!(state.claim("hub1", "aaaa"), Ok(()));
+        assert_eq!(state.claim("hub1", "bbbb"), Err(RegisterError::KeyMismatch));
+        assert_eq!(
+            state.claim("bad id", "aaaa"),
+            Err(RegisterError::InvalidHubId)
+        );
+        assert_eq!(state.known_hub_count(), 1);
+    }
+
+    #[test]
+    fn claim_rejects_when_full() {
+        let state = RelayState::default();
+        {
+            let mut known = state.known_keys.lock().unwrap();
+            for i in 0..MAX_KNOWN_HUBS {
+                known.insert(format!("h{i}"), "x".to_string());
+            }
+        }
+        assert_eq!(state.claim("newhub", "aaaa"), Err(RegisterError::Full));
+        // Existing bindings keep working at capacity.
+        assert_eq!(state.claim("h0", "x"), Ok(()));
+    }
+
+    #[test]
+    fn state_file_round_trip() {
+        let dir = std::env::temp_dir().join(format!(
+            "mellowmesh-relay-unit-{}-{}",
+            std::process::id(),
+            Ulid::new()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("relay-state.json");
+
+        let first = RelayState::with_state_file(path.clone()).unwrap();
+        assert_eq!(first.claim("hubP", "aaaa"), Ok(()));
+        drop(first);
+
+        let second = RelayState::with_state_file(path.clone()).unwrap();
+        assert_eq!(second.known_hub_count(), 1);
+        assert_eq!(
+            second.claim("hubP", "bbbb"),
+            Err(RegisterError::KeyMismatch)
+        );
+        assert_eq!(second.claim("hubP", "aaaa"), Ok(()));
+
+        // No temp files are left behind.
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name() != "relay-state.json")
+            .collect();
+        assert!(leftovers.is_empty());
+
+        // A corrupt state file is an error, not a silent reset.
+        std::fs::write(&path, b"not json").unwrap();
+        assert!(RelayState::with_state_file(path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
