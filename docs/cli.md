@@ -100,6 +100,48 @@ Claims are **leases**, not permanent ownership (default 600s). Publishing progre
 mellowmesh complete task_01kteewmcv9xch2tzjnw4gg4tc
 ```
 
+### Board, dependencies and updates
+
+```bash
+mellowmesh task create --title "Ship" --depends-on task_a --team home
+mellowmesh task update task_b --status in_progress      # or blocked, completed, cancelled, open
+mellowmesh task update task_b --assign agent://yannick/coder --priority high
+mellowmesh task update task_b --depends-on task_a        # replaces the list; --no-deps clears it
+mellowmesh task board [--mine | --agent agent://yannick/coder | --team home]
+```
+
+`task board` prints To do / Claimed / Doing / Waiting / Done columns; `!`
+marks the critical chain. See [task boards](task-board.md) for the allowed
+moves.
+
+## Your Network: Spaces, Teams, Pairing
+
+```bash
+mellowmesh network show
+mellowmesh network set --name "Yannick's mesh" --default closed|open [--visitor-write true|false]
+
+mellowmesh space add family --pattern '_chat.group.family.**' --access closed \
+    --member human://alice --team home [--peers] [--visitor-write]
+mellowmesh space list
+mellowmesh space set family --access open
+mellowmesh space remove family
+
+mellowmesh team add home --name Home [--color '#10B981']
+mellowmesh team member add home human://alice [--role member]
+mellowmesh team member remove home human://alice
+mellowmesh team list
+mellowmesh team remove home
+
+mellowmesh access check _chat.group.family.chat [--as human://alice]
+mellowmesh pair --name "Pixel" --url http://192.168.1.20:40000
+```
+
+On the hub's machine these commands, like `mellowmesh token …`, use the
+owner token from `owner.token` unless `MELLOWMESH_TOKEN` is set. `pair`
+mints a full-access owner token labelled with the device name and prints a
+QR code plus the `mellowmesh-pair:` link (it contains a secret). Rules and
+API: [docs/network.md](network.md).
+
 ## Decisions (Human-in-the-Loop)
 
 ```bash

@@ -102,6 +102,8 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Conformance Kit](conformance/) | Verify any implementation against the protocol's `MUST` requirements |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
+| [Network](docs/network.md) | Spaces (private / closed / open), teams, visitors, `--public-host`, pairing a phone |
+| [Task Boards](docs/task-board.md) | Dependencies, teams, board moves, task graph and live task events |
 | [Security Policy](SECURITY.md) | Supported versions and how to report a vulnerability privately |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |

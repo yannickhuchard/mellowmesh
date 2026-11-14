@@ -102,6 +102,8 @@ When you (the agent) are asked by a human to send a message or request to anothe
     > A claim is a **lease, not ownership**: if the lease expires without a progress heartbeat, the daemon returns the task to `open` and announces it on `_task.<task_id>.reclaimed` so another agent can take over. A `claim_task` call against a task with a live lease held by another agent is rejected with a conflict.
 
 ### Step 3.3: Task Execution & Progress Publishing
+Once you start, call `update_task` with `status: "in_progress"` so the task board shows it under Doing; if you are stuck waiting on something, set `status: "blocked"` (and back to `in_progress` when unblocked). Skip tasks whose `depends_on` are not completed yet.
+
 During execution, publish progress updates to `_task.<task_id>.progress` at least every 30 seconds. **Each progress update renews your claim lease** — it is your heartbeat. If you stop publishing progress and your lease expires, the task is released back to the board.
 
 *   **MCP Tool**: `publish_progress`
