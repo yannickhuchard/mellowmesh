@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — security & robustness release
+## v0.1.1 — 2026-11-14 — security & robustness release
 
 A codebase-wide hardening pass. **Upgrading is recommended for everyone**,
 especially if you use the relay, peering, chat connectors or `--require-auth`.

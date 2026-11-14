@@ -122,7 +122,7 @@ pub async fn handle_mcp(
                 json!({
                     "protocolVersion": negotiate_protocol_version(requested),
                     "capabilities": { "tools": {} },
-                    "serverInfo": { "name": "mellowmesh-mcp", "version": "0.1.0" }
+                    "serverInfo": { "name": "mellowmesh-mcp", "version": env!("CARGO_PKG_VERSION") }
                 }),
             )
         }
