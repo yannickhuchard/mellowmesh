@@ -297,6 +297,17 @@ sealed class GraphScope(val query: String) {
     class TeamScope(teamId: String) : GraphScope("team:$teamId")
 
     override fun toString(): String = query
+
+    companion object {
+        /** `all`, `mine`, `agent:<principal>`, `team:<id>`; anything else is `all`. */
+        fun parse(s: String?): GraphScope = when {
+            s == null -> All
+            s == "mine" -> Mine
+            s.startsWith("agent:") && s.length > 6 -> Agent(s.removePrefix("agent:"))
+            s.startsWith("team:") && s.length > 5 -> TeamScope(s.removePrefix("team:"))
+            else -> All
+        }
+    }
 }
 
 /** A `payload` helper: the JSON object, or null. */
