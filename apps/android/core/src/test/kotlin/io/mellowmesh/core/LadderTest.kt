@@ -15,6 +15,16 @@ class LadderTest {
     private val defaults = LadderSettings()
 
     @Test
+    fun settingsRoundTripAsJson() {
+        val s = LadderSettings(maxLevel = Level.ALARM, quietStartMinute = 22 * 60, digestEnabled = false)
+        val text = MeshJson.encodeToString(LadderSettings.serializer(), s)
+        assertTrue(text.contains("\"ALARM\""))
+        assertEquals(s, MeshJson.decodeFromString(LadderSettings.serializer(), text))
+        // Older / partial JSON falls back to defaults.
+        assertEquals(LadderSettings(), MeshJson.decodeFromString(LadderSettings.serializer(), "{}"))
+    }
+
+    @Test
     fun quietHoursWrapMidnight() {
         assertTrue(Ladder.isQuiet(defaults, 21 * 60))
         assertTrue(Ladder.isQuiet(defaults, night))
