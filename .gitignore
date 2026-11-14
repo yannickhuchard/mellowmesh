@@ -89,3 +89,5 @@ desktop.ini
 *.log
 *~
 *.bak
+__pycache__/
+*.pyc

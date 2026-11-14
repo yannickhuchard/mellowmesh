@@ -18,10 +18,10 @@ describe itself as "MellowMesh Compatible" (see licensing/TRADEMARK.md).
 
 Notes
 -----
-* The task-reclaim check (T6) observes the REST state transition (a task
-  returning to `open` after its lease expires). The reference implementation
-  also announces this on `_task.<id>.reclaimed` over WebSocket; verifying that
-  event requires a WS client and is covered by the reference test suite.
+* Lease reclaim is checked twice: T6 observes the REST state transition (the
+  task returns to `open`), and T9 subscribes over WebSocket (a minimal stdlib
+  RFC 6455 client is built in) and asserts the `_task.<id>.reclaimed`
+  announcement with its payload.
 * Governance checks that require an authenticated *agent* principal (D5) run
   only when you pass `--agent-token` (a real bearer token the hub issued to an
   `agent://` principal). Without it they are reported as SKIPPED, and the
@@ -29,10 +29,16 @@ Notes
 """
 
 import argparse
+import base64
 import json
+import os
+import socket
+import ssl
+import struct
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -151,6 +157,107 @@ class Hub:
                          token=token)
 
 
+class Subscription:
+    """Minimal RFC 6455 WebSocket client (stdlib only) for `GET /ws?pattern=`.
+
+    Enough for conformance: client handshake, masked client frames, unmasked
+    server text frames (with fragmentation), ping/pong, close.
+    """
+
+    def __init__(self, base, pattern, token=None, timeout=10):
+        u = urllib.parse.urlsplit(base.rstrip("/"))
+        secure = u.scheme in ("https", "wss")
+        host = u.hostname
+        port = u.port or (443 if secure else 80)
+        query = {"pattern": pattern}
+        if token:
+            query["token"] = token
+        path = f"{u.path}/ws?{urllib.parse.urlencode(query)}"
+
+        sock = socket.create_connection((host, port), timeout=timeout)
+        if secure:
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+        self.sock = sock
+        key = base64.b64encode(os.urandom(16)).decode()
+        handshake = (
+            f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        )
+        sock.sendall(handshake.encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("connection closed during WebSocket handshake")
+            head += chunk
+        head, self.buf = head.split(b"\r\n\r\n", 1)
+        status_line = head.split(b"\r\n", 1)[0].decode("latin-1")
+        if " 101 " not in status_line + " ":
+            raise ConnectionError(f"WebSocket upgrade refused: {status_line}")
+
+    def _read_exact(self, n):
+        while len(self.buf) < n:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise ConnectionError("WebSocket closed")
+            self.buf += chunk
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def _send(self, opcode, payload=b""):
+        mask = os.urandom(4)
+        header = bytes([0x80 | opcode])
+        n = len(payload)
+        if n < 126:
+            header += bytes([0x80 | n])
+        elif n < 65536:
+            header += bytes([0x80 | 126]) + struct.pack("!H", n)
+        else:
+            header += bytes([0x80 | 127]) + struct.pack("!Q", n)
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(header + mask + masked)
+
+    def recv_text(self, deadline):
+        """Return the next text message, or None if `deadline` passes first."""
+        message = b""
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+            self.sock.settimeout(remaining)
+            try:
+                b0, b1 = self._read_exact(2)
+            except socket.timeout:
+                return None
+            fin, opcode = b0 & 0x80, b0 & 0x0F
+            n = b1 & 0x7F
+            if n == 126:
+                n = struct.unpack("!H", self._read_exact(2))[0]
+            elif n == 127:
+                n = struct.unpack("!Q", self._read_exact(8))[0]
+            mask = self._read_exact(4) if b1 & 0x80 else None
+            payload = self._read_exact(n)
+            if mask:
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            if opcode == 0x9:  # ping
+                self._send(0xA, payload)
+                continue
+            if opcode == 0x8:  # close
+                return None
+            if opcode in (0x1, 0x0):
+                message += payload
+                if fin:
+                    return message.decode("utf-8", "replace")
+
+    def close(self):
+        try:
+            self._send(0x8)
+        except OSError:
+            pass
+        self.sock.close()
+
+
 def _parse(raw):
     if not raw:
         return None
@@ -231,6 +338,44 @@ def check_tasks(hub, rep, reclaim_timeout):
     else:
         rep.add("T6", "§6.2", "An expired lease returns the task to open", ERROR,
                 "could not create task")
+
+    # T9 — the reclaim is ANNOUNCED on _task.<id>.reclaimed over WebSocket
+    st, t9 = hub.create_task("conformance T9")
+    tid9 = t9.get("id") if isinstance(t9, dict) else None
+    if not tid9:
+        rep.add("T9", "§6.2", "Reclaim is announced on _task.<id>.reclaimed", ERROR,
+                "could not create task")
+    else:
+        try:
+            sub = Subscription(hub.base, f"_task.{tid9}.reclaimed", token=hub.token,
+                               timeout=hub.timeout)
+        except Exception as e:
+            rep.add("T9", "§6.2", "Reclaim is announced on _task.<id>.reclaimed", FAIL,
+                    f"WebSocket subscription failed: {e}")
+        else:
+            try:
+                time.sleep(0.3)  # let the subscription register before claiming
+                hub.claim(tid9, A, lease_seconds=2)
+                deadline = time.time() + reclaim_timeout
+                event, why = None, "no announcement received"
+                while event is None:
+                    text = sub.recv_text(deadline)
+                    if text is None:
+                        why = f"no announcement within {reclaim_timeout}s"
+                        break
+                    msg = _parse(text)
+                    if isinstance(msg, dict) and msg.get("topic") == f"_task.{tid9}.reclaimed":
+                        event = msg
+                payload = (event or {}).get("payload") or {}
+                ok = (event is not None and payload.get("status") == "open"
+                      and payload.get("previous_claimant") == A)
+                if event is not None and not ok:
+                    why = f"payload={payload} (expected status=open, previous_claimant={A})"
+                rep.add("T9", "§6.2",
+                        "Reclaim is announced on _task.<id>.reclaimed (WebSocket)",
+                        PASS if ok else FAIL, why)
+            finally:
+                sub.close()
 
     # T7 — complete
     st, tc = hub.create_task("conformance T7")

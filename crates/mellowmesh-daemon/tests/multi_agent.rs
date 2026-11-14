@@ -11,6 +11,7 @@
 //!   * concurrent human decisions are each answered exactly once, with the
 //!     approve/reject outcome recorded faithfully.
 
+use futures_util::StreamExt;
 use mellowmesh_client::MellowMeshClient;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::{Decision, DecisionOption, DecisionOutcome};
@@ -240,10 +241,25 @@ async fn lease_reclaim_hands_work_to_another_agent() {
         .await
         .unwrap();
 
+    // Subscribe to the reclaim announcement BEFORE the lease can expire.
+    let mut reclaim_events = Box::pin(c.subscribe("_task.task_crash.reclaimed").await.unwrap());
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
     // Agent A claims with a 1s lease, then "crashes" (never heartbeats).
     c.claim_task_with_lease("task_crash", "agent://test/a", Some(1))
         .await
         .unwrap();
+
+    // The sweeper must ANNOUNCE the reclaim over WebSocket, not just flip state.
+    let event = tokio::time::timeout(tokio::time::Duration::from_secs(10), reclaim_events.next())
+        .await
+        .expect("no _task.<id>.reclaimed event within 10s")
+        .expect("subscription closed")
+        .expect("bad frame");
+    assert_eq!(event.topic, "_task.task_crash.reclaimed");
+    let payload = event.payload.expect("reclaim event carries a payload");
+    assert_eq!(payload["status"], "open");
+    assert_eq!(payload["previous_claimant"], "agent://test/a");
 
     // Wait past the lease + a sweep tick; the sweeper should reclaim it.
     let mut reclaimed = false;
@@ -350,4 +366,73 @@ async fn concurrent_decisions_answered_once_with_correct_outcome() {
             Some("human://local-unauthenticated")
         );
     }
+}
+
+/// The reference hub must pass its own language-agnostic conformance kit
+/// (conformance/mellowmesh_conformance.py) end-to-end, including the
+/// agent-cannot-answer governance check and the WebSocket reclaim
+/// announcement. Skipped (with a message) if python3 is unavailable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reference_hub_passes_conformance_kit() {
+    use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("python3 not found; skipping conformance-kit test");
+        return;
+    }
+
+    let port = 41050;
+    let store = spawn_daemon(port).await;
+
+    // Mint a real agent:// token so the kit can run the D5 governance check.
+    let agent_token = generate_token();
+    store
+        .upsert_principal(&Principal {
+            id: "agent://conformance/agent".to_string(),
+            kind: "agent".to_string(),
+            display_name: None,
+            created_at: chrono::Utc::now(),
+        })
+        .unwrap();
+    store
+        .insert_token(&TokenRecord {
+            id: "tok_conformance_agent".to_string(),
+            principal: "agent://conformance/agent".to_string(),
+            token_hash: hash_token(&agent_token),
+            read_scopes: vec!["**".to_string()],
+            write_scopes: vec!["**".to_string()],
+            created_at: chrono::Utc::now(),
+            revoked: false,
+        })
+        .unwrap();
+
+    let kit = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../conformance/mellowmesh_conformance.py");
+    let url = format!("http://127.0.0.1:{port}");
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("python3")
+            .arg(kit)
+            .args(["--url", &url, "--reclaim-timeout", "15"])
+            .args(["--agent-token", &agent_token])
+            .output()
+            .expect("failed to run conformance kit")
+    })
+    .await
+    .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("{stdout}");
+    assert!(
+        output.status.success(),
+        "reference hub failed its own conformance kit:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("MellowMesh Compatible (governed)"),
+        "expected the full 'governed' verdict:\n{stdout}"
+    );
 }

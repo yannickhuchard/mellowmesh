@@ -30,6 +30,7 @@ security-critical guarantees:
 | T6 | An expired lease returns the task to `open` — no work is stranded. |
 | T7 | A held task can be completed. |
 | T8 | Completing an already-terminal task is refused (409). |
+| T9 | The reclaim is **announced** on `_task.<id>.reclaimed` over WebSocket, with `status: open` and the previous claimant. |
 
 ### §7 — Human-in-the-loop decision governance
 
@@ -74,14 +75,13 @@ kill %1
 
 ## Scope and honesty
 
-- The kit checks the **observable REST behavior**. The reclaim check (T6)
-  observes the task returning to `open`; the reference implementation *also*
-  announces this on `_task.<id>.reclaimed` over WebSocket, which the reference
-  test suite covers separately (a fuller kit could add a WebSocket assertion).
-- The governance MUSTs are validated against the reference implementation by the
-  in-process integration tests (`crates/mellowmesh-daemon/tests/multi_agent.rs`
-  and the decision-governance tests in `server.rs`); this kit runs the same
-  checks over REST so *any* implementation can be certified the same way.
+- Lease reclaim is checked both ways: T6 observes the REST state transition, and
+  T9 subscribes over WebSocket (a minimal RFC 6455 client is built in — still no
+  dependencies) and asserts the `_task.<id>.reclaimed` announcement and payload.
+- The reference implementation runs this exact kit against itself in its test
+  suite (`reference_hub_passes_conformance_kit` in
+  `crates/mellowmesh-daemon/tests/multi_agent.rs`), with a real agent token, and
+  must reach the **governed** verdict for the build to pass.
 - Passing the kit is necessary, not sufficient, for the "MellowMesh Compatible"
   and "Certified" marks — see [../licensing/TRADEMARK.md](../licensing/TRADEMARK.md).
 
