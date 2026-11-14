@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// without specifying `lease_seconds` (10 minutes).
 pub const DEFAULT_LEASE_SECONDS: u64 = 600;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Task {
     pub id: String, // e.g., "task_01HY..."
     pub title: String,

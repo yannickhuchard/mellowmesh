@@ -30,11 +30,19 @@ impl Store {
     }
 
     pub fn new_in_memory() -> anyhow::Result<Self> {
+        // A bare `:memory:` database is private to a single connection, so a
+        // multi-connection pool would yield several independent, unmigrated
+        // schemas (and a shared-cache in-memory DB raises `SQLITE_LOCKED`
+        // under concurrent access, which `busy_timeout` does not retry).
+        // Pinning the pool to a single connection gives every caller the same
+        // migrated database and serializes access cleanly — correct for the
+        // tests and tools that use in-memory stores. Production uses the
+        // file-backed, WAL, multi-connection [`Store::new`].
         let manager = SqliteConnectionManager::memory().with_init(|c| {
             c.pragma_update(None, "busy_timeout", 5000)?;
             Ok(())
         });
-        let pool = Pool::new(manager)?;
+        let pool = Pool::builder().max_size(1).build(manager)?;
         let store = Store { pool };
         store.run_migrations()?;
         Ok(store)
@@ -235,6 +243,9 @@ impl Store {
             [],
         )?;
         let _ = conn.execute("ALTER TABLE decisions ADD COLUMN responded_by TEXT", []);
+        // Link a token to its derived e2e key id so revocation can delete the
+        // key too, instead of leaving orphaned key material behind.
+        let _ = conn.execute("ALTER TABLE tokens ADD COLUMN e2e_key_id TEXT", []);
 
         // End-to-end encryption keys, keyed by the token's derived key id.
         // Stored so the daemon can decrypt relayed envelopes without ever
@@ -707,12 +718,22 @@ mod tests {
             created_by: "agent://codex".to_string(),
             required_decider: "human://yannick".to_string(),
             status: "requested".to_string(),
-            options: vec![DecisionOption {
-                id: "option_1".to_string(),
-                label: "Yes".to_string(),
-                pros: vec![],
-                cons: vec![],
-            }],
+            options: vec![
+                DecisionOption {
+                    id: "option_1".to_string(),
+                    label: "Yes".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Approve),
+                },
+                DecisionOption {
+                    id: "option_2".to_string(),
+                    label: "No".to_string(),
+                    pros: vec![],
+                    cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Reject),
+                },
+            ],
             response_option_id: None,
             response_timestamp: None,
             responded_by: None,
@@ -723,14 +744,63 @@ mod tests {
         let retrieved = store.get_decision("decision_1").unwrap().unwrap();
         assert_eq!(retrieved.title, "Test Decision");
 
-        store
-            .respond_decision("decision_1", "option_1", Some("human://yannick"))
+        let did = store
+            .respond_decision(
+                "decision_1",
+                "option_1",
+                "approved",
+                Some("human://yannick"),
+            )
             .unwrap();
+        assert!(did);
         let responded = store.get_decision("decision_1").unwrap().unwrap();
         assert_eq!(responded.status, "approved");
         assert_eq!(responded.response_option_id, Some("option_1".to_string()));
         assert!(responded.response_timestamp.is_some());
         assert_eq!(responded.responded_by, Some("human://yannick".to_string()));
+
+        // A decision is answered exactly once: a second response is refused,
+        // so an approval can never be silently overwritten (and vice versa).
+        let again = store
+            .respond_decision("decision_1", "option_2", "rejected", Some("agent://codex"))
+            .unwrap();
+        assert!(!again, "already-answered decision must not be re-answered");
+        let still = store.get_decision("decision_1").unwrap().unwrap();
+        assert_eq!(still.status, "approved");
+        assert_eq!(still.responded_by, Some("human://yannick".to_string()));
+    }
+
+    #[test]
+    fn test_reject_is_recorded_as_rejected() {
+        let store = Store::new_in_memory().unwrap();
+        let dec = Decision {
+            id: "decision_r".to_string(),
+            title: "Deploy?".to_string(),
+            question: "Ship to prod?".to_string(),
+            created_by: "agent://codex".to_string(),
+            required_decider: "human://yannick".to_string(),
+            status: "requested".to_string(),
+            options: vec![DecisionOption {
+                id: "option_no".to_string(),
+                label: "No".to_string(),
+                pros: vec![],
+                cons: vec![],
+                outcome: Some(mellowmesh_core::decision::DecisionOutcome::Reject),
+            }],
+            response_option_id: None,
+            response_timestamp: None,
+            responded_by: None,
+        };
+        store.insert_decision(&dec).unwrap();
+        let status = dec.status_for_option("option_no").unwrap();
+        assert!(store
+            .respond_decision("decision_r", "option_no", status, Some("human://yannick"))
+            .unwrap());
+        let responded = store.get_decision("decision_r").unwrap().unwrap();
+        assert_eq!(
+            responded.status, "rejected",
+            "a human's rejection must persist as 'rejected', never 'approved'"
+        );
     }
 
     #[test]

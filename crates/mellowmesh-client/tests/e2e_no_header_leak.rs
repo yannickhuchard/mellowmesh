@@ -4,7 +4,9 @@
 
 use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
 use mellowmesh_client::MellowMeshClient;
-use mellowmesh_core::e2e::{derive_key, open, seal, Envelope, SealedResponse};
+use mellowmesh_core::e2e::{
+    derive_key, open, seal, Envelope, SealedResponse, CTX_REQUEST, CTX_RESPONSE,
+};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -27,13 +29,19 @@ async fn e2e_handler(
 
     // Prove the request really was sealed under the token, and reply sealed.
     let key = derive_key(&cap.token);
-    open(&key, &envelope).expect("request should decrypt under the token key");
+    open(&key, CTX_REQUEST, &envelope).expect("request should decrypt under the token key");
     let resp = SealedResponse {
         status: 200,
         content_type: Some("application/json".to_string()),
         body: Some("[]".to_string()),
     };
-    let reply = seal(&key, &envelope.key_id, &serde_json::to_vec(&resp).unwrap()).unwrap();
+    let reply = seal(
+        &key,
+        &envelope.key_id,
+        CTX_RESPONSE,
+        &serde_json::to_vec(&resp).unwrap(),
+    )
+    .unwrap();
     Json(reply)
 }
 

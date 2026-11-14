@@ -125,6 +125,16 @@ pub fn handle_publish(
 
                             let state_clone = state.clone();
                             tokio::spawn(route_to_inbox(state_clone, routed_msg));
+                        } else if mention_uri.starts_with("human://") {
+                            // A human-directed mention triggers a desktop
+                            // notification so the human-in-the-loop actually
+                            // sees it, instead of it dead-ending in a header.
+                            crate::notify::notify_human_mention(
+                                &mention_uri,
+                                &msg.from,
+                                &msg.topic,
+                                &msg.body,
+                            );
                         }
                     }
                 }
@@ -334,7 +344,7 @@ pub fn handle_publish(
 pub async fn publish_message(
     State(state): State<AppState>,
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
-    Json(msg): Json<Message>,
+    Json(mut msg): Json<Message>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !ctx.can_write(&msg.topic) {
         return Err((
@@ -345,6 +355,42 @@ pub async fn publish_message(
             ),
         ));
     }
+
+    // Routing headers are set by the daemon, never by a publisher: a client
+    // must not be able to suppress mention routing or forge a "routed" copy
+    // into another agent's inbox.
+    if let Some(h) = msg.headers.as_mut() {
+        h.remove("x-mellowmesh-routed");
+        h.remove("x-mentions");
+    }
+
+    if let Some(p) = &ctx.principal {
+        // Bind provenance to the authenticated principal so a message's
+        // origin can be trusted for audit.
+        msg.owner = Some(p.id.clone());
+
+        // A claim-lease heartbeat (publishing on `_task.<id>.progress`) may
+        // only renew the lease of the agent that is actually authenticated —
+        // an agent cannot keep another agent's lease alive by spoofing `from`.
+        if p.kind == "agent" {
+            let is_progress = msg
+                .topic
+                .strip_prefix("_task.")
+                .and_then(|rest| rest.strip_suffix(".progress"))
+                .map(|id| !id.is_empty() && !id.contains('.'))
+                .unwrap_or(false);
+            if is_progress && msg.from != p.id {
+                return Err((
+                    StatusCode::FORBIDDEN,
+                    format!(
+                        "Agent {} cannot publish a task heartbeat as {}",
+                        p.id, msg.from
+                    ),
+                ));
+            }
+        }
+    }
+
     match handle_publish(std::sync::Arc::new(state), msg).await {
         Ok(m) => Ok((StatusCode::OK, Json(m))),
         Err(e) => Err((StatusCode::BAD_REQUEST, e)),
@@ -391,9 +437,19 @@ pub async fn search_messages(
 
 pub async fn list_topics(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     match state.store.list_topics() {
-        Ok(topics) => Ok(Json(topics)),
+        Ok(topics) => {
+            // A scoped principal only sees topics it is allowed to read, so
+            // topic enumeration can't be used to map the whole namespace.
+            let visible: Vec<String> = if ctx.principal.is_some() {
+                topics.into_iter().filter(|t| ctx.can_read(t)).collect()
+            } else {
+                topics
+            };
+            Ok(Json(visible))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to list topics: {e}"),

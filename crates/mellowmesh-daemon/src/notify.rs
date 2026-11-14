@@ -48,6 +48,16 @@ pub fn notify_decision_requested(decision: &Decision) {
     );
 }
 
+/// Notify the local human that they were @mentioned on the fabric. Without
+/// this, a human-directed mention is only a header on a message no one reads.
+pub fn notify_human_mention(human_uri: &str, from: &str, topic: &str, snippet: &str) {
+    let preview: String = snippet.chars().take(160).collect();
+    send_toast(
+        format!("{human_uri}: mentioned by {from}"),
+        format!("on {topic}\n{preview}"),
+    );
+}
+
 /// Notify when a task claim lease expired and work was returned to the board.
 pub fn notify_task_reclaimed(task_title: &str, previous_claimant: &str) {
     send_toast(

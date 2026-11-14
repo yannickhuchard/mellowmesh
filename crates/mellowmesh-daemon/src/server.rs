@@ -5,6 +5,7 @@ use axum::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
         Query, State,
     },
+    http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
     Router,
@@ -114,9 +115,25 @@ async fn ui_handler() -> impl IntoResponse {
     axum::response::Html(include_str!("ui.html"))
 }
 
-async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
+async fn shutdown_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+) -> impl IntoResponse {
+    // Shutting down the daemon is an owner-only action. A scoped agent or
+    // interface token must not be able to take the whole fabric down.
+    if !crate::auth::is_admin(&state, &ctx) {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::response::Json(
+                serde_json::json!({ "error": "Only the owner may shut down the daemon" }),
+            ),
+        );
+    }
     state.shutdown_trigger.notify_one();
-    axum::response::Json(serde_json::json!({ "status": "shutting down" }))
+    (
+        StatusCode::OK,
+        axum::response::Json(serde_json::json!({ "status": "shutting down" })),
+    )
 }
 
 async fn ws_handler(
@@ -187,8 +204,13 @@ async fn handle_socket(
                     // Encrypted subscription: seal every delivered message so
                     // a relay in the middle sees only ciphertext.
                     let out = if let Some((key, key_id)) = &stream_e2e {
-                        match mellowmesh_core::e2e::seal(key, key_id, text.as_bytes())
-                            .and_then(|e| Ok(serde_json::to_string(&e)?))
+                        match mellowmesh_core::e2e::seal(
+                            key,
+                            key_id,
+                            mellowmesh_core::e2e::CTX_STREAM,
+                            text.as_bytes(),
+                        )
+                        .and_then(|e| Ok(serde_json::to_string(&e)?))
                         {
                             Ok(sealed) => sealed,
                             Err(_) => continue,
@@ -273,6 +295,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_open_mode_reject_and_no_forged_human() {
+        use mellowmesh_core::decision::{Decision, DecisionOption, DecisionOutcome};
+
+        let store = Store::new_in_memory().unwrap();
+        store
+            .insert_decision(&Decision {
+                id: "dec_gov".to_string(),
+                title: "Deploy?".to_string(),
+                question: "Ship to prod?".to_string(),
+                created_by: "agent://you/builder".to_string(),
+                required_decider: "human://you".to_string(),
+                status: "requested".to_string(),
+                options: vec![
+                    DecisionOption {
+                        id: "yes".to_string(),
+                        label: "Approve".to_string(),
+                        pros: vec![],
+                        cons: vec![],
+                        outcome: Some(DecisionOutcome::Approve),
+                    },
+                    DecisionOption {
+                        id: "no".to_string(),
+                        label: "Reject".to_string(),
+                        pros: vec![],
+                        cons: vec![],
+                        outcome: Some(DecisionOutcome::Reject),
+                    },
+                ],
+                response_option_id: None,
+                response_timestamp: None,
+                responded_by: None,
+            })
+            .unwrap();
+
+        let port = 40016;
+        let state = test_state(store.clone(), false); // OPEN mode
+        let app = create_router(state);
+        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Reject the decision, and try to forge a human in the body.
+        let http = reqwest::Client::new();
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .json(&serde_json::json!({
+                "option_id": "no",
+                "responded_by": "human://yannick"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let d = store.get_decision("dec_gov").unwrap().unwrap();
+        // A rejection is recorded as rejected, never approved.
+        assert_eq!(d.status, "rejected");
+        // Open mode never trusts a caller-supplied human — no forgery.
+        assert_eq!(
+            d.responded_by,
+            Some("human://local-unauthenticated".to_string())
+        );
+
+        // A decision is answered exactly once.
+        let again = http
+            .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .json(&serde_json::json!({ "option_id": "yes" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(again.status(), 409);
+    }
+
+    #[tokio::test]
     async fn test_http_mcp_endpoint() {
         let store = Store::new_in_memory().unwrap();
         let port = 40012;
@@ -316,7 +415,13 @@ mod tests {
             .await
             .unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert!(tools.len() >= 20);
+        // Pin the exact count so the documented number (README, docs/mcp.md)
+        // and the code can never silently drift apart again.
+        assert_eq!(
+            tools.len(),
+            28,
+            "MCP tool count changed — update README.md and docs/mcp.md to match"
+        );
 
         // tools/call round-trips through the daemon's own API
         let resp: serde_json::Value = http
@@ -477,7 +582,8 @@ mod tests {
     async fn test_e2e_encrypted_request() {
         use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
         use mellowmesh_core::e2e::{
-            derive_key, derive_key_id, open, seal, Envelope, SealedRequest, SealedResponse,
+            derive_key, derive_key_id, new_jti, open, seal, Envelope, SealedRequest,
+            SealedResponse, CTX_REQUEST, CTX_RESPONSE,
         };
 
         let store = Store::new_in_memory().unwrap();
@@ -524,12 +630,19 @@ mod tests {
         // Seal a GET /tasks and send it through /e2e/request.
         let sealed = SealedRequest {
             ts: chrono::Utc::now().timestamp(),
+            jti: Some(new_jti()),
             method: "GET".to_string(),
             path_and_query: "/tasks".to_string(),
             authorization: Some(format!("Bearer {token}")),
             body: None,
         };
-        let envelope = seal(&key, &key_id, &serde_json::to_vec(&sealed).unwrap()).unwrap();
+        let envelope = seal(
+            &key,
+            &key_id,
+            CTX_REQUEST,
+            &serde_json::to_vec(&sealed).unwrap(),
+        )
+        .unwrap();
 
         let resp = http
             .post(format!("http://127.0.0.1:{port}/e2e/request"))
@@ -539,9 +652,22 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), 200);
         let reply: Envelope = resp.json().await.unwrap();
-        let opened = open(&key, &reply).unwrap();
+        let opened = open(&key, CTX_RESPONSE, &reply).unwrap();
         let sealed_resp: SealedResponse = serde_json::from_slice(&opened).unwrap();
         assert_eq!(sealed_resp.status, 200); // inner GET /tasks succeeded under auth
+
+        // Replaying the exact same envelope (same jti) is rejected.
+        let replay = http
+            .post(format!("http://127.0.0.1:{port}/e2e/request"))
+            .json(&envelope)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            replay.status(),
+            401,
+            "replayed sealed request must be rejected"
+        );
 
         // Tampered ciphertext → decryption fails at the daemon → 401.
         let mut bad = envelope.clone();
@@ -559,12 +685,19 @@ mod tests {
         // Replay outside the window → rejected.
         let stale = SealedRequest {
             ts: chrono::Utc::now().timestamp() - 10_000,
+            jti: Some(new_jti()),
             method: "GET".to_string(),
             path_and_query: "/tasks".to_string(),
             authorization: Some(format!("Bearer {token}")),
             body: None,
         };
-        let stale_env = seal(&key, &key_id, &serde_json::to_vec(&stale).unwrap()).unwrap();
+        let stale_env = seal(
+            &key,
+            &key_id,
+            CTX_REQUEST,
+            &serde_json::to_vec(&stale).unwrap(),
+        )
+        .unwrap();
         let resp = http
             .post(format!("http://127.0.0.1:{port}/e2e/request"))
             .json(&stale_env)
@@ -572,13 +705,43 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 401);
+
+        // SSRF guard: a sealed path that is not an absolute path is rejected
+        // before it can redirect the daemon's loopback request off-host.
+        let ssrf = SealedRequest {
+            ts: chrono::Utc::now().timestamp(),
+            jti: Some(new_jti()),
+            method: "GET".to_string(),
+            path_and_query: "@attacker.example.com/x".to_string(),
+            authorization: Some(format!("Bearer {token}")),
+            body: None,
+        };
+        let ssrf_env = seal(
+            &key,
+            &key_id,
+            CTX_REQUEST,
+            &serde_json::to_vec(&ssrf).unwrap(),
+        )
+        .unwrap();
+        let resp = http
+            .post(format!("http://127.0.0.1:{port}/e2e/request"))
+            .json(&ssrf_env)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            400,
+            "non-absolute sealed path must be rejected"
+        );
     }
 
     #[tokio::test]
     async fn test_e2e_encrypted_subscription() {
         use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
         use mellowmesh_core::e2e::{
-            derive_key, derive_key_id, open, seal, Envelope, SealedRequest,
+            derive_key, derive_key_id, new_jti, open, seal, Envelope, SealedRequest, CTX_PROOF,
+            CTX_STREAM,
         };
 
         let store = Store::new_in_memory().unwrap();
@@ -620,12 +783,19 @@ mod tests {
         // Subscribe with a sealed proof instead of a raw token in the query.
         let proof = SealedRequest {
             ts: chrono::Utc::now().timestamp(),
+            jti: Some(new_jti()),
             method: "SUBSCRIBE".to_string(),
             path_and_query: "/ws".to_string(),
             authorization: Some(format!("Bearer {token}")),
             body: None,
         };
-        let envelope = seal(&key, &key_id, &serde_json::to_vec(&proof).unwrap()).unwrap();
+        let envelope = seal(
+            &key,
+            &key_id,
+            CTX_PROOF,
+            &serde_json::to_vec(&proof).unwrap(),
+        )
+        .unwrap();
         let ws_url = format!(
             "ws://127.0.0.1:{port}/ws?pattern=_task.%2A%2A&e2e_kid={}&e2e_nonce={}&e2e_ct={}",
             envelope.key_id, envelope.nonce, envelope.ciphertext
@@ -661,7 +831,7 @@ mod tests {
             "delivered frame leaked plaintext: {text}"
         );
         let delivered: Envelope = serde_json::from_str(text).unwrap();
-        let opened = open(&key, &delivered).unwrap();
+        let opened = open(&key, CTX_STREAM, &delivered).unwrap();
         let msg: mellowmesh_core::message::Message = serde_json::from_slice(&opened).unwrap();
         assert_eq!(msg.topic, "_task.demo.progress");
         assert_eq!(msg.body, "sealed delivery");
@@ -715,6 +885,7 @@ mod tests {
                     label: "Yes".to_string(),
                     pros: vec![],
                     cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Approve),
                 }],
                 response_option_id: None,
                 response_timestamp: None,

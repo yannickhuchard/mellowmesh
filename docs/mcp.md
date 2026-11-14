@@ -33,7 +33,7 @@ Spawn `mellowmesh mcp` as a background stdio subprocess. The server communicates
 
 ## Remote MCP (Streamable HTTP)
 
-The daemon also serves the same 21 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
+The daemon also serves the same 28 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
 
 ```text
 https://<relay>/hub/<hub_id>/mcp
@@ -43,7 +43,7 @@ Any client speaking the Streamable HTTP MCP transport (Claude Mobile/web connect
 
 ## Exposed MCP Tools
 
-The server registers 21 tools covering all aspects of coordination:
+The server registers 28 tools covering all aspects of coordination:
 
 | Category | Tools |
 | :--- | :--- |
@@ -52,7 +52,11 @@ The server registers 21 tools covering all aspects of coordination:
 | **Tasks & Lifecycle** | `create_task`, `list_tasks`, `claim_task`, `complete_task` |
 | **Human Consensus** | `create_decision`, `list_decisions`, `respond_decision` |
 | **Semantic Context** | `store_topic_summary`, `get_context` |
+| **Wiki** | `list_wiki_pages`, `get_wiki_page`, `write_wiki_page`, `search_wiki` |
+| **Named Topics** | `register_named_topic`, `list_named_topics`, `remove_named_topic` |
 | **Telemetry & Metrics** | `enable_trace`, `disable_trace`, `list_traces`, `get_metrics` |
+
+`create_decision` options may be plain strings, or objects `{"label": "...", "outcome": "approve"|"reject"|"neutral"}`. Marking an option `reject` is what makes a human's rejection record as `rejected` rather than `approved`.
 
 ### Task claims are leases
 

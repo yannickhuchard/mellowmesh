@@ -68,8 +68,18 @@ impl PeerManager {
 async fn run_peer_link(node_id: String, peer: PeerConfig, state: AppState) {
     let mut backoff = Duration::from_secs(1);
 
-    // Construct WebSocket URL
-    let ws_url = format!("ws://{}/ws?pattern={}", peer.addr, peer.pattern);
+    // Present a token to the peer so a peer running with --require-auth can
+    // authenticate this link instead of accepting anonymous subscribers.
+    let peer_token = std::env::var("MELLOWMESH_PEER_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    let ws_url = match &peer_token {
+        Some(tok) => format!(
+            "ws://{}/ws?pattern={}&token={}",
+            peer.addr, peer.pattern, tok
+        ),
+        None => format!("ws://{}/ws?pattern={}", peer.addr, peer.pattern),
+    };
 
     loop {
         tracing::info!("Connecting to peer at {}", ws_url);
@@ -100,6 +110,22 @@ async fn run_peer_link(node_id: String, peer: PeerConfig, state: AppState) {
                                         tracing::trace!(
                                             "Dropped looped message {} from peer {}",
                                             msg.id,
+                                            peer.addr
+                                        );
+                                        continue;
+                                    }
+
+                                    // A peer may only inject topics inside the
+                                    // pattern this link explicitly subscribed
+                                    // to — it cannot push arbitrary topics
+                                    // (e.g. `_decision.**`) into our fabric.
+                                    if !mellowmesh_core::topic::match_topic(
+                                        &peer.pattern,
+                                        &msg.topic,
+                                    ) {
+                                        tracing::warn!(
+                                            "Dropped out-of-pattern topic '{}' from peer {}",
+                                            msg.topic,
                                             peer.addr
                                         );
                                         continue;

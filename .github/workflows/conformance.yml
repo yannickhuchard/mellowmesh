@@ -1,0 +1,49 @@
+name: Protocol Conformance
+
+# Builds the reference daemon, boots it, and runs the language-agnostic
+# conformance kit against it — so the reference implementation is continuously
+# verified to satisfy its own protocol spec (PROTOCOL.md §6, §7).
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  conformance:
+    name: Reference hub conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: swatinem/rust-cache@v2
+
+      - name: Build daemon
+        run: cargo build --release --bin mellowmeshd
+
+      - name: Kit self-test
+        run: python3 conformance/mellowmesh_conformance.py --self-test
+
+      - name: Boot hub and run conformance kit
+        run: |
+          set -euo pipefail
+          MELLOWMESH_SWEEP_INTERVAL_SECS=2 MELLOWMESH_NOTIFICATIONS=off \
+            ./target/release/mellowmeshd --port 40100 &
+          HUB_PID=$!
+          # Wait for the hub to accept connections.
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:40100/health >/dev/null; then break; fi
+            sleep 1
+          done
+          set +e
+          python3 conformance/mellowmesh_conformance.py \
+            --url http://127.0.0.1:40100 --reclaim-timeout 20
+          RC=$?
+          kill "$HUB_PID" 2>/dev/null || true
+          exit $RC

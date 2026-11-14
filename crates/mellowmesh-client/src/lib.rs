@@ -104,6 +104,21 @@ impl MellowMeshClient {
         }
     }
 
+    /// A client hard-wired to this machine's own daemon on `port`, ignoring
+    /// the `MELLOWMESH_URL` / `MELLOWMESH_E2E` environment. Those variables
+    /// configure a *remote* CLI; the daemon's own internal dispatch (MCP
+    /// endpoint, connectors) must always talk to loopback, never bounce back
+    /// out through a relay.
+    pub fn loopback(port: u16) -> Self {
+        Self {
+            base_url: format!("http://127.0.0.1:{port}"),
+            token: None,
+            e2e: false,
+            http: reqwest::Client::new(),
+            plain_http: reqwest::Client::new(),
+        }
+    }
+
     /// Use an explicit bearer token instead of the `MELLOWMESH_TOKEN` env var.
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
@@ -129,6 +144,28 @@ impl MellowMeshClient {
         self.e2e && self.token.is_some()
     }
 
+    /// True when the base URL is this machine (no relay in the path), so a
+    /// bearer token on the wire never reaches a third party.
+    fn is_local(&self) -> bool {
+        let b = self
+            .base_url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+        b.starts_with("127.0.0.1") || b.starts_with("localhost") || b.starts_with("[::1]")
+    }
+
+    /// Guard against the silent-plaintext-downgrade footgun: if E2E was asked
+    /// for but no token is present, refuse rather than sending in the clear.
+    fn ensure_e2e_consistent(&self) -> anyhow::Result<()> {
+        if self.e2e && self.token.is_none() {
+            anyhow::bail!(
+                "MELLOWMESH_E2E is enabled but no token is set — refusing to send in plaintext. \
+                 Set MELLOWMESH_TOKEN (E2E derives its key from the token)."
+            );
+        }
+        Ok(())
+    }
+
     /// The single dispatch point every API method goes through. In E2E mode
     /// the entire request is sealed and tunneled via `/e2e/request`; nothing
     /// can accidentally fall back to plaintext.
@@ -138,6 +175,7 @@ impl MellowMeshClient {
         path_and_query: &str,
         body: Option<serde_json::Value>,
     ) -> anyhow::Result<ApiResponse> {
+        self.ensure_e2e_consistent()?;
         if self.e2e_enabled() {
             let (status, text) = self
                 .e2e_request(method.as_str(), path_and_query, body.map(|b| b.to_string()))
@@ -170,7 +208,8 @@ impl MellowMeshClient {
         body: Option<String>,
     ) -> anyhow::Result<(u16, String)> {
         use mellowmesh_core::e2e::{
-            derive_key, derive_key_id, open, seal, Envelope, SealedRequest, SealedResponse,
+            derive_key, derive_key_id, new_jti, open, seal, Envelope, SealedRequest,
+            SealedResponse, CTX_REQUEST, CTX_RESPONSE,
         };
         let token = self
             .token
@@ -181,12 +220,13 @@ impl MellowMeshClient {
 
         let sealed = SealedRequest {
             ts: chrono::Utc::now().timestamp(),
+            jti: Some(new_jti()),
             method: method.to_string(),
             path_and_query: path_and_query.to_string(),
             authorization: Some(format!("Bearer {token}")),
             body,
         };
-        let envelope = seal(&key, &key_id, &serde_json::to_vec(&sealed)?)?;
+        let envelope = seal(&key, &key_id, CTX_REQUEST, &serde_json::to_vec(&sealed)?)?;
 
         // Use the header-less client: the token is inside the ciphertext and
         // must never leak to the relay as an Authorization header.
@@ -204,7 +244,7 @@ impl MellowMeshClient {
             ));
         }
         let reply: Envelope = resp.json().await?;
-        let opened = open(&key, &reply)?;
+        let opened = open(&key, CTX_RESPONSE, &reply)?;
         let sealed_resp: SealedResponse = serde_json::from_slice(&opened)?;
         Ok((sealed_resp.status, sealed_resp.body.unwrap_or_default()))
     }
@@ -241,8 +281,11 @@ impl MellowMeshClient {
         case_insensitive: bool,
     ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Message>>> {
         use mellowmesh_core::e2e::{
-            derive_key, derive_key_id, open, seal, Envelope, SealedRequest,
+            derive_key, derive_key_id, new_jti, open, seal, Envelope, SealedRequest, CTX_PROOF,
+            CTX_STREAM,
         };
+
+        self.ensure_e2e_consistent()?;
 
         // Local hubs expose /ws directly; relayed hubs expose it at
         // <relay>/hub/<id>/ws with the same query parameters.
@@ -266,12 +309,13 @@ impl MellowMeshClient {
             let key_id = derive_key_id(token);
             let proof = SealedRequest {
                 ts: chrono::Utc::now().timestamp(),
+                jti: Some(new_jti()),
                 method: "SUBSCRIBE".to_string(),
                 path_and_query: "/ws".to_string(),
                 authorization: Some(format!("Bearer {token}")),
                 body: None,
             };
-            let envelope = seal(&key, &key_id, &serde_json::to_vec(&proof)?)?;
+            let envelope = seal(&key, &key_id, CTX_PROOF, &serde_json::to_vec(&proof)?)?;
             url.query_pairs_mut()
                 .append_pair("e2e_kid", &envelope.key_id);
             url.query_pairs_mut()
@@ -281,6 +325,15 @@ impl MellowMeshClient {
             Some(key)
         } else {
             if let Some(token) = &self.token {
+                // Putting the raw token in the URL is safe only on a direct
+                // local connection. Through a relay it would be handed to the
+                // relay operator, so require E2E for remote subscriptions.
+                if !self.is_local() {
+                    anyhow::bail!(
+                        "Refusing to send a bearer token in a relay subscription URL. \
+                         Enable end-to-end encryption (MELLOWMESH_E2E=1) to subscribe remotely."
+                    );
+                }
                 url.query_pairs_mut().append_pair("token", token);
             }
             None
@@ -294,7 +347,7 @@ impl MellowMeshClient {
                     let text = msg.to_text().unwrap();
                     let payload = if let Some(key) = &e2e_key {
                         let envelope: Envelope = serde_json::from_str(text)?;
-                        String::from_utf8(open(key, &envelope)?)?
+                        String::from_utf8(open(key, CTX_STREAM, &envelope)?)?
                     } else {
                         text.to_string()
                     };

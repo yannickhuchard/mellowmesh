@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 21 tools covering tasks, decisions, pub/sub, context summaries, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 28 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -67,7 +67,7 @@ graph TD
         A[Claude Code / Codex / Antigravity via MCP] <--> D
         B[CLI Client] <--> D
         C[Web / WASM SDK] <--> D
-        X[Discord / Teams / Slack connectors] <--> D
+        X[Telegram / Discord / Teams connectors] <--> D
     end
 
     subgraph Core ["Your Local Core"]
@@ -80,12 +80,26 @@ graph TD
     D <--> E
 ```
 
-A Cargo workspace of eight crates: `mellowmesh-core` (domain models + topic matcher), `mellowmesh-store` (SQLite persistence), `mellowmesh-daemon` (Axum HTTP/WS server + sweeper), `mellowmesh-client` (Rust SDK), `mellowmesh-cli` (CLI + MCP server), `mellowmesh-connectors` (Discord/Teams/Slack webhooks), `mellowmesh-wasm` (browser SDK), `mellowmesh-bench` (load tests). Full blueprint: [DESIGN.md](DESIGN.md).
+A Cargo workspace of nine crates: `mellowmesh-core` (domain models + topic matcher), `mellowmesh-store` (SQLite persistence), `mellowmesh-daemon` (Axum HTTP/WS server + sweeper), `mellowmesh-client` (Rust SDK), `mellowmesh-cli` (CLI + MCP server), `mellowmesh-connectors` (Telegram/Discord/Teams connectors), `mellowmesh-relay` (outbound-dial rendezvous relay), `mellowmesh-wasm` (browser SDK), `mellowmesh-bench` (load tests). Full blueprint: [DESIGN.md](DESIGN.md).
+
+## MellowMesh is a protocol, not just a program
+
+This repository is the reference implementation. The thing that actually matters is the **protocol** — the identities, topics, message envelope, and the task-lease and human-decision state machines — which is specified independently in **[PROTOCOL.md](PROTOCOL.md)**. Anything that speaks it is a first-class participant in the same fabric, so you're welcome to build your own client, daemon, or bridge in any language.
+
+To make "compatible" mean something, the repo ships a **[conformance kit](conformance/)** — a single, dependency-free script that checks any running hub against the protocol's `MUST` requirements (the leased-claim task machine and the human-in-the-loop decision rules) and prints a pass/fail report:
+
+```bash
+python3 conformance/mellowmesh_conformance.py --url http://127.0.0.1:40000
+```
+
+An implementation that passes may describe itself as **"MellowMesh Compatible"** (see the [trademark policy](licensing/TRADEMARK.md) for use of the name and the "Certified" mark).
 
 ## Documentation
 
 | Guide | Contents |
 | :--- | :--- |
+| [Protocol Spec](PROTOCOL.md) | The wire protocol: identities, topics, messages, task leases, decision governance, conformance |
+| [Conformance Kit](conformance/) | Verify any implementation against the protocol's `MUST` requirements |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |

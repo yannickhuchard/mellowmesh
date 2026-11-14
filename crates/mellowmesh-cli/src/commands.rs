@@ -134,7 +134,7 @@ fn force_kill_daemon() {
     {
         println!("Killing mellowmeshd process...");
         let mut cmd = std::process::Command::new("pkill");
-        cmd.args(&["-f", "mellowmeshd"]);
+        cmd.args(["-f", "mellowmeshd"]);
         match cmd.output() {
             Ok(output) => {
                 if output.status.success() {
@@ -479,6 +479,7 @@ pub async fn run_decision_create(
             label,
             pros: vec![],
             cons: vec![],
+            outcome: None,
         })
         .collect();
 
@@ -1120,12 +1121,14 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
                     label: "Yes, replace it".to_string(),
                     pros: vec![],
                     cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Approve),
                 },
                 DecisionOption {
                     id: "option_keep".to_string(),
                     label: "No, keep it for now".to_string(),
                     pros: vec![],
                     cons: vec![],
+                    outcome: Some(mellowmesh_core::decision::DecisionOutcome::Reject),
                 },
             ],
             response_option_id: None,
@@ -1137,13 +1140,17 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
     println!();
 
     let answer = demo_prompt("      Approve the replacement? [y/n]: ").await?;
-    let option = if answer.starts_with('y') {
+    let approved = answer.trim().to_lowercase().starts_with('y');
+    let option = if approved {
         "option_replace"
     } else {
         "option_keep"
     };
     client.respond_decision(&decision_id, option).await?;
-    println!("      Decision recorded: {option}");
+    println!(
+        "      Decision recorded: {option} (status: {})",
+        if approved { "approved" } else { "rejected" }
+    );
 
     demo_progress(
         client,

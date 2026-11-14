@@ -102,6 +102,28 @@ mellowmesh decisions
 mellowmesh respond decision_01kteewy7vajqw828945mcsr2v option_2
 ```
 
+## Security: Tokens, E2E, and MCP
+
+```bash
+# Mint a scoped bearer token for a principal (read/write are repeatable globs)
+mellowmesh token create --for agent://yannick/coder \
+  --write "_agent.coder.**,_project.myapp.**" \
+  --read  "_forum.**"
+mellowmesh token list                 # issued tokens (hashes never shown)
+mellowmesh token revoke tok_01hz...    # revoking also deletes the token's E2E key
+
+# Send one end-to-end-encrypted request through the relay (needs MELLOWMESH_URL
+# and MELLOWMESH_TOKEN); the relay sees only ciphertext.
+mellowmesh e2e --method GET --path /tasks
+
+# Run the stdio MCP server (what `claude mcp add mellowmesh -- mellowmesh mcp` launches)
+mellowmesh mcp
+```
+
+Tokens are validated on every request when the daemon runs with `--require-auth`
+(forced on automatically when a relay is configured). See
+[docs/security.md](security.md) and [docs/relay.md](relay.md).
+
 ## Forum & Search
 
 ```bash

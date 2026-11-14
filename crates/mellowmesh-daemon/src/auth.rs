@@ -20,8 +20,34 @@ use chrono::Utc;
 use mellowmesh_core::auth::{
     generate_token, hash_token, kind_of_uri, scopes_allow, Principal, TokenRecord,
 };
+use mellowmesh_core::e2e::REPLAY_WINDOW_SECS;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use ulid::Ulid;
+
+/// Process-wide cache of recently-seen sealed-request ids, so a captured E2E
+/// envelope (request or subscription proof) cannot be replayed within the
+/// window. Ids are random 128-bit values; a global cache is sufficient.
+fn replay_cache() -> &'static Mutex<HashMap<String, i64>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record a single-use id. Returns `true` if it is fresh, `false` if it was
+/// already seen inside the replay window (a replay). Expired ids are purged.
+pub(crate) fn register_jti(jti: &str, now: i64) -> bool {
+    let mut cache = match replay_cache().lock() {
+        Ok(c) => c,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    cache.retain(|_, ts| (now - *ts).abs() <= REPLAY_WINDOW_SECS);
+    if cache.contains_key(jti) {
+        return false;
+    }
+    cache.insert(jti.to_string(), now);
+    true
+}
 
 /// The authenticated principal attached to a request, if any.
 #[derive(Debug, Clone)]
@@ -108,7 +134,7 @@ fn extract_e2e_proof(req: &Request<Body>) -> Option<mellowmesh_core::e2e::Envelo
         }
     }
     Some(mellowmesh_core::e2e::Envelope {
-        v: 1,
+        v: 2,
         key_id: key_id?,
         nonce: nonce?,
         ciphertext: ciphertext?,
@@ -127,9 +153,14 @@ pub async fn auth_middleware(
     // sealed-delivery mode.
     let mut bearer = extract_bearer(&req);
     let mut stream_e2e = StreamE2e(None);
-    if bearer.is_none() {
+    // A sealed subscription proof authenticates a WebSocket subscriber without
+    // the raw token crossing the relay. It is accepted ONLY on the `/ws`
+    // route, and is bound to that method+path and to a single-use id, so a
+    // relay operator cannot lift the proof out of the query string and replay
+    // it against another endpoint (e.g. /auth/tokens) to escalate.
+    if bearer.is_none() && req.uri().path() == "/ws" {
         if let Some(envelope) = extract_e2e_proof(&req) {
-            use mellowmesh_core::e2e::{open, SealedRequest, REPLAY_WINDOW_SECS};
+            use mellowmesh_core::e2e::{open, SealedRequest, CTX_PROOF};
             let key = match state.store.find_e2e_key(&envelope.key_id) {
                 Ok(Some(k)) => k,
                 Ok(None) => {
@@ -143,22 +174,33 @@ pub async fn auth_middleware(
                         .into_response()
                 }
             };
-            let proof = open(&key, &envelope)
+            let now = Utc::now().timestamp();
+            let proof = open(&key, CTX_PROOF, &envelope)
                 .ok()
                 .and_then(|pt| serde_json::from_slice::<SealedRequest>(&pt).ok());
-            match proof {
-                Some(p) if (Utc::now().timestamp() - p.ts).abs() <= REPLAY_WINDOW_SECS => {
-                    bearer = p
-                        .authorization
-                        .as_deref()
-                        .and_then(|a| a.strip_prefix("Bearer "))
-                        .map(|t| t.trim().to_string());
-                    stream_e2e = StreamE2e(Some((key, envelope.key_id.clone())));
+            let valid = match &proof {
+                Some(p) => {
+                    (now - p.ts).abs() <= REPLAY_WINDOW_SECS
+                        && p.method == "SUBSCRIBE"
+                        && p.path_and_query.starts_with("/ws")
+                        && p.jti
+                            .as_deref()
+                            .map(|j| register_jti(j, now))
+                            .unwrap_or(false)
                 }
-                _ => {
-                    return (StatusCode::UNAUTHORIZED, "Invalid e2e subscription proof")
-                        .into_response()
-                }
+                None => false,
+            };
+            if valid {
+                let p = proof.unwrap();
+                bearer = p
+                    .authorization
+                    .as_deref()
+                    .and_then(|a| a.strip_prefix("Bearer "))
+                    .map(|t| t.trim().to_string());
+                stream_e2e = StreamE2e(Some((key, envelope.key_id.clone())));
+            } else {
+                return (StatusCode::UNAUTHORIZED, "Invalid e2e subscription proof")
+                    .into_response();
             }
         }
     }
@@ -208,7 +250,7 @@ pub async fn auth_middleware(
 
 /// True when the request may administer tokens: the owner principal, or an
 /// unauthenticated localhost request in open mode.
-fn is_admin(state: &AppState, ctx: &AuthContext) -> bool {
+pub(crate) fn is_admin(state: &AppState, ctx: &AuthContext) -> bool {
     match &ctx.principal {
         Some(p) => p.id == state.owner,
         None => !state.require_auth,
@@ -268,9 +310,11 @@ pub async fn create_token(
         revoked: false,
     };
     state.store.insert_token(&record).map_err(internal)?;
-    // Register the derived end-to-end key so this token can also be used
-    // for encrypted relay traffic.
-    let _ = state.store.register_e2e_key(&plaintext);
+    // Register the derived end-to-end key (linked to this token, so revoking
+    // the token also deletes the key) for encrypted relay traffic.
+    let _ = state
+        .store
+        .register_e2e_key_for_token(&record.id, &plaintext);
 
     // The plaintext token is returned exactly once and never stored.
     Ok(Json(serde_json::json!({

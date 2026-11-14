@@ -920,14 +920,42 @@ pub async fn handle_tool_call(
 
             let mut options = Vec::new();
             for (idx, opt) in options_raw.iter().enumerate() {
-                let opt_str = opt
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Option must be a string"))?;
+                // An option may be a bare string, or an object
+                // {"label": "...", "outcome": "approve"|"reject"|"neutral"}.
+                // The outcome is what lets a rejection be recorded as
+                // `rejected` rather than `approved`.
+                let (label, outcome) = if let Some(s) = opt.as_str() {
+                    (s.to_string(), None)
+                } else if let Some(obj) = opt.as_object() {
+                    let label = obj
+                        .get("label")
+                        .and_then(|l| l.as_str())
+                        .ok_or_else(|| anyhow::anyhow!("Option object requires a label"))?
+                        .to_string();
+                    let outcome = match obj.get("outcome").and_then(|o| o.as_str()) {
+                        Some("approve") => {
+                            Some(mellowmesh_core::decision::DecisionOutcome::Approve)
+                        }
+                        Some("reject") => Some(mellowmesh_core::decision::DecisionOutcome::Reject),
+                        Some("neutral") | None => obj
+                            .get("outcome")
+                            .map(|_| mellowmesh_core::decision::DecisionOutcome::Neutral),
+                        Some(other) => {
+                            return Err(anyhow::anyhow!(
+                                "Invalid option outcome '{other}' (expected approve/reject/neutral)"
+                            ))
+                        }
+                    };
+                    (label, outcome)
+                } else {
+                    return Err(anyhow::anyhow!("Option must be a string or an object"));
+                };
                 options.push(mellowmesh_core::decision::DecisionOption {
                     id: format!("option_{idx}"),
-                    label: opt_str.to_string(),
+                    label,
                     pros: Vec::new(),
                     cons: Vec::new(),
+                    outcome,
                 });
             }
 

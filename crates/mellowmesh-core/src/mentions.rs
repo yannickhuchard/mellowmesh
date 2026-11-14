@@ -17,7 +17,7 @@ pub fn parse_mentions(
 
     // 1. Gather all candidate agents and sort by name length descending
     let mut sorted_agents = agents.to_vec();
-    sorted_agents.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+    sorted_agents.sort_by_key(|a| std::cmp::Reverse(a.name.len()));
 
     // 2. Gather unique human owners from registered agents (e.g. "human://yannick")
     let mut owners = Vec::new();
@@ -35,7 +35,7 @@ pub fn parse_mentions(
 
     // 3. Sort named topics by name length descending
     let mut sorted_topics = named_topics.to_vec();
-    sorted_topics.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
+    sorted_topics.sort_by_key(|t| std::cmp::Reverse(t.name.len()));
 
     let chars: Vec<char> = body.chars().collect();
     let mut i = 0;
