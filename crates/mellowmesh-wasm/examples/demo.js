@@ -66,22 +66,32 @@ window.setMode = async function(mode) {
   refreshDashboard();
 };
 
+// DOM helper: creates an element with an optional class and text content.
+// All untrusted data is inserted through textContent, never as HTML.
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
 // Log appending in beautiful developer style
 function appendConsoleLog(msg) {
   const consoleLogs = document.getElementById('console-logs');
   if (!consoleLogs) return;
 
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
+  const entry = el('div', 'log-entry');
 
   const timeStr = new Date(msg.timestamp).toLocaleTimeString();
-  
-  entry.innerHTML = `
-    [${timeStr}] 
-    <span class="log-topic">${msg.topic}</span> from 
-    <span class="log-from">${msg.from}</span>: 
-    <span class="log-body">${msg.body}</span>
-  `;
+
+  entry.append(
+    `[${timeStr}] `,
+    el('span', 'log-topic', msg.topic),
+    ' from ',
+    el('span', 'log-from', msg.from),
+    ': ',
+    el('span', 'log-body', msg.body)
+  );
 
   consoleLogs.appendChild(entry);
   consoleLogs.scrollTop = consoleLogs.scrollHeight;
@@ -103,50 +113,51 @@ async function refreshDashboard() {
     const claimedList = document.getElementById('tasks-claimed');
     const completedList = document.getElementById('tasks-completed');
 
-    openList.innerHTML = '';
-    claimedList.innerHTML = '';
-    completedList.innerHTML = '';
+    openList.replaceChildren();
+    claimedList.replaceChildren();
+    completedList.replaceChildren();
 
     let counts = { open: 0, claimed: 0, completed: 0 };
 
     tasks.forEach(task => {
-      const card = document.createElement('div');
-      card.className = 'task-card';
-      
-      const priorityClass = `badge-priority-${task.priority.toLowerCase()}`;
+      const card = el('div', 'task-card');
+
+      const priority = String(task.priority || 'medium').toLowerCase();
+      const knownPriority = ['low', 'medium', 'high'].includes(priority) ? priority : 'medium';
       const owner = task.claimed_by ? task.claimed_by : `Created by ${task.created_by}`;
 
-      let actionsHtml = '';
+      const meta = el('div', 'task-card-meta');
+      const badge = el('span', 'badge', priority.toUpperCase());
+      badge.classList.add(`badge-priority-${knownPriority}`);
+      meta.append(badge, el('span', 'task-card-owner', owner));
+
+      card.append(
+        el('div', 'task-card-title', task.title),
+        el('div', 'task-card-desc', task.description || 'No description provided.'),
+        meta
+      );
+
+      const actionButton = (label, onClick) => {
+        const actions = el('div', 'task-actions');
+        const button = el('button', 'btn btn-secondary task-btn', label);
+        button.type = 'button';
+        button.addEventListener('click', onClick);
+        actions.appendChild(button);
+        card.appendChild(actions);
+      };
+
       if (task.status === 'open') {
         counts.open++;
-        actionsHtml = `
-          <div class="task-actions">
-            <button class="btn btn-secondary task-btn" onclick="claimTaskAction('${task.id}', 'human://yannick')">Claim</button>
-          </div>
-        `;
+        actionButton('Claim', () => window.claimTaskAction(task.id, 'human://yannick'));
         openList.appendChild(card);
       } else if (task.status === 'claimed') {
         counts.claimed++;
-        actionsHtml = `
-          <div class="task-actions">
-            <button class="btn btn-secondary task-btn" onclick="completeTaskAction('${task.id}')">Complete</button>
-          </div>
-        `;
+        actionButton('Complete', () => window.completeTaskAction(task.id));
         claimedList.appendChild(card);
       } else {
         counts.completed++;
         completedList.appendChild(card);
       }
-
-      card.innerHTML = `
-        <div class="task-card-title">${task.title}</div>
-        <div class="task-card-desc">${task.description || 'No description provided.'}</div>
-        <div class="task-card-meta">
-          <span class="badge ${priorityClass}">${task.priority.toUpperCase()}</span>
-          <span class="task-card-owner">${owner}</span>
-        </div>
-        ${actionsHtml}
-      `;
     });
 
     document.getElementById('col-open-count').textContent = counts.open;
@@ -156,40 +167,45 @@ async function refreshDashboard() {
     // 2. Fetch decisions
     const decisions = await mellowmesh.listDecisions();
     const decisionsContainer = document.getElementById('decisions-container');
-    decisionsContainer.innerHTML = '';
+    decisionsContainer.replaceChildren();
 
     if (decisions.length === 0) {
-      decisionsContainer.innerHTML = `
-        <div style="font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 1rem 0;">
-          No decisions requiring human review.
-        </div>
-      `;
+      const empty = el('div', null, 'No decisions requiring human review.');
+      empty.style.fontSize = '0.85rem';
+      empty.style.color = 'var(--text-muted)';
+      empty.style.textAlign = 'center';
+      empty.style.padding = '1rem 0';
+      decisionsContainer.appendChild(empty);
     } else {
       decisions.forEach(dec => {
-        const card = document.createElement('div');
-        card.className = 'decision-card';
-        
-        let optionsHtml = '';
+        const card = el('div', 'decision-card');
+
+        const header = el('div', 'decision-header');
+        const decider = el('span', null, `Required Decider: ${dec.required_decider}`);
+        decider.style.fontSize = '0.7rem';
+        decider.style.color = 'var(--text-muted)';
+        header.append(el('div', 'decision-title', dec.title), decider);
+
+        card.append(header, el('div', 'decision-question', dec.question));
+
         if (dec.response_option_id) {
-          optionsHtml = `<div class="decision-responded">✓ Responded with Option: <strong>${dec.response_option_id}</strong></div>`;
+          const responded = el('div', 'decision-responded', '✓ Responded with Option: ');
+          responded.appendChild(el('strong', null, dec.response_option_id));
+          if (dec.status) {
+            responded.append(` (${dec.status})`);
+          }
+          card.appendChild(responded);
         } else {
-          optionsHtml = `
-            <div class="decision-options">
-              ${dec.options.map(opt => `
-                <button class="decision-btn" onclick="respondDecisionAction('${dec.id}', '${opt.id}')">${opt.label}</button>
-              `).join('')}
-            </div>
-          `;
+          const options = el('div', 'decision-options');
+          (dec.options || []).forEach(opt => {
+            const button = el('button', 'decision-btn', opt.label);
+            button.type = 'button';
+            button.addEventListener('click', () => window.respondDecisionAction(dec.id, opt.id));
+            options.appendChild(button);
+          });
+          card.appendChild(options);
         }
 
-        card.innerHTML = `
-          <div class="decision-header">
-            <div class="decision-title">${dec.title}</div>
-            <span style="font-size:0.7rem; color:var(--text-muted);">Required Decider: ${dec.required_decider}</span>
-          </div>
-          <div class="decision-question">${dec.question}</div>
-          ${optionsHtml}
-        `;
         decisionsContainer.appendChild(card);
       });
     }
@@ -357,8 +373,8 @@ async function runSimulatorsLoop() {
               created_by: agentUri,
               required_decider: 'human://yannick',
               options: [
-                { id: 'approve', label: 'Approve & Merge' },
-                { id: 'reject', label: 'Request Changes' }
+                { id: 'approve', label: 'Approve & Merge', outcome: 'approve' },
+                { id: 'reject', label: 'Request Changes', outcome: 'reject' }
               ]
             });
             

@@ -4,7 +4,7 @@ use chrono::Utc;
 use mellowmesh_core::agent::AgentRegistration;
 use mellowmesh_core::decision::Decision;
 use mellowmesh_core::message::Message;
-use mellowmesh_core::task::Task;
+use mellowmesh_core::task::{Task, DEFAULT_LEASE_SECONDS};
 use mellowmesh_core::topic::match_topic;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -37,6 +37,31 @@ pub struct WasmMellowMeshNode {
     tasks: Mutex<Vec<Task>>,
     decisions: Mutex<Vec<Decision>>,
     subscriptions: Mutex<Vec<Subscription>>,
+    /// Maximum number of messages retained in history; 0 means unlimited.
+    max_history: Mutex<usize>,
+}
+
+/// Decision statuses that record a final answer and cannot be answered again.
+const TERMINAL_DECISION_STATUSES: [&str; 3] = ["approved", "rejected", "answered"];
+
+/// Whether `agent_uri` may claim `task` at `now`: the task is open, the agent
+/// already holds the claim (re-claim / lease renewal), or the current claim's
+/// lease has expired. Completed, cancelled or otherwise closed tasks cannot be
+/// claimed.
+fn can_claim(task: &Task, agent_uri: &str, now: chrono::DateTime<Utc>) -> bool {
+    match task.status.as_str() {
+        "open" => true,
+        "claimed" | "in_progress" => match task.claimed_by.as_deref() {
+            None => true,
+            Some(holder) if holder == agent_uri => true,
+            Some(_) => task
+                .claim_expires_at
+                .as_deref()
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .is_some_and(|expires| expires.with_timezone(&Utc) <= now),
+        },
+        _ => false,
+    }
 }
 
 impl Default for WasmMellowMeshNode {
@@ -55,6 +80,26 @@ impl WasmMellowMeshNode {
             tasks: Mutex::new(Vec::new()),
             decisions: Mutex::new(Vec::new()),
             subscriptions: Mutex::new(Vec::new()),
+            max_history: Mutex::new(0),
+        }
+    }
+
+    /// Caps the number of retained history messages (0 = unlimited). The
+    /// oldest messages are dropped first, both now and on every publish.
+    pub fn set_max_history(&self, max: usize) {
+        *self.max_history.lock().unwrap() = max;
+        self.trim_history();
+    }
+
+    fn trim_history(&self) {
+        let max = *self.max_history.lock().unwrap();
+        if max == 0 {
+            return;
+        }
+        let mut messages = self.messages.lock().unwrap();
+        if messages.len() > max {
+            let excess = messages.len() - max;
+            messages.drain(..excess);
         }
     }
 
@@ -77,6 +122,7 @@ impl WasmMellowMeshNode {
             let mut messages = self.messages.lock().unwrap();
             messages.push(msg.clone());
         }
+        self.trim_history();
 
         // Gather matching subscription callbacks and drop subscriptions lock before executing them
         let matching_subs: Vec<js_sys::Function> = {
@@ -195,9 +241,33 @@ impl WasmMellowMeshNode {
         let mut system_msg = None;
         let success = {
             let mut tasks = self.tasks.lock().unwrap();
-            if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-                task.status = "claimed".to_string();
+            let now = Utc::now();
+            if let Some(task) = tasks
+                .iter_mut()
+                .find(|t| t.id == task_id && can_claim(t, &agent_uri, now))
+            {
+                // A same-agent re-claim of an in-progress task keeps its status.
+                let renewing = task.status == "in_progress"
+                    && task.claimed_by.as_deref() == Some(agent_uri.as_str());
+                if !renewing {
+                    task.status = "claimed".to_string();
+                }
                 task.claimed_by = Some(agent_uri.clone());
+                // Leases are opt-in in the standalone engine: only a task that
+                // carries `lease_seconds` gets an expiry, renewed on re-claim.
+                if let Some(lease) = task.lease_seconds {
+                    let lease = if lease == 0 {
+                        DEFAULT_LEASE_SECONDS
+                    } else {
+                        lease
+                    };
+                    // Out-of-range leases simply never expire.
+                    task.claim_expires_at = i64::try_from(lease)
+                        .ok()
+                        .and_then(chrono::Duration::try_seconds)
+                        .and_then(|d| now.checked_add_signed(d))
+                        .map(|t| t.to_rfc3339());
+                }
 
                 system_msg = Some(Message {
                     id: format!("msg_{}", Ulid::new().to_string().to_lowercase()),
@@ -267,8 +337,25 @@ impl WasmMellowMeshNode {
             decision.id = format!("decision_{}", Ulid::new().to_string().to_lowercase());
         }
 
+        // A decision is only answered through `respond_decision`: a new request
+        // never starts out in a terminal state or with a recorded answer.
+        if TERMINAL_DECISION_STATUSES.contains(&decision.status.as_str()) {
+            decision.status = "requested".to_string();
+        }
+        decision.response_option_id = None;
+        decision.response_timestamp = None;
+        decision.responded_by = None;
+
         {
             let mut decisions = self.decisions.lock().unwrap();
+            if decisions.iter().any(|d| {
+                d.id == decision.id && TERMINAL_DECISION_STATUSES.contains(&d.status.as_str())
+            }) {
+                return Err(JsValue::from_str(&format!(
+                    "Decision '{}' has already been answered",
+                    decision.id
+                )));
+            }
             decisions.retain(|d| d.id != decision.id);
             decisions.push(decision.clone());
         } // Lock released
@@ -297,39 +384,60 @@ impl WasmMellowMeshNode {
             .map_err(|e| JsValue::from_str(&format!("Failed to serialize decisions: {}", e)))
     }
 
+    /// Records an answer to a decision.
+    ///
+    /// `responder` identifies who is answering; when omitted (`undefined` from
+    /// JS) the decision's `required_decider` is assumed. The response is
+    /// refused (returns `false`) when the decision does not exist, is already
+    /// answered (`approved`, `rejected` or `answered`), `option_id` is not one
+    /// of its options, or the responder is the decision's creator. The stored
+    /// status is derived from the chosen option's outcome.
     pub fn respond_decision(
         &self,
         decision_id: String,
         option_id: String,
+        responder: Option<String>,
     ) -> Result<bool, JsValue> {
         let mut system_msg = None;
         let success = {
             let mut decisions = self.decisions.lock().unwrap();
-            if let Some(decision) = decisions.iter_mut().find(|d| d.id == decision_id) {
-                decision.status = "approved".to_string();
-                decision.response_option_id = Some(option_id.clone());
-                decision.response_timestamp = Some(Utc::now());
+            match decisions.iter_mut().find(|d| d.id == decision_id) {
+                Some(decision) => {
+                    let responder = responder
+                        .filter(|r| !r.trim().is_empty())
+                        .unwrap_or_else(|| decision.required_decider.clone());
+                    let terminal = TERMINAL_DECISION_STATUSES.contains(&decision.status.as_str());
+                    match decision.status_for_option(&option_id) {
+                        Some(status) if !terminal && responder != decision.created_by => {
+                            decision.status = status.to_string();
+                            decision.response_option_id = Some(option_id.clone());
+                            decision.response_timestamp = Some(Utc::now());
+                            decision.responded_by = Some(responder.clone());
 
-                system_msg = Some(Message {
-                    id: format!("msg_{}", Ulid::new().to_string().to_lowercase()),
-                    topic: format!("_decision.{}.responded", decision_id),
-                    from: decision.required_decider.clone(),
-                    owner: None,
-                    timestamp: Utc::now(),
-                    content_type: "application/json".to_string(),
-                    body: format!(
-                        "Decision '{}' responded with option {}.",
-                        decision.title, option_id
-                    ),
-                    headers: None,
-                    payload: Some(
-                        serde_json::to_value(&decision).unwrap_or(serde_json::Value::Null),
-                    ),
-                    parent_id: None,
-                });
-                true
-            } else {
-                false
+                            system_msg = Some(Message {
+                                id: format!("msg_{}", Ulid::new().to_string().to_lowercase()),
+                                topic: format!("_decision.{}.responded", decision_id),
+                                from: responder,
+                                owner: None,
+                                timestamp: Utc::now(),
+                                content_type: "application/json".to_string(),
+                                body: format!(
+                                    "Decision '{}' responded with option {} ({}).",
+                                    decision.title, option_id, status
+                                ),
+                                headers: None,
+                                payload: Some(
+                                    serde_json::to_value(&decision)
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                                parent_id: None,
+                            });
+                            true
+                        }
+                        _ => false,
+                    }
+                }
+                None => false,
             }
         }; // Lock released
 
@@ -384,7 +492,89 @@ impl WasmMellowMeshNode {
         *self.agents.lock().unwrap() = state.agents;
         *self.tasks.lock().unwrap() = state.tasks;
         *self.decisions.lock().unwrap() = state.decisions;
+        self.trim_history();
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(status: &str, claimed_by: Option<&str>, expires: Option<String>) -> Task {
+        Task {
+            id: "task_x".into(),
+            status: status.into(),
+            claimed_by: claimed_by.map(str::to_string),
+            claim_expires_at: expires,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn claim_rules() {
+        let now = Utc::now();
+        assert!(can_claim(&task("open", None, None), "agent://a", now));
+        assert!(can_claim(
+            &task("claimed", Some("agent://a"), None),
+            "agent://a",
+            now
+        ));
+        assert!(!can_claim(
+            &task("claimed", Some("agent://a"), None),
+            "agent://b",
+            now
+        ));
+        assert!(!can_claim(
+            &task("completed", Some("agent://a"), None),
+            "agent://a",
+            now
+        ));
+        assert!(!can_claim(&task("cancelled", None, None), "agent://a", now));
+
+        let past = (now - chrono::Duration::seconds(5)).to_rfc3339();
+        let future = (now + chrono::Duration::seconds(60)).to_rfc3339();
+        assert!(can_claim(
+            &task("claimed", Some("agent://a"), Some(past)),
+            "agent://b",
+            now
+        ));
+        assert!(!can_claim(
+            &task("in_progress", Some("agent://a"), Some(future)),
+            "agent://b",
+            now
+        ));
+    }
+
+    #[test]
+    fn history_is_capped_oldest_first() {
+        let node = WasmMellowMeshNode::new();
+        {
+            let mut messages = node.messages.lock().unwrap();
+            for i in 0..10 {
+                messages.push(Message {
+                    id: format!("msg_{i}"),
+                    topic: "t".into(),
+                    from: "agent://a".into(),
+                    owner: None,
+                    timestamp: Utc::now(),
+                    content_type: "text/plain".into(),
+                    body: String::new(),
+                    headers: None,
+                    payload: None,
+                    parent_id: None,
+                });
+            }
+        }
+        node.set_max_history(3);
+        let ids: Vec<String> = node
+            .messages
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|m| m.id.clone())
+            .collect();
+        assert_eq!(ids, vec!["msg_7", "msg_8", "msg_9"]);
     }
 }
