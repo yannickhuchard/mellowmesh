@@ -108,6 +108,7 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
+| [AI Apps](docs/ai-apps.md) | Claude, ChatGPT, Gemini and Grok (desktop & mobile) on your hub; [Grok skill](skills/mellowmesh-grok/SKILL.md) |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
 | [SDKs & API](docs/api.md) | Rust SDK, REST, WebSocket, WASM/browser SDK |

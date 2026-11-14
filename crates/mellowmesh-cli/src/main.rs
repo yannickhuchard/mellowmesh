@@ -631,8 +631,12 @@ async fn main() -> anyhow::Result<()> {
         _ => {}
     }
 
-    // Connect client (this will auto-start daemon if not running)
+    // Connect client (this will auto-start daemon if not running). On the
+    // hub's own machine, with no MELLOWMESH_TOKEN, the CLI acts as the hub
+    // owner (owner.token): token-less callers are not members of closed,
+    // private or open spaces. `mellowmesh mcp` (an AI app) is unaffected.
     let client = MellowMeshClient::connect_with_port(cli.port).await?;
+    let client = commands::as_local_human(&client);
 
     match cli.command {
         Commands::Topics => {
