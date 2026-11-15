@@ -75,7 +75,8 @@ pub async fn host_origin_guard(
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
-    let public_hosts = &state.access.public_hosts;
+    let public_hosts = state.access.public_hosts();
+    let public_hosts = public_hosts.as_slice();
     let host = req
         .headers()
         .get(header::HOST)

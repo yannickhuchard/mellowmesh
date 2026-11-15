@@ -141,6 +141,14 @@ pub struct Network {
     /// topics.
     #[serde(default)]
     pub visitor_write: bool,
+    /// Whether the hub also listens on its LAN address so phones on the
+    /// same network can reach it (turned on by `POST /pair` without a url).
+    #[serde(default)]
+    pub lan_access: bool,
+    /// Read-only: the LAN listener's current `ip:port`, or `None` when the
+    /// hub does not listen on the LAN. Filled in by the hub, never stored.
+    #[serde(default)]
+    pub lan_address: Option<String>,
 }
 
 impl Default for Network {
@@ -150,6 +158,8 @@ impl Default for Network {
             description: String::new(),
             default_access: AccessLevel::Closed,
             visitor_write: false,
+            lan_access: false,
+            lan_address: None,
         }
     }
 }
@@ -180,6 +190,9 @@ pub struct NetworkPatch {
     pub default_access: Option<AccessLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visitor_write: Option<bool>,
+    /// Open (`true`) or close (`false`) the LAN listener.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lan_access: Option<bool>,
 }
 
 impl NetworkPatch {
@@ -195,6 +208,9 @@ impl NetworkPatch {
         }
         if let Some(v) = self.visitor_write {
             network.visitor_write = v;
+        }
+        if let Some(v) = self.lan_access {
+            network.lan_access = v;
         }
     }
 }

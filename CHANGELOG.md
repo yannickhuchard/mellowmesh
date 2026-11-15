@@ -15,8 +15,18 @@
   host, from another machine or through the relay are treated as remote,
   never as trusted local callers. Listening beyond this machine requires
   `--require-auth`.
-- **Pair a device in one step.** `mellowmesh pair --name Pixel --url …`
-  prints a QR code and a pairing link with a token labelled for that device.
+- **Pair a phone with one command.** `mellowmesh pair` — no flags, no
+  restart: the hub starts listening on this computer's LAN address at
+  runtime (remembered as `lan_access`, re-opened at startup), prints a QR
+  code in the terminal (black on white, readable in Windows Terminal,
+  PowerShell and cmd) and waits until the phone connects
+  (`✓ Phone connected`). `--name`, `--url` (a tunnel; its host is added to
+  the public hosts at once) and `--no-wait` are optional. The device token
+  expires if unused for 15 minutes. `mellowmesh devices` lists paired
+  devices, `mellowmesh devices remove <id>` revokes one.
+- New: `POST /pair`, `GET /pair/:id`, `GET /devices`,
+  `DELETE /devices/:id`; `GET/PUT /network` gain `lan_access` (and a
+  read-only `lan_address`). Tokens record their first and last use.
 - New: `GET /whoami`, `/network`, `/spaces`, `/teams`, `/access/check`;
   CLI `network`, `space`, `team`, `access check`, `pair`; MCP tool
   `get_network`. Admin and token commands use the owner token automatically

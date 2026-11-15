@@ -121,17 +121,24 @@ enum Commands {
     /// Check what someone may do on a topic
     Access(AccessCmd),
 
-    /// Pair a phone or computer: mint an owner token, print a QR code and
-    /// the pairing link
+    /// Pair a phone: print a QR code to scan with the MellowMesh app and
+    /// wait for it to connect. Without --url the hub listens on this
+    /// computer's local network address and the phone joins over Wi-Fi.
     Pair {
-        /// Device name (labels the token)
+        /// Device name (labels its token)
         #[arg(long)]
-        name: String,
-        /// Base URL the device will use to reach this hub
-        /// (e.g. http://192.168.1.20:40000)
+        name: Option<String>,
+        /// Address the device will use instead of the local network, e.g. a
+        /// tunnel (https://x.trycloudflare.com)
         #[arg(long)]
-        url: String,
+        url: Option<String>,
+        /// Print the code and exit without waiting for the device
+        #[arg(long)]
+        no_wait: bool,
     },
+
+    /// Paired devices (phones): list them, or remove one
+    Devices(DevicesCmd),
 
     /// Send an end-to-end encrypted request through a relay (relay sees only
     /// ciphertext). Requires MELLOWMESH_URL and MELLOWMESH_TOKEN.
@@ -149,6 +156,23 @@ enum Commands {
 
     /// Start Model Context Protocol (MCP) server
     Mcp,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct DevicesCmd {
+    #[command(subcommand)]
+    pub action: Option<DevicesAction>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum DevicesAction {
+    /// List paired and pending devices (the default)
+    List,
+    /// Remove a device: its token stops working
+    Remove {
+        /// Device id (tok_...), from `mellowmesh devices`
+        id: String,
+    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -946,7 +970,15 @@ async fn main() -> anyhow::Result<()> {
         Commands::Access(AccessCmd {
             action: AccessAction::Check { topic, principal },
         }) => network_cmds::run_access_check(&client, &topic, principal.as_deref()).await?,
-        Commands::Pair { name, url } => network_cmds::run_pair(&client, &name, &url).await?,
+        Commands::Pair { name, url, no_wait } => {
+            network_cmds::run_pair(&client, name, url, no_wait).await?
+        }
+        Commands::Devices(DevicesCmd { action }) => match action {
+            None | Some(DevicesAction::List) => network_cmds::run_devices(&client).await?,
+            Some(DevicesAction::Remove { id }) => {
+                network_cmds::run_device_remove(&client, &id).await?
+            }
+        },
         Commands::E2e { method, path, body } => {
             commands::run_e2e(&client, &method, &path, body).await?;
         }

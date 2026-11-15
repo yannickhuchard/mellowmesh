@@ -87,6 +87,8 @@ pub(crate) fn register_jti(jti: &str, ts: i64, now: i64) -> bool {
 #[derive(Debug, Clone)]
 pub struct AuthPrincipal {
     pub id: String,
+    /// Id of the token the request authenticated with.
+    pub token_id: String,
     pub kind: String,
     pub read_scopes: Vec<String>,
     pub write_scopes: Vec<String>,
@@ -304,6 +306,30 @@ pub async fn auth_middleware(
 /// or (on a miss) SQLite on the blocking pool. `Ok(None)` means unknown or
 /// revoked.
 async fn resolve_token(state: &AppState, token: &str) -> anyhow::Result<Option<AuthPrincipal>> {
+    let resolved = lookup_token(state, token).await?;
+    if let Some(p) = &resolved {
+        record_token_use(state, &p.token_id).await;
+    }
+    Ok(resolved)
+}
+
+/// Record that a token was used (first use / last seen), at most once per
+/// [`crate::cache::TOKEN_TOUCH_EVERY`] per token. A device token's first
+/// use is what pairing waits for, and what keeps it from expiring.
+async fn record_token_use(state: &AppState, token_id: &str) {
+    if !state.caches.token_touch_due(token_id) {
+        return;
+    }
+    let store = state.store.clone();
+    let id = token_id.to_string();
+    match tokio::task::spawn_blocking(move || store.touch_token(&id, Utc::now())).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => tracing::warn!("Could not record the use of token {}: {}", token_id, e),
+        Err(e) => tracing::warn!("Could not record the use of token {}: {}", token_id, e),
+    }
+}
+
+async fn lookup_token(state: &AppState, token: &str) -> anyhow::Result<Option<AuthPrincipal>> {
     let token_hash = hash_token(token);
     if let Some(p) = state.caches.get_token(&token_hash) {
         return Ok(Some(p));
@@ -322,6 +348,7 @@ async fn resolve_token(state: &AppState, token: &str) -> anyhow::Result<Option<A
             .unwrap_or_else(|| kind_of_uri(&record.principal).to_string());
         Ok(Some(AuthPrincipal {
             id: record.principal,
+            token_id: record.id,
             kind,
             read_scopes: record.read_scopes,
             write_scopes: record.write_scopes,

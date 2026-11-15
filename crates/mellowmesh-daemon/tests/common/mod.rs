@@ -26,10 +26,20 @@ pub struct Hub {
     pub store: Store,
     pub marker: String,
     pub http: reqwest::Client,
+    pub state: AppState,
 }
 
 /// Serve a real daemon on an ephemeral loopback port.
 pub async fn spawn_hub(require_auth: bool) -> Hub {
+    spawn_hub_with(require_auth, Default::default()).await
+}
+
+/// Like [`spawn_hub`], with explicit pairing settings (device-token
+/// lifetime, LAN address source).
+pub async fn spawn_hub_with(
+    require_auth: bool,
+    pairing: mellowmesh_daemon::pairing::PairingState,
+) -> Hub {
     let store = Store::new_in_memory().unwrap();
     let metrics = Arc::new(DaemonMetrics::default());
     let pipeline = Arc::new(PersistencePipeline::new(store.clone(), metrics.clone()));
@@ -38,7 +48,10 @@ pub async fn spawn_hub(require_auth: bool) -> Hub {
         .await
         .unwrap();
     let port = listener.local_addr().unwrap().port();
-    let access = Arc::new(AccessState::new(vec![PUBLIC_HOST.to_string()]));
+    let access = Arc::new(AccessState::new(vec![PUBLIC_HOST.to_string()]).with_pairing(pairing));
+    access
+        .pairing
+        .set_primary_listen(std::net::IpAddr::from([127, 0, 0, 1]));
     let state = AppState {
         store: store.clone(),
         registry: SubscriptionRegistry::new(metrics.clone()),
@@ -64,7 +77,7 @@ pub async fn spawn_hub(require_auth: bool) -> Hub {
         caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
         access: access.clone(),
     };
-    let app = create_router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let app = create_router(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -75,6 +88,7 @@ pub async fn spawn_hub(require_auth: bool) -> Hub {
         store,
         marker: access.remote_marker.clone(),
         http: reqwest::Client::new(),
+        state,
     }
 }
 

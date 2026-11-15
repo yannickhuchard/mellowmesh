@@ -134,16 +134,25 @@ Claim-lease semantics: publishing any message on `_task.<id>.progress` renews th
 Contract and rules: [docs/network.md](network.md).
 
 * `GET /whoami` — `{ "principal", "kind", "is_owner", "remote" }`
-* `GET /network` — `{ "network", "spaces", "teams" }` visible to the caller; `PUT /network` (owner) — partial `{ name?, description?, default_access?, visitor_write? }`
+* `GET /network` — `{ "network", "spaces", "teams" }` visible to the caller; `PUT /network` (owner) — partial `{ name?, description?, default_access?, visitor_write?, lan_access? }` (`lan_access` opens / closes the LAN listener; `503` if it cannot open; errors are `{ "error" }`). `network` also carries `lan_access` and, read-only and for the owner only, `lan_address` (`"ip:port"` or `null`)
 * `GET /spaces`, `POST /spaces` (owner, `201`), `PUT /spaces/:id`, `DELETE /spaces/:id` (`204`)
 * `GET /teams`, `POST /teams` (owner, `201`, also creates the closed space `team-<id>` over `_team.<id>.**`), `PUT /teams/:id`, `DELETE /teams/:id` (`204`)
 * `POST /teams/:id/members` — `{ "principal", "role": "owner|admin|member" }`; `DELETE /teams/:id/members/:principal` (percent-encoded)
 * `GET /access/check?topic=T&principal=P` (owner) — `{ "read", "write", "space", "level", "reason" }`
 * `POST /auth/tokens` accepts an optional `"label"` (shown by `GET /auth/tokens`).
 
+### Pairing a device
+
+Owner only; errors are `{ "error": "…" }`. Contract: [docs/network.md](network.md#pairing-a-device).
+
+* `POST /pair` — body (all optional) `{ "name": "Phone", "url": "https://x.trycloudflare.com" }` → `201` `{ "link", "url", "token_id", "name", "network", "principal", "expires_at", "lan": { "enabled", "address", "listening" } }`. Without `url` the hub opens a listener on its LAN address at runtime (LAN mode) and persists `lan_access: true`; with `url` its host is added to the public hosts at runtime and persisted. The device token (`**`/`**` for the owner) expires if unused for 15 minutes. `400` for a bad url or body; `503` when no LAN address is found or the listener cannot bind.
+* `GET /pair/:token_id` — `{ "token_id", "name", "connected", "last_seen", "expired" }`; `connected` turns true the first time the token authenticates a request. `404` for an unknown or removed device. Poll every ~1.5 s while the code is shown.
+* `GET /devices` — `[ { "token_id", "name", "created_at", "last_seen", "connected", "expires_at" } ]`, active device tokens (paired or pending), newest first.
+* `DELETE /devices/:token_id` — revoke (paired or pending) → `204`; `404` if unknown or already removed.
+
 Token-less remote callers (and token-less callers under `--require-auth`) may use the read endpoints (`/history`, `/topics`, `/forum`, `/search`, `/context`, `/ws`, `/whoami`, `/network`, `/spaces`, `/teams`) and `POST /publish`, which only return or accept what the space rules allow.
 
-Rust SDK: `whoami`, `get_network`, `set_network`, `list_spaces`, `create_space`, `replace_space`, `delete_space`, `list_teams`, `create_team`, `replace_team`, `delete_team`, `add_team_member`, `remove_team_member`, `access_check`, `create_labeled_token`, `update_task`, `task_graph`.
+Rust SDK: `whoami`, `get_network`, `set_network`, `list_spaces`, `create_space`, `replace_space`, `delete_space`, `list_teams`, `create_team`, `replace_team`, `delete_team`, `add_team_member`, `remove_team_member`, `access_check`, `create_labeled_token`, `update_task`, `task_graph`, `pair`, `pair_status`, `list_devices`, `remove_device`.
 
 ### Schema Contracts
 

@@ -133,14 +133,25 @@ mellowmesh team list
 mellowmesh team remove home
 
 mellowmesh access check _chat.group.family.chat [--as human://alice]
-mellowmesh pair --name "Pixel" --url http://192.168.1.20:40000
+
+mellowmesh pair                      # pair a phone on the same Wi-Fi: QR code, then waits
+mellowmesh pair --name Pixel         # name the device (default: Phone)
+mellowmesh pair --url https://<name>.trycloudflare.com   # through a tunnel instead
+mellowmesh pair --no-wait            # print the code and exit
+mellowmesh devices                   # paired and pending devices
+mellowmesh devices remove tok_...    # its token stops working at once
 ```
 
 On the hub's machine these commands, like `mellowmesh token …`, use the
-owner token from `owner.token` unless `MELLOWMESH_TOKEN` is set. `pair`
-mints a full-access owner token labelled with the device name and prints a
-QR code plus the `mellowmesh-pair:` link (it contains a secret). Rules and
-API: [docs/network.md](network.md).
+owner token from `owner.token` unless `MELLOWMESH_TOKEN` is set.
+
+`mellowmesh pair` needs no flags and no daemon restart: it starts the hub if
+needed, has it listen on this computer's local network address (without
+`--url`), prints a QR code to scan with the MellowMesh app plus the
+`mellowmesh-pair:` link (it contains a secret), and waits until the phone
+connects (`✓ Phone connected`). Ctrl+C stops waiting. The code expires
+after 15 minutes if unused. On Windows, click **Allow access** if Windows
+Firewall asks. Rules and API: [docs/network.md](network.md#pairing-a-device).
 
 ## Decisions (Human-in-the-Loop)
 

@@ -131,6 +131,13 @@ pub fn create_router(state: AppState) -> Router {
             delete(handlers::network::remove_team_member),
         )
         .route("/access/check", get(handlers::network::access_check))
+        .route("/pair", post(handlers::pairing::pair))
+        .route("/pair/:token_id", get(handlers::pairing::pair_status))
+        .route("/devices", get(handlers::pairing::list_devices))
+        .route(
+            "/devices/:token_id",
+            delete(handlers::pairing::remove_device),
+        )
         .route("/", get(ui_handler))
         .route("/ui", get(ui_handler))
         .layer(axum::middleware::from_fn_with_state(

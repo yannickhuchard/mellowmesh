@@ -76,7 +76,8 @@ other endpoint answers `401`, as before. `/health`, the dashboard and
 
 ## Reaching your hub from your phone or the cloud
 
-The hub listens on loopback by default. To reach it from elsewhere:
+The hub listens on loopback by default. To pair a phone, `mellowmesh pair`
+(below) opens the way by itself. To set it up by hand instead:
 
 ```bash
 # Same Wi-Fi (phone): listen on the LAN and name the address phones will use.
@@ -104,23 +105,73 @@ mellowmeshd --require-auth --public-host <name>.trycloudflare.com
 ## Pairing a device
 
 ```bash
-mellowmesh pair --name "Pixel" --url http://192.168.1.20:40000
+mellowmesh pair
 ```
 
-mints a full-access token (`**`) for you (`human://<owner>`), labelled with
-the device name, prints a QR code and the pairing link (`--url` is the
-address the device will use, `http://` or `https://`):
+That is all: no flags, no restart. It starts the hub if needed, prints a QR
+code in the terminal, and waits until the phone connects:
+
+```
+Pair "Phone" with Yannick's mesh: scan this code with the MellowMesh app
+<QR code>
+Or paste this pairing link in the app:
+mellowmesh-pair:?v=2&url=http%3A%2F%2F192.168.1.20%3A40000&token=…
+Hub address: http://192.168.1.20:40000 (local network)
+The code works for 15 min (until 10:15) and contains a secret: show it only to the device you are pairing.
+Waiting for Phone to connect... (Ctrl+C to stop waiting)
+✓ Phone connected
+```
+
+Without `--url`, the hub pairs over the **local network**: it finds this
+computer's LAN IPv4 address (the interface of the default route; private
+ranges preferred), starts listening on `<lan-ip>:<port>` right away (in
+addition to `127.0.0.1`), answers to that address as a public host, and
+remembers `lan_access: true` so the listener comes back after a restart, on
+the then-current address. The phone must be on the same Wi-Fi. On Windows,
+the first time, Windows Firewall asks whether `mellowmeshd` may accept
+connections: click **Allow access** (`pair` reminds you).
+
+Options:
+
+* `--name Pixel` names the device (default `Phone`; it labels the token).
+* `--url https://<name>.trycloudflare.com` pairs through a tunnel or reverse
+  proxy instead of the LAN (when the phone is not on the same network, or no
+  LAN address can be found). The url's host is added to the public hosts at
+  once and remembered, so the tunnel works without restarting the hub.
+* `--no-wait` prints the code and exits without waiting.
+
+Ctrl+C stops waiting; the code stays valid until it expires. The QR code
+sets its own colors (black on white) when the terminal supports it, and
+otherwise draws light modules in the text color, which reads correctly on
+the usual dark terminal background (`NO_COLOR` forces the latter).
+
+What `pair` does (`POST /pair`): it mints a full-access token (`**`) for
+you (`human://<owner>`), labelled with the device name and marked as a
+**device** token. A device token that is not used within **15 minutes**
+expires (the code on screen is short-lived); once the phone has used it, it
+stays valid until you remove it. The link is:
 
 ```
 mellowmesh-pair:?v=2&url=<percent-encoded base url>&token=<token>&name=<network name>&principal=<percent-encoded principal>
 ```
 
-The Android and Windows apps scan or paste this link. It contains a secret:
-show it only to the device you are pairing; `pair` prints the token id, and
-`mellowmesh token list` shows it with its label. Revoke with
-`mellowmesh token revoke <id>`. `pair` must run on the hub's machine (it
-uses `owner.token`) or with `MELLOWMESH_TOKEN` set to an owner token. The
-token comes from `POST /auth/tokens`, which accepts an optional `"label"`.
+The Android and Windows apps scan or paste it. It contains a secret: show it
+only to the device you are pairing.
+
+```bash
+mellowmesh devices                 # paired and pending devices
+mellowmesh devices remove tok_…    # its token stops working at once
+```
+
+`pair` and `devices` must run on the hub's machine (they use `owner.token`)
+or with `MELLOWMESH_TOKEN` set to an owner token. Turn the LAN listener off
+with `PUT /network { "lan_access": false }`.
+
+Security: connections on the LAN listener come from other machines, so they
+are always **remote** — never trusted as local callers; a token or an open
+space is required, exactly as with `--listen` and `--require-auth`. That is
+why the hub may open it at runtime even without `--require-auth`. Only the
+owner may pair or manage devices.
 
 ## HTTP API
 
@@ -131,7 +182,7 @@ mode, as for tokens).
 | :--- | :--- | :--- |
 | `GET /whoami` | anyone | `{ "principal": "human://you" \| null, "kind": "human" \| null, "is_owner": bool, "remote": bool }` |
 | `GET /network` | anyone | `{ "network": Network, "spaces": [Space], "teams": [Team] }` — spaces/teams the caller may see (all for admin; open spaces and the caller's own for others; an open space the caller is not a member of comes without its `members` / `teams` lists) |
-| `PUT /network` | admin | partial `Network` |
+| `PUT /network` | admin | partial `Network`; `"lan_access": true / false` opens / closes the LAN listener (`503` if it cannot open) |
 | `GET /spaces` | anyone | `[Space]` (same visibility as above) |
 | `POST /spaces` | admin | `Space` (create) → `201` + `Space`; `409` if the id exists; `400` for an invalid body or an unknown team |
 | `PUT /spaces/:id` | admin | `Space` (replace; `id` may be omitted) → `Space`; `404` if missing |
@@ -142,11 +193,23 @@ mode, as for tokens).
 | `DELETE /teams/:id` | admin | `204`; removes the team space |
 | `POST /teams/:id/members` | admin | `{ "principal": "...", "role": "owner\|admin\|member" }` (role defaults to `member`; adding an existing member changes its role) → `Team` |
 | `DELETE /teams/:id/members/:principal` | admin | principal percent-encoded → `204` |
+| `POST /pair` | admin | `{ "name"?: "Phone", "url"?: "https://…" }` → `201` + `PairResponse`; no `url` = LAN mode; `400` for a bad url or body; `503` + `{ "error" }` when no LAN address is found or the LAN listener cannot bind |
+| `GET /pair/:token_id` | admin | `{ "token_id", "name", "connected": bool, "last_seen": ts \| null, "expired": bool }` (`connected` once the token authenticated a request; `expired` once it expired unused); `404` if unknown or removed |
+| `GET /devices` | admin | `[ { "token_id", "name", "created_at", "last_seen": ts \| null, "connected": bool, "expires_at": ts \| null } ]`: active device tokens (paired or pending), newest first |
+| `DELETE /devices/:token_id` | admin | revoke → `204`; `404` if unknown, not a device or already removed |
 | `GET /access/check?topic=T&principal=P` | admin | `{ "read": bool, "write": bool, "space": "id" \| null, "level": "private\|closed\|open", "reason": "..." }` (`principal` omitted = a visitor; `P`'s scopes are the union of its active tokens', or `**` when it has none; `write` is also true for a visitor post, which `reason` says) |
 
 ```jsonc
-// Network
-{ "name": "Yannick's mesh", "description": "", "default_access": "closed", "visitor_write": false }
+// Network (lan_address is read-only: the LAN listener's ip:port, shown to
+// the owner only; null when the hub does not listen on the LAN)
+{ "name": "Yannick's mesh", "description": "", "default_access": "closed", "visitor_write": false,
+  "lan_access": true, "lan_address": "192.168.1.20:40000" }
+
+// PairResponse (POST /pair)
+{ "link": "mellowmesh-pair:?v=2&url=…", "url": "http://192.168.1.20:40000",
+  "token_id": "tok_…", "name": "Phone", "network": "Yannick's mesh",
+  "principal": "human://yannick", "expires_at": "2026-11-15T10:15:00Z",
+  "lan": { "enabled": true, "address": "192.168.1.20:40000", "listening": true } }
 
 // Space
 { "id": "family", "name": "Family", "description": "",
@@ -188,7 +251,9 @@ mellowmesh team list
 mellowmesh team remove home
 
 mellowmesh access check _chat.group.family.chat [--as human://alice]
-mellowmesh pair --name "Pixel" --url http://192.168.1.20:40000
+mellowmesh pair [--name Pixel] [--url https://<name>.trycloudflare.com] [--no-wait]
+mellowmesh devices
+mellowmesh devices remove tok_…
 ```
 
 On this machine these commands (and `mellowmesh token …`) use the owner

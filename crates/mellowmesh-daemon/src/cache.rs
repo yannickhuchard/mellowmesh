@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 pub const TOKEN_CACHE_TTL: Duration = Duration::from_secs(30);
 /// Upper bound on cached tokens; the cache is cleared when it is exceeded.
 const TOKEN_CACHE_MAX: usize = 1024;
+/// A token's last use is recorded at most this often.
+pub const TOKEN_TOUCH_EVERY: Duration = Duration::from_secs(60);
+/// Upper bound on remembered token touches; cleared when exceeded.
+const TOKEN_TOUCH_MAX: usize = 4096;
 /// How long an MCP dispatch client is reused.
 const MCP_CLIENT_TTL: Duration = Duration::from_secs(300);
 const MCP_CLIENT_MAX: usize = 64;
@@ -87,6 +91,8 @@ pub struct Caches {
     pub named_topics: Cached<Vec<NamedTopic>>,
     pub schemas: Cached<Vec<CompiledSchema>>,
     tokens: Mutex<HashMap<String, (AuthPrincipal, Instant)>>,
+    /// When each token's use was last recorded (by token id).
+    token_touches: Mutex<HashMap<String, Instant>>,
     mcp_clients: Mutex<HashMap<String, (mellowmesh_client::MellowMeshClient, Instant)>>,
 }
 
@@ -126,6 +132,23 @@ impl Caches {
             map.clear();
         }
         map.insert(token_hash, (principal, Instant::now()));
+    }
+
+    /// Whether the use of `token_id` should be recorded now: on its first
+    /// use since the daemon started, then at most every
+    /// [`TOKEN_TOUCH_EVERY`]. Returns `true` at most once per interval.
+    pub fn token_touch_due(&self, token_id: &str) -> bool {
+        let mut map = self.token_touches.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(at) = map.get(token_id) {
+            if at.elapsed() < TOKEN_TOUCH_EVERY {
+                return false;
+            }
+        }
+        if map.len() >= TOKEN_TOUCH_MAX {
+            map.clear();
+        }
+        map.insert(token_id.to_string(), Instant::now());
+        true
     }
 
     /// Drop every cached token and dispatch client (called on revocation).

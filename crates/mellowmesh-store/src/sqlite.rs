@@ -264,6 +264,17 @@ impl Store {
         let _ = conn.execute("ALTER TABLE tokens ADD COLUMN e2e_key_id TEXT", []);
         // Optional token label (e.g. the name of a paired device).
         let _ = conn.execute("ALTER TABLE tokens ADD COLUMN label TEXT", []);
+        // Device tokens (minted by `POST /pair`): a pending one expires at
+        // `expires_at` (unix seconds) unless used first; first use and last
+        // use are recorded (unix seconds).
+        for column in [
+            "device INTEGER NOT NULL DEFAULT 0",
+            "expires_at INTEGER",
+            "first_used_at INTEGER",
+            "last_seen_at INTEGER",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE tokens ADD COLUMN {column}"), []);
+        }
 
         // End-to-end encryption keys, keyed by the token's derived key id.
         // Stored so the daemon can decrypt relayed envelopes without ever

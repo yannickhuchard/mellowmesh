@@ -50,6 +50,7 @@ pub async fn run_network_set(
         description,
         default_access,
         visitor_write,
+        lan_access: None,
     };
     let n = as_local_human(client).set_network(&patch).await?;
     println!(
@@ -298,89 +299,258 @@ pub async fn run_access_check(
     Ok(())
 }
 
-/// Percent-encode a query value: only RFC 3986 unreserved characters pass.
-fn pct(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for b in value.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
+use mellowmesh_core::pairing::{PairRequest, PairResponse};
+
+/// A QR code for `text`, drawn with Unicode half blocks (one module wide,
+/// two modules per line, so modules come out square) with the standard
+/// four-module quiet zone.
+///
+/// With `ansi`, the code sets its own colors (black modules on a white
+/// background), so it reads correctly whatever the terminal theme. Without,
+/// light modules are drawn in the terminal's text color and dark ones are
+/// left blank: dark-on-light on the usual dark terminal background.
+pub fn qr_text(text: &str, ansi: bool) -> anyhow::Result<String> {
+    use qrcode::render::unicode::Dense1x2;
+    // Low error correction keeps the code small; a screen does not smudge.
+    let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::L)?;
+    let mut render = code.render::<Dense1x2>();
+    render.quiet_zone(true);
+    if ansi {
+        let body = render
+            .dark_color(Dense1x2::Dark)
+            .light_color(Dense1x2::Light)
+            .build();
+        Ok(body
+            .lines()
+            .map(|line| format!("\x1b[30;107m{line}\x1b[0m"))
+            .collect::<Vec<_>>()
+            .join("\n"))
+    } else {
+        Ok(render
+            .dark_color(Dense1x2::Light)
+            .light_color(Dense1x2::Dark)
+            .build())
+    }
+}
+
+/// Turn on escape-sequence processing for the console (Windows only;
+/// other terminals always process them). `false` when it cannot be.
+#[cfg(windows)]
+fn enable_vt_processing() -> bool {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        STD_OUTPUT_HANDLE,
+    };
+    // SAFETY: plain console API calls on this process's own stdout handle,
+    // with a valid pointer to a local for the mode.
+    unsafe {
+        let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if handle == 0 || handle == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut mode = 0;
+        if GetConsoleMode(handle, &mut mode) == 0 {
+            return false;
+        }
+        mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0
+            || SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn enable_vt_processing() -> bool {
+    true
+}
+
+/// Whether the QR code may set its own colors: stdout is a terminal that
+/// processes escape sequences, and `NO_COLOR` is not set.
+fn qr_colors_supported() -> bool {
+    use std::io::IsTerminal;
+    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        return false;
+    }
+    if std::env::var("TERM").is_ok_and(|t| t == "dumb") {
+        return false;
+    }
+    std::io::stdout().is_terminal() && enable_vt_processing()
+}
+
+/// Local `HH:MM` of a timestamp.
+fn local_time(ts: chrono::DateTime<chrono::Utc>) -> String {
+    ts.with_timezone(&chrono::Local).format("%H:%M").to_string()
+}
+
+/// How often `mellowmesh pair` asks the hub whether the device connected.
+const PAIR_POLL_EVERY: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// `mellowmesh pair`: ask the hub for a pairing (it opens its LAN listener
+/// when no url is given), print the QR code and link, then wait for the
+/// device to connect.
+pub async fn run_pair(
+    client: &MellowMeshClient,
+    name: Option<String>,
+    url: Option<String>,
+    no_wait: bool,
+) -> anyhow::Result<()> {
+    let url = url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+    if let Some(u) = &url {
+        if !(u.starts_with("http://") || u.starts_with("https://")) {
+            anyhow::bail!(
+                "--url must start with http:// or https:// (the address the device will use)"
+            );
         }
     }
-    out
+    let lan_mode = url.is_none();
+    let admin = as_local_human(client);
+    let pairing = admin.pair(&PairRequest { name, url }).await.map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("(401)") || msg.contains("(403)") {
+            anyhow::anyhow!(
+                "{msg}\nPairing mints a token for the hub owner: run it on the hub's machine \
+                     (it reads owner.token) or set MELLOWMESH_TOKEN to the owner token"
+            )
+        } else if msg.contains("(404)") || msg.contains("(405)") {
+            anyhow::anyhow!(
+                "{msg}\nThe running hub is older than this CLI and cannot pair in one step: \
+                 restart it with `mellowmesh daemon restart`, then run `mellowmesh pair` again"
+            )
+        } else {
+            e
+        }
+    })?;
+    print_pairing(&pairing, lan_mode)?;
+    if no_wait {
+        println!(
+            "Not waiting (--no-wait). The code works until {} if it is not used; \
+             check with: mellowmesh devices",
+            local_time(pairing.expires_at)
+        );
+        return Ok(());
+    }
+    wait_for_device(&admin, &pairing).await
 }
 
-/// The pairing link the apps scan or paste.
-pub fn pairing_link(url: &str, token: &str, network_name: &str, principal: &str) -> String {
-    format!(
-        "mellowmesh-pair:?v=2&url={}&token={}&name={}&principal={}",
-        pct(url.trim_end_matches('/')),
-        pct(token),
-        pct(network_name),
-        pct(principal)
-    )
-}
-
-/// A QR code for `text`, drawn with Unicode half blocks (light modules on a
-/// dark terminal background, with a quiet zone).
-pub fn qr_text(text: &str) -> anyhow::Result<String> {
-    use qrcode::render::unicode::Dense1x2;
-    let code = qrcode::QrCode::new(text.as_bytes())?;
-    Ok(code
-        .render::<Dense1x2>()
-        .dark_color(Dense1x2::Light)
-        .light_color(Dense1x2::Dark)
-        .quiet_zone(true)
-        .build())
-}
-
-/// `mellowmesh pair`: mint a full-access token for the owner, labelled
-/// with the device name, and print a QR code plus the pairing link.
-pub async fn run_pair(client: &MellowMeshClient, name: &str, url: &str) -> anyhow::Result<()> {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        anyhow::bail!(
-            "--url must start with http:// or https:// (the address the device will use)"
+fn print_pairing(p: &PairResponse, lan_mode: bool) -> anyhow::Result<()> {
+    let name = sanitize_line(&p.name);
+    let qr = qr_text(&p.link, qr_colors_supported())?;
+    println!();
+    println!(
+        "Pair \"{name}\" with {}: scan this code with the MellowMesh app",
+        sanitize_line(&p.network)
+    );
+    println!();
+    println!("{qr}");
+    println!();
+    println!("Or paste this pairing link in the app:");
+    println!("{}", p.link);
+    println!();
+    let via = if lan_mode { " (local network)" } else { "" };
+    println!("Hub address: {}{via}", sanitize_line(&p.url));
+    let minutes = (p.expires_at - chrono::Utc::now()).num_minutes().max(0) + 1;
+    println!(
+        "The code works for {minutes} min (until {}) and contains a secret: show it only \
+         to the device you are pairing.",
+        local_time(p.expires_at)
+    );
+    if cfg!(windows) && lan_mode {
+        println!(
+            "If Windows Firewall asks, click \"Allow access\" so the phone can reach this PC."
         );
     }
-    let admin = as_local_human(client);
-    let me = admin.whoami().await?;
-    let owner = match (me.principal, me.is_owner) {
-        (Some(p), true) => p,
-        _ => anyhow::bail!(
-            "Pairing mints a token for the hub owner: run it on the hub's machine \
-             (it reads owner.token) or set MELLOWMESH_TOKEN to the owner token"
-        ),
-    };
-    let network = admin.get_network().await?.network;
-    let minted = admin
-        .create_labeled_token(&owner, name, vec!["**".into()], vec!["**".into()])
-        .await?;
-    let token = minted
-        .get("token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("The hub did not return a token"))?;
-    let id = minted.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    let link = pairing_link(url, token, &network.name, &owner);
+    println!();
+    Ok(())
+}
 
+/// Poll `GET /pair/:id` until the device connects, the code expires, or
+/// Ctrl+C.
+async fn wait_for_device(admin: &MellowMeshClient, p: &PairResponse) -> anyhow::Result<()> {
+    let name = sanitize_line(&p.name);
+    println!("Waiting for {name} to connect... (Ctrl+C to stop waiting)");
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+    let mut failures = 0u32;
+    loop {
+        let poll = async {
+            tokio::time::sleep(PAIR_POLL_EVERY).await;
+            admin.pair_status(&p.token_id).await
+        };
+        let status = tokio::select! {
+            _ = &mut ctrl_c => {
+                println!();
+                println!(
+                    "Stopped waiting. The code still works until {} if it is not used.",
+                    local_time(p.expires_at)
+                );
+                return Ok(());
+            }
+            status = poll => status,
+        };
+        match status {
+            Ok(s) if s.connected => {
+                println!("✓ {} connected", sanitize_line(&s.name));
+                println!(
+                    "Remove it any time with: mellowmesh devices remove {}",
+                    sanitize_line(&p.token_id)
+                );
+                return Ok(());
+            }
+            Ok(s) if s.expired => anyhow::bail!(
+                "The code expired before {name} connected. Run `mellowmesh pair` again."
+            ),
+            Ok(_) => failures = 0,
+            Err(e) => {
+                failures += 1;
+                if failures >= 5 {
+                    return Err(e.context("Lost contact with the hub while waiting"));
+                }
+            }
+        }
+    }
+}
+
+/// `mellowmesh devices`: paired and pending devices.
+pub async fn run_devices(client: &MellowMeshClient) -> anyhow::Result<()> {
+    let devices = as_local_human(client).list_devices().await?;
+    if devices.is_empty() {
+        println!("No devices paired yet. Pair one with: mellowmesh pair");
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = devices
+        .iter()
+        .map(|d| {
+            let status = match (d.connected, d.expires_at) {
+                (true, _) => "connected".to_string(),
+                (false, Some(e)) => format!("waiting (until {})", local_time(e)),
+                (false, None) => "waiting".to_string(),
+            };
+            vec![
+                d.token_id.clone(),
+                d.name.clone(),
+                status,
+                d.last_seen
+                    .map(|t| {
+                        t.with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "never".to_string()),
+                d.created_at
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string(),
+            ]
+        })
+        .collect();
+    crate::commands::print_table(&["Id", "Name", "Status", "Last seen", "Paired"], &rows);
+    Ok(())
+}
+
+/// `mellowmesh devices remove <id>`: revoke a device.
+pub async fn run_device_remove(client: &MellowMeshClient, id: &str) -> anyhow::Result<()> {
+    as_local_human(client).remove_device(id).await?;
     println!(
-        "Scan this with the MellowMesh app on \"{}\":",
-        sanitize_line(name)
-    );
-    println!();
-    println!("{}", qr_text(&link)?);
-    println!();
-    println!("Or paste this pairing link:");
-    println!("{link}");
-    println!();
-    println!(
-        "Token id: {} (for {})",
-        sanitize_line(id),
-        sanitize_line(&owner)
-    );
-    println!("This link contains a secret: show it only to the device you are pairing.");
-    println!(
-        "Revoke it any time with: mellowmesh token revoke {}",
+        "Device {} removed: its token no longer works.",
         sanitize_line(id)
     );
     Ok(())
@@ -530,6 +700,7 @@ pub fn render_board(graph: &TaskGraph, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mellowmesh_core::pairing::pairing_link;
     use mellowmesh_core::task::{build_graph, Task};
 
     #[test]
@@ -545,9 +716,105 @@ mod tests {
             "mellowmesh-pair:?v=2&url=http%3A%2F%2F192.168.1.20%3A40000&token=mm_abc\
              &name=Yannick%27s%20mesh&principal=human%3A%2F%2Fyannick"
         );
-        let qr = qr_text(&link).unwrap();
-        assert!(qr.lines().count() > 10);
-        assert!(qr.contains('█') || qr.contains('▀') || qr.contains('▄'));
+    }
+
+    /// Modules (`true` = dark) from a rendering with explicit colors.
+    fn modules(rendered: &str) -> Vec<Vec<bool>> {
+        let mut rows = Vec::new();
+        for line in rendered.lines() {
+            let line = line
+                .strip_prefix("\x1b[30;107m")
+                .and_then(|l| l.strip_suffix("\x1b[0m"))
+                .expect("every line sets and resets its colors");
+            let (top, bottom): (Vec<bool>, Vec<bool>) = line
+                .chars()
+                .map(|c| match c {
+                    '█' => (true, true),
+                    '▀' => (true, false),
+                    '▄' => (false, true),
+                    ' ' => (false, false),
+                    other => panic!("unexpected character {other:?}"),
+                })
+                .unzip();
+            rows.push(top);
+            rows.push(bottom);
+        }
+        rows
+    }
+
+    #[test]
+    fn qr_code_decodes_to_the_link() {
+        let link = pairing_link(
+            "http://192.168.1.20:40000",
+            &mellowmesh_core::auth::generate_token(),
+            "Yannick's mesh",
+            "human://yannick",
+        );
+        let rendered = qr_text(&link, true).unwrap();
+        let grid = modules(&rendered);
+        let width = grid[0].len();
+        assert!(grid.iter().all(|r| r.len() == width));
+        // Square (the last half line may be padding) and compact enough for
+        // an 80-column terminal.
+        assert!(
+            grid.len() == width || grid.len() == width + 1,
+            "{}x{}",
+            width,
+            grid.len()
+        );
+        assert!(width <= 61, "QR is {width} modules wide");
+        // Quiet zone: four light modules on every side.
+        for row in grid
+            .iter()
+            .take(4)
+            .chain(grid.iter().skip(width - 4).take(4))
+        {
+            assert!(row.iter().all(|m| !m));
+        }
+        for row in &grid {
+            assert!(row[..4].iter().chain(&row[width - 4..]).all(|m| !m));
+        }
+
+        // Decode it back: dark modules black, 4 px per module.
+        let scale = 4;
+        let size = width * scale;
+        let mut img = rqrr::PreparedImage::prepare_from_greyscale(size, size, |x, y| {
+            if grid[y / scale][x / scale] {
+                0
+            } else {
+                255
+            }
+        });
+        let grids = img.detect_grids();
+        assert_eq!(grids.len(), 1);
+        let (_, content) = grids[0].decode().unwrap();
+        assert_eq!(content, link);
+
+        // The plain rendering is the same code with dark modules left blank
+        // (drawn on a dark terminal background).
+        let plain = qr_text(&link, false).unwrap();
+        let swap = |c: char| match c {
+            '█' => ' ',
+            ' ' => '█',
+            '▀' => '▄',
+            '▄' => '▀',
+            c => c,
+        };
+        let inverted: Vec<String> = rendered
+            .lines()
+            .map(|l| {
+                l.trim_start_matches("\x1b[30;107m")
+                    .trim_end_matches("\x1b[0m")
+                    .chars()
+                    .map(swap)
+                    .collect()
+            })
+            .collect();
+        let plain: Vec<&str> = plain.lines().collect();
+        assert_eq!(plain.len(), inverted.len());
+        // The last half line is padding when the module count is odd.
+        let full = plain.len() - (grid.len() - width);
+        assert_eq!(plain[..full], inverted[..full]);
     }
 
     #[test]
