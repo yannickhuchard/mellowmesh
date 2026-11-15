@@ -379,8 +379,6 @@ pub fn handle_publish(
 
         // Broadcast in-memory (Hot path)
         state.registry.broadcast(&msg);
-        // A Mellow bound to a platform on this machine answers its inbox.
-        crate::mellows::maybe_dispatch(&state, &msg);
         state
             .metrics
             .messages_routed_total
@@ -531,8 +529,18 @@ pub async fn publish_message(
         }
     }
 
-    match handle_publish(std::sync::Arc::new(state), msg).await {
-        Ok(m) => Ok((StatusCode::OK, Json(m))),
+    // Only the authenticated owner may set a Mellow in motion: a turn spends
+    // the owner's own AI session, so no other publisher (a visitor, another
+    // agent, a spoofed `from`) can trigger one.
+    let owner_speaks = crate::auth::is_admin(&state, &ctx);
+    let state = std::sync::Arc::new(state);
+    match handle_publish(state.clone(), msg).await {
+        Ok(m) => {
+            if owner_speaks {
+                crate::mellows::maybe_dispatch(&state, &m);
+            }
+            Ok((StatusCode::OK, Json(m)))
+        }
         Err(e) => Err((StatusCode::BAD_REQUEST, e)),
     }
 }

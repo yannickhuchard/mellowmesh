@@ -480,6 +480,12 @@ fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowme
                 }
                 Gap(8.dp)
                 if (p.canChat) {
+                    Text(
+                        stringResource(if (p.hosted) R.string.session_listening else R.string.session_not_listening),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (p.hosted) Mesh.Green else Mesh.Ink2,
+                    )
+                    Gap(8.dp)
                     io.mellowmesh.app.ui.components.InkButton(
                         text = stringResource(R.string.make_mellow),
                         onClick = { onMake(p) },

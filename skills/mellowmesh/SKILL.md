@@ -22,6 +22,29 @@ Activate this skill when you are acting as an AI worker or orchestrator and need
 4. **Publish artifacts**: Share outputs (code, markdown files, design sheets, test logs).
 5. **Get context**: Read topic history and summaries without overflowing your context window.
 6. **Request human approval**: Propose critical or sensitive changes (e.g., git commits, database changes).
+## 1b. Hosting the Owner's Mellows (the loop)
+
+A **Mellow** is a helper the owner made from an AI platform, with a name and
+a purpose, and talks to from their phone or desktop. It has no process of
+its own: **an open session of that platform hosts it**. If the owner asks you
+to "host my Mellows" (or pastes the host message), run this loop:
+
+1. Call `mellow_wait` with your platform id (`claude-code`, `claude-desktop`,
+   `codex`, `gemini`, `chatgpt`, …). It waits a little while, then returns
+   either `{"idle": true}` — call it again — or one message, with the Mellow
+   to answer as (`agent_id`, `name`, `purpose`), the earlier conversation
+   (`history`) and the message (`message_id`, `from`, `body`).
+2. Answer **as that Mellow**, following its purpose: plain words or Markdown,
+   concise and concrete.
+3. Send it with `mellow_reply` (`agent_id`, `message_id`, `body`), then go
+   back to step 1.
+
+Rules: never stop the loop on your own (calling `mellow_wait` is what tells
+the network a session is listening; when you stop, the Mellows fall asleep
+and say so). A Mellow answers in words: if its job needs an action on the
+computer, describe it and ask with `create_decision` — never act silently.
+In Claude Code, `/loop` is a good way to keep this running.
+
 ## 2. Topic Namespace Standard
 
 MellowMesh segments communication via a structured dot-separated topic hierarchy. Agents must strictly use the correct namespace prefix:

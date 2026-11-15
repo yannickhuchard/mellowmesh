@@ -695,6 +695,30 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
             }
         }),
         serde_json::json!({
+            "name": "mellow_wait",
+            "description": "Host the owner's Mellows from this session: wait (about 25 seconds) for the next chat message addressed to one of the Mellows of your platform. Returns either {\"idle\": true} — call it again — or the Mellow to answer as (agent_id, name, purpose), the earlier conversation (history) and the message (message_id, from, body). Answer with mellow_reply, then call mellow_wait again. Calling it is what tells the network a session is listening.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "platform": { "type": "string", "description": "Your platform id, e.g. claude-code, claude-desktop, codex, gemini, chatgpt" }
+                },
+                "required": ["platform"]
+            }
+        }),
+        serde_json::json!({
+            "name": "mellow_reply",
+            "description": "Send your answer as a Mellow you are hosting (after mellow_wait). The owner reads it in the Mellow's conversation on their phone or desktop. Plain words or Markdown; a Mellow never claims to have run commands or changed files — it asks with create_decision.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "agent_id": { "type": "string", "description": "The agent_id returned by mellow_wait" },
+                    "message_id": { "type": "string", "description": "The message_id being answered" },
+                    "body": { "type": "string", "description": "The answer, in plain words or Markdown" }
+                },
+                "required": ["agent_id", "body"]
+            }
+        }),
+        serde_json::json!({
             "name": "get_network",
             "description": "Read the hub's network: its name and default access, the spaces you may see (topic patterns with private/closed/open access) and the teams you belong to. Read-only.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -997,6 +1021,35 @@ pub async fn handle_tool_call(
             };
             let task = client.update_task(task_id, &update).await?;
             json_block(&task)
+        }
+        "mellow_wait" => {
+            let platform = args
+                .get("platform")
+                .and_then(|p| p.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing platform"))?;
+            match client.mellow_wait(platform, 25).await? {
+                Some(pending) => json_block(&pending),
+                None => json_block(&serde_json::json!({
+                    "idle": true,
+                    "next": "No message yet. Call mellow_wait again."
+                })),
+            }
+        }
+        "mellow_reply" => {
+            let agent_id = args
+                .get("agent_id")
+                .and_then(|a| a.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing agent_id"))?;
+            let body = args
+                .get("body")
+                .and_then(|b| b.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing body"))?;
+            let message_id = args.get("message_id").and_then(|m| m.as_str());
+            client.mellow_reply(agent_id, message_id, body).await?;
+            json_block(&serde_json::json!({
+                "sent": true,
+                "next": "Call mellow_wait again to keep hosting."
+            }))
         }
         "get_network" => {
             let view = client.get_network().await?;

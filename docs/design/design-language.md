@@ -232,8 +232,17 @@ developer console.
   promise ("It answers in words. Anything that would touch your files asks
   you first."). Creating it lands in its conversation, where it has already
   said hello.
-* A platform with **no remote door** never shows a dead button: it says so
-  and offers the pasted invitation instead.
+* **A Mellow speaks through a session you already have open.** The hub
+  never starts the AI app and never touches its sign-in: an open session
+  (Claude Code in its app, Claude Desktop, Codex…) *hosts* the Mellows of its
+  platform by looping on two MellowMesh MCP tools. Each row says which it
+  is: *A session is listening* (mint) or *No session is listening yet* with
+  the one thing to do — give that session the **host message** once.
+* **Asleep is said out loud.** A message sent while nobody hosts is kept,
+  and the Mellow answers once, in its own conversation: "I'm asleep right
+  now… your message is kept."
+* A platform that cannot connect to MellowMesh at all never shows a dead
+  button: it says so.
 * A Mellow made this way carries its origin everywhere: *Made from Claude
   Code on your computer*.
 * **Web = developer console.** The web client is the workshop (persona:

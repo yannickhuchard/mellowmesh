@@ -199,6 +199,16 @@ Plaza → Your network → *Spotted on your computer* → Claude Code ·
 requests and tell me what worries you" → the Mellow arrives with the
 celebration → its conversation opens with its first words → Karim types.
 
+*How a Mellow gets its voice (decided after the first build).* Running an
+AI app's command line in the background on the owner's subscription is the
+platform's rule to allow or not, and people are rightly wary of it. So the
+default is the opposite direction: **the session the owner already has
+open, signed in the normal way, comes and fetches the messages** (MellowMesh
+MCP: `mellow_wait` → answer → `mellow_reply`, looping). One host message,
+pasted once, makes a session host every Mellow of its platform — including
+the ones made later from the phone. Background command-line turns remain
+possible but are switched off unless the owner opts in on the hub.
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

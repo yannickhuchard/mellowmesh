@@ -1028,6 +1028,45 @@ impl MellowMeshClient {
             .json()
     }
 
+    /// A hosting session asks for the next message addressed to one of
+    /// the platform's Mellows (long poll, owner only). `None` when nothing
+    /// came within `wait_secs`. Asking marks the session as hosting.
+    pub async fn mellow_wait(
+        &self,
+        platform: &str,
+        wait_secs: u64,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let ok = !platform.is_empty()
+            && platform
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        anyhow::ensure!(ok, "invalid platform id");
+        let path = format!("/mellows/next?platform={platform}&wait={}", wait_secs.min(25));
+        let resp = self.send(Method::GET, &path, None).await?;
+        if resp.status == 204 {
+            return Ok(None);
+        }
+        Ok(Some(resp.ensure_api("Wait for a Mellow message")?.json()?))
+    }
+
+    /// Publish a hosting session's answer as the Mellow (owner only).
+    pub async fn mellow_reply(
+        &self,
+        agent_id: &str,
+        message_id: Option<&str>,
+        body: &str,
+    ) -> anyhow::Result<()> {
+        let payload = serde_json::json!({
+            "agent_id": agent_id,
+            "message_id": message_id,
+            "body": body,
+        });
+        self.send(Method::POST, "/mellows/reply", Some(payload))
+            .await?
+            .ensure_api("Answer as a Mellow")?;
+        Ok(())
+    }
+
     /// Update the network setting (owner only). Unset fields are kept.
     pub async fn set_network(&self, patch: &NetworkPatch) -> anyhow::Result<Network> {
         self.send(Method::PUT, "/network", Some(serde_json::to_value(patch)?))

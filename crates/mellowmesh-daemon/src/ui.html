@@ -904,7 +904,9 @@
             50% { opacity: 0.35; }
         }
 
-        .platform-main { flex-grow: 1; min-width: 0; }
+        .platform-main { flex: 1 1 170px; min-width: 0; }
+
+        .platform-row { flex-wrap: wrap; }
 
         .invite-code {
             padding: 0.6rem 0.8rem;
@@ -1491,7 +1493,7 @@
                     <label for="make-purpose">Its job, in one sentence</label>
                     <textarea id="make-purpose" rows="2" maxlength="500" required placeholder="Review my pull requests and tell me what worries you."></textarea>
                 </div>
-                <p class="platforms-hint">Registers <code>agent://&lt;owner&gt;/&lt;name&gt;</code> and binds its inbox to one headless turn of the platform. It answers in words; nothing here grants it tools.</p>
+                <p class="platforms-hint">Registers <code>agent://&lt;owner&gt;/&lt;name&gt;</code>. An open session of the platform hosts it through the MellowMesh MCP (<code>mellow_wait</code> / <code>mellow_reply</code>): the hub never starts the platform. It answers in words; nothing here grants it tools.</p>
                 <p id="make-error" class="platforms-hint" style="color: var(--accent-pink);"></p>
                 <div class="pair-actions">
                     <button type="submit" class="btn btn-sm">Create and say hello</button>
@@ -1711,7 +1713,7 @@
 
                     <div class="glass-card">
                         <h2>Mellows made from platforms</h2>
-                        <p class="platforms-hint">Bindings: a Mellow, the platform that speaks for it, and its purpose. Its inbox is answered by one headless turn of the platform.</p>
+                        <p class="platforms-hint">Bindings: a Mellow, the platform whose open session hosts it, and its purpose. Awake while a session loops on <code>mellow_wait</code>.</p>
                         <div id="mellows-list" class="platforms-list"><div class="empty-state">None yet.</div></div>
                     </div>
                 </div>
@@ -2230,7 +2232,7 @@
             for (const p of present) {
                 const row = document.createElement('div');
                 row.className = 'platform-row';
-                const drivable = p.can_chat ? ' · drivable' : '';
+                const drivable = p.can_chat ? (p.hosted ? ' · a session is hosting' : ' · no session hosting') : '';
                 const state = p.running
                     ? `<div class="platform-state on"><span class="dot"></span>running · ${p.sessions} process${p.sessions > 1 ? 'es' : ''}${drivable}</div>`
                     : `<div class="platform-state"><span class="dot"></span>installed · asleep${drivable}</div>`;
@@ -2248,6 +2250,19 @@
                     make.textContent = 'Make a Mellow';
                     make.addEventListener('click', () => openMake(p));
                     row.appendChild(make);
+                }
+                if (p.host_prompt) {
+                    const host = document.createElement('button');
+                    host.type = 'button';
+                    host.className = 'btn btn-sm btn-secondary';
+                    host.textContent = 'Host message';
+                    host.title = 'Copy the message that makes an open session host your Mellows';
+                    host.addEventListener('click', async () => {
+                        try { await navigator.clipboard.writeText(p.host_prompt); host.textContent = 'Copied'; }
+                        catch (e) { host.textContent = 'Copy failed'; }
+                        setTimeout(() => { host.textContent = 'Host message'; }, 1800);
+                    });
+                    row.appendChild(host);
                 }
                 if (p.invite !== 'none') {
                     const btn = document.createElement('button');
@@ -2294,7 +2309,7 @@
                 row.querySelector('.platform-glyph').textContent = platformGlyph(b.name);
                 row.querySelector('.platform-name').textContent = `${b.name}  ·  ${b.agent_id}`;
                 const lines = row.querySelectorAll('.platform-state');
-                lines[0].textContent = `← ${b.platform} · inbox ${b.inbox}`;
+                lines[0].textContent = `← ${b.platform} · ${b.mode} · ${b.awake ? 'awake' : 'asleep (no session hosting)'} · inbox ${b.inbox}`;
                 lines[1].textContent = `purpose: ${b.purpose}`;
                 list.appendChild(row);
             }

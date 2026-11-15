@@ -1,15 +1,24 @@
 //! Mellows made from an AI platform on this machine.
 //!
-//! The owner picks an installed platform the hub can pilot (Claude Code,
-//! Codex, Gemini CLI), gives the Mellow a name and a purpose, and it is
-//! registered on the network like any other agent. From then on a message
-//! in its conversation (`_agent.<owner>.<name>.inbox`) is answered by one
-//! headless turn of that platform, published back on `.outbox`.
+//! The owner picks a platform, gives the Mellow a name and a purpose, and
+//! it is registered on the network like any other agent. Its conversation
+//! (`_agent.<owner>.<name>.inbox` / `.outbox`) then gets its voice in one
+//! of two ways:
 //!
-//! Safety shape: the prompt travels on standard input (never on a command
-//! line), the platform runs with its own default permissions in a private
-//! workspace folder, and turns for one Mellow are strictly one at a time.
-//! A Mellow made this way answers in words; nothing here grants it tools.
+//! * **session** (the default): an AI session the owner already has open
+//!   and signed in — Claude Code in its app, Claude Desktop, Codex… — hosts
+//!   the Mellows of its platform. It joined through the MellowMesh MCP and
+//!   loops on `mellow_wait` / `mellow_reply`. The hub never starts the
+//!   platform and never touches its sign-in: the session pulls each message
+//!   and answers it. Messages wait in a queue while no session listens.
+//! * **headless** (opt-in, `MELLOWMESH_ALLOW_HEADLESS=1`): the hub runs
+//!   one non-interactive turn of the platform's command line per message.
+//!   Off by default: whether a subscription may be used that way is the
+//!   platform's rule to state, and the owner's call to make.
+//!
+//! Only the authenticated owner's messages set a Mellow in motion (see
+//! `handlers::message::publish_message`). Turns for one Mellow are one at
+//! a time, and a Mellow answers in words: nothing here grants it tools.
 
 use crate::platforms::{self, PlatformSpec};
 use crate::state::AppState;
@@ -19,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// `app_config` key holding the bindings (JSON list).
 const BINDINGS_KEY: &str = "mellow_bindings";
@@ -42,6 +51,187 @@ pub struct Binding {
     pub inbox: String,
     pub outbox: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// `session` (hosted by an open AI session) or `headless`.
+    #[serde(default = "default_mode")]
+    pub mode: String,
+}
+
+pub const MODE_SESSION: &str = "session";
+pub const MODE_HEADLESS: &str = "headless";
+
+fn default_mode() -> String {
+    MODE_SESSION.to_string()
+}
+
+/// Whether the owner opted in to headless command-line turns.
+pub fn headless_allowed() -> bool {
+    std::env::var("MELLOWMESH_ALLOW_HEADLESS")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
+/// A session counts as hosting while it asked for work this recently.
+const HOST_FRESH: Duration = Duration::from_secs(90);
+/// The "I'm asleep" note is said at most this often per Mellow.
+const ASLEEP_NOTE_EVERY: Duration = Duration::from_secs(600);
+
+/// One message waiting for a hosting session.
+struct Waiting {
+    live: Arc<Live>,
+    msg: Message,
+}
+
+/// What a hosting session gets from `mellow_wait`: who to be, what was
+/// said before, and the message to answer.
+#[derive(Debug, Clone, Serialize)]
+pub struct Pending {
+    pub agent_id: String,
+    pub name: String,
+    pub purpose: String,
+    pub message_id: String,
+    pub from: String,
+    pub body: String,
+    /// Earlier lines of this conversation, oldest first.
+    pub history: Vec<HistoryLine>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryLine {
+    /// `owner` or `you`.
+    pub who: &'static str,
+    pub text: String,
+}
+
+#[derive(Default)]
+struct Hosting {
+    /// Per platform: messages waiting for a session.
+    queues: std::sync::Mutex<HashMap<String, VecDeque<Waiting>>>,
+    /// Per platform: when a session last asked for work.
+    last_wait: std::sync::Mutex<HashMap<String, Instant>>,
+    /// Per inbox: when the "asleep" note was last said.
+    last_note: std::sync::Mutex<HashMap<String, Instant>>,
+    wake: tokio::sync::Notify,
+}
+
+fn hosting() -> &'static Hosting {
+    static CELL: OnceLock<Hosting> = OnceLock::new();
+    CELL.get_or_init(Hosting::default)
+}
+
+/// Whether a session is hosting this platform's Mellows right now.
+pub fn is_hosted(platform: &str) -> bool {
+    hosting()
+        .last_wait
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(platform)
+        .is_some_and(|t| t.elapsed() < HOST_FRESH)
+}
+
+/// The message the owner gives ONCE to an open session so it hosts the
+/// Mellows of its platform. Plain instructions over the MellowMesh MCP.
+pub fn host_prompt(spec: &PlatformSpec) -> String {
+    format!(
+        "Host my MellowMesh Mellows in this session.\n\n\
+         Use the mellowmesh MCP tools (if they are missing, tell me to connect them first: {connect}).\n\
+         Loop until I say stop:\n\
+         1. Call `mellow_wait` with platform \"{id}\". It waits a little while and returns either idle (call it again) or one message for one of my Mellows, with that Mellow's name, purpose and earlier conversation.\n\
+         2. Answer that message AS that Mellow, following its purpose, in plain words or Markdown, concise and concrete.\n\
+         3. Send the answer with `mellow_reply` (agent_id and message_id from step 1), then go back to step 1.\n\n\
+         Rules of the house: a Mellow answers in words. If its job needs an action on this computer (files, commands, sending anything), do not do it: say exactly what you would do and ask me with `create_decision`. Never stop the loop on your own; if a call fails, wait a few seconds and try again.",
+        connect = if spec.command.is_empty() { "add the MellowMesh MCP server" } else { spec.command },
+        id = spec.id,
+    )
+}
+
+/// The next message for a platform's hosting session, waiting up to
+/// `wait`. Asking is what marks the session as hosting.
+pub async fn wait_next(platform: &str, wait: Duration) -> Option<Pending> {
+    let h = hosting();
+    let deadline = Instant::now() + wait;
+    loop {
+        h.last_wait
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(platform.to_string(), Instant::now());
+        let next = h
+            .queues
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(platform)
+            .and_then(VecDeque::pop_front);
+        if let Some(w) = next {
+            let mut memory = w.live.memory.lock().await;
+            let history = memory
+                .iter()
+                .map(|l| HistoryLine {
+                    who: if l.from_owner { "owner" } else { "you" },
+                    text: l.text.clone(),
+                })
+                .collect();
+            memory.push_back(Line {
+                from_owner: true,
+                text: w.msg.body.clone(),
+            });
+            while memory.len() > MEMORY_LINES {
+                memory.pop_front();
+            }
+            let b = &w.live.binding;
+            return Some(Pending {
+                agent_id: b.agent_id.clone(),
+                name: b.name.clone(),
+                purpose: b.purpose.clone(),
+                message_id: w.msg.id.clone(),
+                from: w.msg.from.clone(),
+                body: w.msg.body.clone(),
+                history,
+            });
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        // Wake on a new message, or look again every few seconds so the
+        // session keeps counting as hosting during a long wait.
+        let _ = tokio::time::timeout(left.min(Duration::from_secs(20)), h.wake.notified()).await;
+    }
+}
+
+/// A hosting session's answer, published as the Mellow.
+pub async fn reply(
+    state: &AppState,
+    agent_id: &str,
+    message_id: Option<&str>,
+    body: &str,
+) -> Result<(), String> {
+    let body = body.trim();
+    if body.is_empty() {
+        return Err("The answer is empty.".into());
+    }
+    let live = registry()
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .values()
+        .find(|l| l.binding.agent_id == agent_id)
+        .cloned()
+        .ok_or_else(|| format!("No Mellow named {agent_id} is bound on this hub."))?;
+    let text: String = body.chars().take(MAX_REPLY_CHARS).collect();
+    {
+        let mut memory = live.memory.lock().await;
+        memory.push_back(Line {
+            from_owner: false,
+            text: text.clone(),
+        });
+        while memory.len() > MEMORY_LINES {
+            memory.pop_front();
+        }
+    }
+    let b = &live.binding;
+    let mut out = message(&b.outbox, &b.agent_id, "text/markdown", text, None);
+    out.parent_id = message_id.map(str::to_string);
+    crate::handlers::message::handle_publish(Arc::new(state.clone()), out)
+        .await
+        .map(|_| ())
 }
 
 /// One line of remembered conversation.
@@ -133,6 +323,7 @@ pub enum CreateError {
     BadName,
     BadPurpose,
     Exists(String),
+    HeadlessOff,
     Internal(String),
 }
 
@@ -147,6 +338,7 @@ impl CreateError {
             Self::BadName => "Give it a name with at least one letter or digit.".into(),
             Self::BadPurpose => "Say in one sentence what it is for (up to 500 characters).".into(),
             Self::Exists(n) => format!("A Mellow named {n} already exists. Pick another name."),
+            Self::HeadlessOff => "Command-line piloting is switched off on this hub. Make a session Mellow instead, or start the hub with MELLOWMESH_ALLOW_HEADLESS=1 if your plan allows it.".into(),
             Self::Internal(e) => format!("Something went wrong while making it: {e}"),
         }
     }
@@ -158,13 +350,27 @@ pub async fn create(
     platform_id: &str,
     name: &str,
     purpose: &str,
+    mode: Option<&str>,
 ) -> Result<Binding, CreateError> {
     let spec = platforms::spec(platform_id).ok_or(CreateError::UnknownPlatform)?;
-    if spec.drive.is_none() {
+    let mode = match mode {
+        Some(MODE_HEADLESS) => MODE_HEADLESS,
+        _ => MODE_SESSION,
+    };
+    if mode == MODE_HEADLESS {
+        if !headless_allowed() {
+            return Err(CreateError::HeadlessOff);
+        }
+        if spec.drive.is_none() {
+            return Err(CreateError::NotPilotable(spec.name));
+        }
+        if !platforms::is_installed(spec) {
+            return Err(CreateError::NotInstalled(spec.name));
+        }
+    } else if spec.invite == platforms::InviteKind::None {
+        // A session hosts through the MellowMesh MCP: the platform must
+        // be able to connect to it.
         return Err(CreateError::NotPilotable(spec.name));
-    }
-    if !platforms::is_installed(spec) {
-        return Err(CreateError::NotInstalled(spec.name));
     }
     let seg = slug(name).ok_or(CreateError::BadName)?;
     let purpose = purpose.trim();
@@ -181,6 +387,7 @@ pub async fn create(
         inbox: format!("_agent.{owner}.{seg}.inbox"),
         outbox: format!("_agent.{owner}.{seg}.outbox"),
         created_at: chrono::Utc::now(),
+        mode: mode.to_string(),
     };
     if registry()
         .read()
@@ -227,8 +434,16 @@ pub async fn create(
         ),
     )
     .await;
+    let how = if mode == MODE_HEADLESS || is_hosted(spec.id) {
+        "Write to me here whenever you like.".to_string()
+    } else {
+        format!(
+            "I answer through a {} session on your computer. None is hosting your Mellows yet: open one there and give it the host message once (MellowMesh shows it next to {}). Your messages wait for me meanwhile.",
+            spec.name, spec.name
+        )
+    };
     let hello = format!(
-        "Hi! I'm **{}**, made from {} on this computer. My job: {} Write to me here whenever you like.",
+        "Hi! I'm **{}**, made from {}. My job: {} {how}",
         binding.name,
         spec.name,
         ensure_sentence(&binding.purpose)
@@ -285,11 +500,54 @@ pub fn maybe_dispatch(state: &Arc<AppState>, msg: &Message) {
     if msg.from == live.binding.agent_id || msg.body.trim().is_empty() {
         return;
     }
-    let state = state.clone();
-    let msg = msg.clone();
-    tokio::spawn(async move {
-        run_turn(state, live, msg).await;
-    });
+    if live.binding.mode == MODE_HEADLESS && headless_allowed() {
+        let state = state.clone();
+        let msg = msg.clone();
+        tokio::spawn(async move {
+            run_turn(state, live, msg).await;
+        });
+        return;
+    }
+
+    // Session mode: the message waits for the platform's hosting session.
+    let h = hosting();
+    let platform = live.binding.platform.clone();
+    h.queues
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .entry(platform.clone())
+        .or_default()
+        .push_back(Waiting {
+            live: live.clone(),
+            msg: msg.clone(),
+        });
+    h.wake.notify_waiters();
+    if is_hosted(&platform) {
+        return;
+    }
+    // Nobody is listening: say so once in a while, in the conversation.
+    let due = {
+        let mut notes = h.last_note.lock().unwrap_or_else(|p| p.into_inner());
+        let due = notes
+            .get(&live.binding.inbox)
+            .is_none_or(|t| t.elapsed() > ASLEEP_NOTE_EVERY);
+        if due {
+            notes.insert(live.binding.inbox.clone(), Instant::now());
+        }
+        due
+    };
+    if due {
+        let name = platforms::spec(&platform).map(|s| s.name).unwrap_or("its platform");
+        let note = format!(
+            "I'm asleep right now: no {name} session on your computer is hosting your Mellows. Your message is kept — I'll answer as soon as one listens (open {name} there and give it the host message once)."
+        );
+        let b = &live.binding;
+        let out = message(&b.outbox, &b.agent_id, "text/markdown", note, None);
+        let state = state.clone();
+        tokio::spawn(async move {
+            let _ = crate::handlers::message::handle_publish(state, out).await;
+        });
+    }
 }
 
 async fn run_turn(state: Arc<AppState>, live: Arc<Live>, msg: Message) {
@@ -489,7 +747,58 @@ mod tests {
             inbox: "_agent.karim.reviewer.inbox".into(),
             outbox: "_agent.karim.reviewer.outbox".into(),
             created_at: chrono::Utc::now(),
+            mode: MODE_SESSION.into(),
         }
+    }
+
+    #[test]
+    fn a_binding_saved_before_modes_existed_becomes_a_session_mellow() {
+        let old = r#"{"agent_id":"agent://k/r","name":"R","platform":"claude-code","purpose":"p",
+            "inbox":"_agent.k.r.inbox","outbox":"_agent.k.r.outbox","created_at":"2026-11-15T20:00:00Z"}"#;
+        let b: Binding = serde_json::from_str(old).unwrap();
+        assert_eq!(b.mode, MODE_SESSION, "never headless unless the owner asked");
+    }
+
+    #[test]
+    fn the_host_message_names_the_loop_the_tools_and_the_rule() {
+        let spec = platforms::spec("claude-code").unwrap();
+        let p = host_prompt(spec);
+        assert!(p.contains("mellow_wait") && p.contains("mellow_reply"));
+        assert!(p.contains("\"claude-code\""));
+        assert!(p.contains("create_decision"), "actions go through a decision");
+        assert!(p.contains(spec.command), "says how to connect the MCP if missing");
+    }
+
+    /// Persona simulation — Léa's open session hosts her Mellows: a message
+    /// queued for the platform is handed to the waiting session with the
+    /// Mellow's identity, and asking for work is what marks it as hosting.
+    #[tokio::test]
+    async fn a_waiting_session_gets_the_queued_message_and_counts_as_hosting() {
+        let platform = "test-platform-lea";
+        assert!(!is_hosted(platform));
+        let mut b = binding();
+        b.platform = platform.into();
+        b.inbox = "_agent.lea.ops.inbox".into();
+        let live = Arc::new(Live {
+            binding: b,
+            memory: tokio::sync::Mutex::new(VecDeque::new()),
+        });
+        hosting()
+            .queues
+            .lock()
+            .unwrap()
+            .entry(platform.to_string())
+            .or_default()
+            .push_back(Waiting {
+                live,
+                msg: message("_agent.lea.ops.inbox", "human://lea", "text/plain", "Is the deploy safe?".into(), None),
+            });
+        let got = wait_next(platform, Duration::from_millis(200)).await.expect("a message");
+        assert_eq!(got.name, "Reviewer");
+        assert_eq!(got.body, "Is the deploy safe?");
+        assert!(got.history.is_empty());
+        assert!(is_hosted(platform), "asking for work marks the session as hosting");
+        assert!(wait_next(platform, Duration::from_millis(50)).await.is_none());
     }
 
     #[test]

@@ -95,6 +95,8 @@
     <string name="nothing_installed">No AI app was found on that computer yet.</string>
     <string name="not_on_computer">Not on this computer: %1$s</string>
     <string name="no_remote_door">It has no remote door, so it cannot be piloted from here. Invite it from the computer with a pasted message.</string>
+    <string name="session_listening">A session is listening: your Mellows answer right away.</string>
+    <string name="session_not_listening">No session is listening yet. On the computer, open it and give it the host message once — your messages wait meanwhile.</string>
     <string name="make_mellow">Make a Mellow</string>
     <string name="make_mellow_title">Make a Mellow from %1$s</string>
     <string name="make_mellow_body">Give it a name and a job. It joins your network and you can talk to it right away.</string>
@@ -102,7 +104,7 @@
     <string name="mellow_name_hint">Reviewer</string>
     <string name="mellow_purpose">Its job, in one sentence</string>
     <string name="mellow_purpose_hint">Review my pull requests and tell me what worries you.</string>
-    <string name="mellow_safety">It answers in words. Anything that would touch your files asks you first.</string>
+    <string name="mellow_safety">It speaks through a session you already have open on your computer. It answers in words; anything that would touch your files asks you first.</string>
     <string name="create_say_hello">Create and say hello</string>
     <string name="making_mellow">Making it…</string>
     <string name="made_from">Made from %1$s on your computer</string>

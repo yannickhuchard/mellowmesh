@@ -319,8 +319,10 @@ data class PlatformInfo(
     val running: Boolean = false,
     /** Present on the computer (a running platform counts). */
     val installed: Boolean = false,
-    /** The hub can pilot it: a Mellow can be made from it. */
+    /** A Mellow can be made from it (an open session of it can host). */
     @SerialName("can_chat") val canChat: Boolean = false,
+    /** A session of this platform is hosting Mellows right now. */
+    val hosted: Boolean = false,
     /** `command`, `paste` or `none` — how it joins the network. */
     val invite: String = "none",
     val command: String = "",

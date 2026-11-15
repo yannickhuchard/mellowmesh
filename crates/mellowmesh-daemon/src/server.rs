@@ -134,6 +134,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/platforms", get(platforms_handler))
         .route("/platforms/:id/mellows", post(create_mellow_handler))
         .route("/mellows", get(list_mellows_handler))
+        .route("/mellows/next", get(mellow_next_handler))
+        .route("/mellows/reply", post(mellow_reply_handler))
         .route("/pair", post(handlers::pairing::pair))
         .route("/pair/claim", post(handlers::pairing::claim_pairing_code))
         .route("/pair/:token_id", get(handlers::pairing::pair_status))
@@ -186,10 +188,30 @@ async fn platforms_handler(
     if snap.looked_at.is_none() {
         snap = crate::platforms::scan_now().await;
     }
+    let headless = crate::mellows::headless_allowed();
+    let platforms: Vec<serde_json::Value> = snap
+        .platforms
+        .iter()
+        .map(|p| {
+            let spec = crate::platforms::spec(p.id);
+            // A session can host through the MellowMesh MCP whenever the
+            // platform can connect to it; headless needs the owner's opt-in.
+            let can_host = spec.is_some_and(|s| s.invite != crate::platforms::InviteKind::None);
+            let mut v = serde_json::to_value(p).unwrap_or_default();
+            v["can_chat"] = serde_json::json!(can_host && (p.installed || p.running));
+            v["hosted"] = serde_json::json!(crate::mellows::is_hosted(p.id));
+            v["headless"] = serde_json::json!(headless && p.can_chat);
+            if let Some(s) = spec.filter(|_| can_host) {
+                v["host_prompt"] = serde_json::json!(crate::mellows::host_prompt(s));
+            }
+            v
+        })
+        .collect();
     axum::response::Json(serde_json::json!({
         "machine": state.node_id,
         "looked_at": snap.looked_at,
-        "platforms": snap.platforms,
+        "headless_allowed": headless,
+        "platforms": platforms,
     }))
     .into_response()
 }
@@ -198,6 +220,24 @@ async fn platforms_handler(
 struct CreateMellow {
     name: String,
     purpose: String,
+    /// `session` (default) or `headless` (opt-in on the hub).
+    #[serde(default)]
+    mode: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MellowNextParams {
+    platform: String,
+    /// Seconds to wait for a message (default 50, at most 55).
+    wait: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct MellowReply {
+    agent_id: String,
+    #[serde(default)]
+    message_id: Option<String>,
+    body: String,
 }
 
 fn owner_only(state: &AppState, ctx: &crate::auth::AuthContext) -> Option<axum::response::Response> {
@@ -227,7 +267,7 @@ async fn create_mellow_handler(
         return no;
     }
     use crate::mellows::CreateError;
-    match crate::mellows::create(&state, &id, &body.name, &body.purpose).await {
+    match crate::mellows::create(&state, &id, &body.name, &body.purpose, body.mode.as_deref()).await {
         Ok(binding) => {
             // The conversation id the apps open: inbox without ".inbox".
             let conversation = binding.inbox.trim_end_matches(".inbox").to_string();
@@ -238,6 +278,8 @@ async fn create_mellow_handler(
                     "name": binding.name,
                     "platform": binding.platform,
                     "purpose": binding.purpose,
+                    "mode": binding.mode,
+                    "hosted": crate::mellows::is_hosted(&binding.platform),
                     "conversation_id": conversation,
                 })),
             )
@@ -267,7 +309,61 @@ async fn list_mellows_handler(
     if let Some(no) = owner_only(&state, &ctx) {
         return no;
     }
-    axum::response::Json(crate::mellows::list()).into_response()
+    let all: Vec<serde_json::Value> = crate::mellows::list()
+        .into_iter()
+        .map(|b| {
+            let awake = b.mode == crate::mellows::MODE_HEADLESS || crate::mellows::is_hosted(&b.platform);
+            let mut v = serde_json::to_value(&b).unwrap_or_default();
+            v["awake"] = serde_json::json!(awake);
+            v
+        })
+        .collect();
+    axum::response::Json(all).into_response()
+}
+
+/// `GET /mellows/next?platform=…&wait=…`: a hosting session asks for the
+/// next message for its platform's Mellows (long poll, owner only). `204`
+/// when nothing came. Asking is what marks the session as hosting.
+async fn mellow_next_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    Query(params): Query<MellowNextParams>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    if crate::platforms::spec(&params.platform).is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::response::Json(serde_json::json!({ "error": "That AI app is not one MellowMesh knows." })),
+        )
+            .into_response();
+    }
+    let wait = std::time::Duration::from_secs(params.wait.unwrap_or(50).min(55));
+    match crate::mellows::wait_next(&params.platform, wait).await {
+        Some(pending) => axum::response::Json(pending).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+/// `POST /mellows/reply`: a hosting session's answer, published as the
+/// Mellow on its outbox (owner only).
+async fn mellow_reply_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::Json(body): axum::Json<MellowReply>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    match crate::mellows::reply(&state, &body.agent_id, body.message_id.as_deref(), &body.body).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            axum::response::Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
 }
 
 async fn ui_handler() -> impl IntoResponse {

@@ -436,11 +436,21 @@ public sealed partial class NetworkPage : Page
                 {
                     row.Children.Add(Ui.Primary("Make a Mellow", async (_, _) => await MakeMellowAsync(platform)));
                 }
+                if (p.HostPrompt.Length > 0)
+                {
+                    row.Children.Add(Ui.Secondary("Copy host message", (_, _) => CopyHostMessage(platform)));
+                }
                 if (p.Invite is "command" or "paste")
                 {
                     row.Children.Add(Ui.Secondary("Invite", async (_, _) => await InviteAsync(platform)));
                 }
                 list.Children.Add(row);
+                if (p.CanChat)
+                {
+                    list.Children.Add(p.Hosted
+                        ? Ui.Text("A session is listening: your Mellows answer right away.", 12, Ui.Hex("#157A52"))
+                        : Ui.Text($"No session is listening yet. Open {p.Name} and paste the host message once — messages wait meanwhile.", 12, Ui.Ink3));
+                }
                 if (!p.CanChat && p.Invite == "paste")
                 {
                     list.Children.Add(Ui.Text("It has no remote door, so it cannot be piloted from here — Invite copies a message to paste in its chat.", 12, Ui.Ink3));
@@ -451,6 +461,22 @@ public sealed partial class NetworkPage : Page
                 list.Children.Add(Ui.Text("Not on this computer: " + string.Join(" · ", absent), 12, Ui.Ink3));
             }
         });
+    }
+
+    /// <summary>The one message an open session needs to host the Mellows.</summary>
+    private static void CopyHostMessage(PlatformInfo platform)
+    {
+        try
+        {
+            var data = new DataPackage();
+            data.SetText(platform.HostPrompt);
+            Clipboard.SetContent(data);
+            App.Shell?.ShowWhisper($"Host message copied — paste it once into your open {platform.Name} session.");
+        }
+        catch (Exception)
+        {
+            // Clipboard can be busy; the whisper simply doesn't show.
+        }
     }
 
     /// <summary>
@@ -480,7 +506,7 @@ public sealed partial class NetworkPage : Page
                 Ui.Text("Give it a name and a job. It joins your network and you can talk to it right away.", 14, Ui.Ink2),
                 nameBox,
                 purposeBox,
-                Ui.Text("It answers in words. Anything that would touch your files asks you first.", 12.5, Ui.Ink3)),
+                Ui.Text("It speaks through a session you already have open on this computer. It answers in words; anything that would touch your files asks you first.", 12.5, Ui.Ink3)),
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
         {

@@ -18,6 +18,10 @@ public sealed class PlatformInfo
     [JsonPropertyName("installed")] public bool Installed { get; set; }
     /// <summary>The hub can pilot it: a Mellow can be made from it.</summary>
     [JsonPropertyName("can_chat")] public bool CanChat { get; set; }
+    /// <summary>A session of this platform is hosting Mellows right now.</summary>
+    [JsonPropertyName("hosted")] public bool Hosted { get; set; }
+    /// <summary>The message that makes an open session host the Mellows.</summary>
+    [JsonPropertyName("host_prompt")] public string HostPrompt { get; set; } = "";
     /// <summary><c>command</c>, <c>paste</c> or <c>none</c>: how it joins.</summary>
     [JsonPropertyName("invite")] public string Invite { get; set; } = "none";
     /// <summary>The one-line connect command, for <c>command</c> invites.</summary>
