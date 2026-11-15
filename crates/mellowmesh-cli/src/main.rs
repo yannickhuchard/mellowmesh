@@ -971,7 +971,7 @@ async fn main() -> anyhow::Result<()> {
             action: AccessAction::Check { topic, principal },
         }) => network_cmds::run_access_check(&client, &topic, principal.as_deref()).await?,
         Commands::Pair { name, url, no_wait } => {
-            network_cmds::run_pair(&client, name, url, no_wait).await?
+            network_cmds::run_pair(&client, name, url, no_wait, cli.port).await?
         }
         Commands::Devices(DevicesCmd { action }) => match action {
             None | Some(DevicesAction::List) => network_cmds::run_devices(&client).await?,

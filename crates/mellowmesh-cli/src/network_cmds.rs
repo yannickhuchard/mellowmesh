@@ -392,6 +392,7 @@ pub async fn run_pair(
     name: Option<String>,
     url: Option<String>,
     no_wait: bool,
+    port: u16,
 ) -> anyhow::Result<()> {
     let url = url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
     if let Some(u) = &url {
@@ -403,7 +404,20 @@ pub async fn run_pair(
     }
     let lan_mode = url.is_none();
     let admin = as_local_human(client);
-    let pairing = admin.pair(&PairRequest { name, url }).await.map_err(|e| {
+    let request = PairRequest { name, url };
+    let mut first = admin.pair(&request).await;
+    if let Err(e) = &first {
+        let msg = e.to_string();
+        // A hub started by an older install does not know /pair yet: on this
+        // machine, restart it with the daemon next to this CLI and try again,
+        // so pairing stays a single command.
+        if (msg.contains("(404)") || msg.contains("(405)")) && admin.targets_local() {
+            println!("The running hub is an older version: restarting it...");
+            crate::commands::run_daemon_restart(port).await?;
+            first = as_local_human(client).pair(&request).await;
+        }
+    }
+    let pairing = first.map_err(|e| {
         let msg = e.to_string();
         if msg.contains("(401)") || msg.contains("(403)") {
             anyhow::anyhow!(
