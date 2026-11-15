@@ -290,6 +290,9 @@ class MeshClient(
 
     fun agents(): List<AgentRegistration> = get("agents", ListSerializer(AgentRegistration.serializer()))
 
+    /** AI platforms the hub spotted on its own machine (owner only). */
+    fun platforms(): PlatformsSnapshot = get("platforms", PlatformsSnapshot.serializer())
+
     fun decisions(): List<Decision> = get("decisions", ListSerializer(Decision.serializer()))
 
     /** Answer a decision. The app gates this behind BiometricPrompt. Never queued offline. */

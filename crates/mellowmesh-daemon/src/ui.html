@@ -7,24 +7,27 @@
     <!-- Google Fonts Outfit & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
     <style>
+        /* Mesh Mall in daylight — the design language of the native apps
+           (docs/design/design-language.md): warm paper ground, ink text,
+           white cards, one indigo accent, clay-bright moments. */
         :root {
-            --bg-color: #0b0f19;
-            --card-bg: rgba(22, 28, 45, 0.65);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --text-color: #f3f4f6;
-            --text-muted: #9ca3af;
-            --primary: #6366f1;
-            --primary-hover: #4f46e5;
-            --primary-glow: rgba(99, 102, 241, 0.15);
-            --accent-cyan: #06b6d4;
-            --accent-pink: #ec4899;
-            --accent-amber: #f59e0b;
-            --accent-emerald: #10b981;
-            --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-            --shadow-premium: 0 10px 30px -10px rgba(0, 0, 0, 0.7);
+            --bg-color: #E9E7E1;
+            --card-bg: #FFFFFF;
+            --card-border: rgba(17, 17, 20, 0.08);
+            --text-color: #111114;
+            --text-muted: #6E6E73;
+            --primary: #4F46E5;
+            --primary-hover: #4338CA;
+            --primary-glow: rgba(79, 70, 229, 0.14);
+            --accent-cyan: #1586C4;
+            --accent-pink: #C8266F;
+            --accent-amber: #D98A06;
+            --accent-emerald: #109868;
+            --font-sans: 'Segoe UI Variable', 'Segoe UI', Inter, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+            --shadow-premium: 0 1px 0 rgba(17, 17, 20, 0.04), 0 18px 40px -24px rgba(40, 30, 20, 0.35);
         }
 
         * {
@@ -41,10 +44,9 @@
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.05) 0px, transparent 50%),
-                radial-gradient(at 50% 100%, rgba(236, 72, 153, 0.05) 0px, transparent 50%);
+            background-image:
+                radial-gradient(900px 600px at 80% 0%, #DCE6F3, transparent 60%),
+                radial-gradient(800px 600px at 0% 100%, #EFE6D8, transparent 60%);
             background-attachment: fixed;
         }
 
@@ -54,7 +56,7 @@
             align-items: center;
             padding: 1.5rem 2rem;
             border-bottom: 1px solid var(--card-border);
-            background: rgba(11, 15, 25, 0.8);
+            background: rgba(243, 242, 239, 0.88);
             backdrop-filter: blur(12px);
             position: sticky;
             top: 0;
@@ -70,12 +72,10 @@
         .logo-symbol {
             width: 32px;
             height: 32px;
-            background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
-            border-radius: 8px;
+            background: #111114;
+            border-radius: 9px;
             position: relative;
             overflow: hidden;
-            box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
-            animation: pulse-glow 3s infinite alternate;
         }
 
         .logo-symbol::after {
@@ -91,13 +91,10 @@
         }
 
         h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 800;
-            letter-spacing: 2px;
-            background: linear-gradient(to right, #ffffff, #a5b4fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-transform: uppercase;
+            letter-spacing: -0.02em;
+            color: var(--text-color);
         }
 
         .status-badge {
@@ -106,7 +103,7 @@
             gap: 0.5rem;
             font-size: 0.85rem;
             font-weight: 600;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.05);
             padding: 0.4rem 0.8rem;
             border-radius: 20px;
             border: 1px solid var(--card-border);
@@ -176,7 +173,7 @@
 
         .tab-btn:hover {
             color: var(--text-color);
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(17, 17, 20, 0.04);
         }
 
         .tab-btn.active {
@@ -207,7 +204,7 @@
         }
 
         .glass-card:hover {
-            border-color: rgba(255, 255, 255, 0.12);
+            border-color: rgba(17, 17, 20, 0.16);
         }
 
         h2 {
@@ -217,7 +214,7 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(17, 17, 20, 0.05);
             padding-bottom: 0.75rem;
         }
 
@@ -238,7 +235,7 @@
 
         input, textarea, select {
             width: 100%;
-            background: rgba(0, 0, 0, 0.3);
+            background: #FBFBFA;
             border: 1px solid var(--card-border);
             border-radius: 8px;
             padding: 0.75rem;
@@ -252,7 +249,7 @@
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px var(--primary-glow);
-            background: rgba(0, 0, 0, 0.4);
+            background: #FFFFFF;
         }
 
         .btn {
@@ -283,12 +280,13 @@
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.05);
             border: 1px solid var(--card-border);
+            color: var(--text-color);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: rgba(17, 17, 20, 0.09);
             box-shadow: none;
         }
 
@@ -310,8 +308,8 @@
         }
 
         .message-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: #FFFFFF;
+            border: 1px solid rgba(17, 17, 20, 0.08);
             border-radius: 12px;
             padding: 1rem;
             position: relative;
@@ -351,7 +349,7 @@
         .msg-topic {
             font-family: var(--font-mono);
             font-size: 0.75rem;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.05);
             padding: 0.15rem 0.4rem;
             border-radius: 4px;
         }
@@ -380,8 +378,8 @@
         }
 
         .task-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: #FFFFFF;
+            border: 1px solid rgba(17, 17, 20, 0.08);
             border-radius: 12px;
             padding: 1rem;
             display: flex;
@@ -460,7 +458,7 @@
         .task-cap {
             font-family: var(--font-mono);
             font-size: 0.7rem;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.05);
             padding: 0.1rem 0.3rem;
             border-radius: 4px;
             color: var(--text-muted);
@@ -469,7 +467,7 @@
         .task-assignment {
             font-size: 0.75rem;
             color: var(--text-muted);
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-top: 1px solid rgba(17, 17, 20, 0.05);
             padding-top: 0.5rem;
         }
 
@@ -490,8 +488,8 @@
         }
 
         .decision-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: #FFFFFF;
+            border: 1px solid rgba(17, 17, 20, 0.08);
             border-radius: 12px;
             padding: 1.25rem;
             border-left: 3px solid var(--accent-amber);
@@ -529,7 +527,7 @@
             gap: 0.5rem;
             padding: 0.5rem;
             border-radius: 6px;
-            background: rgba(0, 0, 0, 0.2);
+            background: rgba(17, 17, 20, 0.04);
             cursor: pointer;
             border: 1px solid transparent;
             transition: all 0.2s ease;
@@ -545,8 +543,8 @@
         }
 
         .decision-option:hover {
-            background: rgba(255, 255, 255, 0.02);
-            border-color: rgba(255, 255, 255, 0.05);
+            background: #FFFFFF;
+            border-color: rgba(17, 17, 20, 0.05);
         }
 
         .decision-option input {
@@ -585,7 +583,7 @@
             padding: 0.1rem 0.4rem;
             border-radius: 4px;
             margin-left: 0.5rem;
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(17, 17, 20, 0.06);
             color: var(--text-muted);
         }
 
@@ -641,7 +639,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(0, 0, 0, 0.55);
+            background: rgba(28, 26, 22, 0.38);
             backdrop-filter: blur(4px);
         }
 
@@ -731,7 +729,7 @@
         }
 
         .pair-code-row {
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: 1px solid rgba(17, 17, 20, 0.09);
             padding-top: 0.8rem;
         }
 
@@ -774,8 +772,8 @@
             gap: 0.6rem;
             padding: 0.55rem 0.7rem;
             border-radius: 8px;
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.04);
+            border: 1px solid rgba(17, 17, 20, 0.05);
         }
 
         .platform-row.off {
@@ -834,7 +832,9 @@
         .invite-code {
             padding: 0.6rem 0.8rem;
             border-radius: 8px;
-            background: rgba(0, 0, 0, 0.45);
+            background: #15151A;
+            color: #E8E8EC;
+            font-family: var(--font-mono);
             font-size: 0.8rem;
             word-break: break-all;
             user-select: all;
@@ -870,9 +870,9 @@
             gap: 0.4rem;
             padding: 1.6rem 2.4rem;
             border-radius: 18px;
-            background: rgba(10, 12, 20, 0.88);
-            border: 1px solid rgba(16, 185, 129, 0.5);
-            box-shadow: 0 0 80px rgba(16, 185, 129, 0.35);
+            background: #FFFFFF;
+            border: 1.5px solid rgba(16, 185, 129, 0.6);
+            box-shadow: 0 0 0 1px rgba(17, 17, 20, 0.06), 0 0 90px rgba(16, 185, 129, 0.45), 0 40px 80px -30px rgba(40, 30, 20, 0.4);
             animation: cel-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both;
         }
 
@@ -995,7 +995,7 @@
             margin-top: 1rem;
             padding: 0.8rem 0.9rem;
             border-radius: 8px;
-            background: rgba(0, 0, 0, 0.3);
+            background: #FBFBFA;
             font-size: 0.78rem;
             color: var(--text-muted);
             display: flex;
@@ -1031,6 +1031,7 @@
             background: #ffffff;
             padding: 12px;
             border-radius: 12px;
+            box-shadow: 0 0 0 1px rgba(17, 17, 20, 0.1), 0 14px 30px -18px rgba(40, 30, 20, 0.5);
             min-width: 220px;
             min-height: 220px;
         }
@@ -1068,8 +1069,8 @@
         }
 
         .mapping-item {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: rgba(17, 17, 20, 0.04);
+            border: 1px solid rgba(17, 17, 20, 0.08);
             border-radius: 8px;
             padding: 0.6rem 0.8rem;
             font-size: 0.8rem;
@@ -1098,8 +1099,8 @@
         }
 
         .summary-card {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: #FFFFFF;
+            border: 1px solid rgba(17, 17, 20, 0.08);
             border-radius: 12px;
             padding: 1.25rem;
         }
@@ -1133,11 +1134,11 @@
             background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(17, 17, 20, 0.18);
             border-radius: 3px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(17, 17, 20, 0.3);
         }
 
         /* Keyframes */
@@ -1194,14 +1195,14 @@
         .wiki-item {
             padding: 0.75rem;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.02);
+            background: #FFFFFF;
             border: 1px solid var(--card-border);
             cursor: pointer;
             transition: all 0.2s ease;
         }
 
         .wiki-item:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(17, 17, 20, 0.05);
             border-color: var(--primary);
         }
 
@@ -1233,7 +1234,7 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 0.75rem;
-            background: rgba(255, 255, 255, 0.02);
+            background: #FFFFFF;
             padding: 1rem;
             border-radius: 8px;
             border: 1px solid var(--card-border);
@@ -1259,7 +1260,7 @@
         .wiki-backlinks {
             margin-top: 1rem;
             padding: 0.75rem 1rem;
-            background: rgba(255, 255, 255, 0.01);
+            background: #FBFBFA;
             border-radius: 6px;
             border: 1px solid var(--card-border);
         }
@@ -1599,7 +1600,7 @@
                         </h2>
                         <div style="display: flex; gap: 0.75rem; align-items: center;">
                             <span style="font-size: 0.85rem; color: var(--text-muted);">Wiki:</span>
-                            <select id="wiki-select" style="background: rgba(0,0,0,0.5); color: var(--text-color); border: 1px solid var(--card-border); padding: 0.3rem 0.6rem; border-radius: 4px;" onchange="loadWikiPages()">
+                            <select id="wiki-select" style="background: #FBFBFA; color: var(--text-color); border: 1px solid var(--card-border); padding: 0.3rem 0.6rem; border-radius: 4px;" onchange="loadWikiPages()">
                                 <option value="default">default</option>
                                 <option value="dev">dev</option>
                                 <option value="business">business</option>
@@ -1612,9 +1613,9 @@
                     <div class="wiki-layout">
                         <!-- Sidebar: List -->
                         <div class="wiki-sidebar">
-                            <input type="text" id="wiki-search-input" placeholder="Search wiki pages..." oninput="loadWikiPages()" style="width: 100%; padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                            <input type="text" id="wiki-search-input" placeholder="Search wiki pages..." oninput="loadWikiPages()" style="width: 100%; padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                             <div style="display: flex; gap: 0.5rem;">
-                                <select id="wiki-type-filter" onchange="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; padding: 0.2rem;">
+                                <select id="wiki-type-filter" onchange="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px; padding: 0.2rem;">
                                     <option value="">All Types</option>
                                     <option value="procedure">procedure</option>
                                     <option value="runbook">runbook</option>
@@ -1622,7 +1623,7 @@
                                     <option value="metric">metric</option>
                                     <option value="policy">policy</option>
                                 </select>
-                                <input type="text" id="wiki-tag-filter" placeholder="Filter tag" oninput="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; padding: 0.2rem 0.4rem;">
+                                <input type="text" id="wiki-tag-filter" placeholder="Filter tag" oninput="loadWikiPages()" style="width: 50%; font-size: 0.75rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px; padding: 0.2rem 0.4rem;">
                             </div>
                             <div id="wiki-pages-list" class="wiki-list">
                                 <!-- Loaded dynamically -->
@@ -1635,7 +1636,7 @@
                             <div id="wiki-view-mode">
                                 <div id="wiki-view-header" style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--card-border); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
                                     <div>
-                                        <h3 id="wiki-view-title" style="font-size: 1.5rem; font-weight: 800; color: #fff;">Select a page</h3>
+                                        <h3 id="wiki-view-title" style="font-size: 1.5rem; font-weight: 800; color: var(--text-color);">Select a page</h3>
                                         <div id="wiki-view-subtitle" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
                                     </div>
                                     <div style="display: flex; gap: 0.5rem;">
@@ -1662,7 +1663,7 @@
                                         <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">Interactive Knowledge Graph:</div>
                                         <button class="btn btn-sm btn-secondary" onclick="resetGraphLayout()" style="padding: 0.15rem 0.4rem; font-size: 0.75rem; width: auto;">Reset Layout</button>
                                     </div>
-                                    <canvas id="wiki-graph-canvas" style="width: 100%; height: 280px; background: rgba(0,0,0,0.25); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); cursor: grab; display: block;"></canvas>
+                                    <canvas id="wiki-graph-canvas" style="width: 100%; height: 280px; background: #FBFBFA; border-radius: 6px; border: 1px solid var(--card-border); cursor: grab; display: block;"></canvas>
                                 </div>
                             </div>
 
@@ -1672,35 +1673,35 @@
                                 <form id="wiki-form" onsubmit="saveWikiPage(event)">
                                     <div class="wiki-form-group">
                                         <label>File Path (relative, e.g. runbooks/db_fail.md)</label>
-                                        <input type="text" id="wiki-form-path" placeholder="runbooks/db_fail.md" required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem;">
+                                        <input type="text" id="wiki-form-path" placeholder="runbooks/db_fail.md" required style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem;">
                                     </div>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                                         <div class="wiki-form-group">
                                             <label>Document Type</label>
-                                            <input type="text" id="wiki-form-type" placeholder="procedure, runbook, schema, metric..." required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                            <input type="text" id="wiki-form-type" placeholder="procedure, runbook, schema, metric..." required style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                                         </div>
                                         <div class="wiki-form-group">
                                             <label>Title</label>
-                                            <input type="text" id="wiki-form-title" placeholder="How to rotate keys" required style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                            <input type="text" id="wiki-form-title" placeholder="How to rotate keys" required style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                                         </div>
                                     </div>
                                     <div class="wiki-form-group">
                                         <label>Description (optional)</label>
-                                        <input type="text" id="wiki-form-description" placeholder="Brief outline of the contents" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                        <input type="text" id="wiki-form-description" placeholder="Brief outline of the contents" style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                                     </div>
                                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                                         <div class="wiki-form-group">
                                             <label>Tags (comma-separated, e.g. auth, security)</label>
-                                            <input type="text" id="wiki-form-tags" placeholder="auth, security" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                            <input type="text" id="wiki-form-tags" placeholder="auth, security" style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                                         </div>
                                         <div class="wiki-form-group">
                                             <label>Resource URI (optional, e.g. db://users)</label>
-                                            <input type="text" id="wiki-form-resource" placeholder="db://users" style="padding: 0.4rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px;">
+                                            <input type="text" id="wiki-form-resource" placeholder="db://users" style="padding: 0.4rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px;">
                                         </div>
                                     </div>
                                     <div class="wiki-form-group">
                                         <label>Markdown Body Content</label>
-                                        <textarea id="wiki-form-body" rows="12" placeholder="# Header\n\nContent goes here. Link other pages like [Credentials](auth/keys.md)." required style="padding: 0.6rem 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff; border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem; resize: vertical; line-height: 1.5;"></textarea>
+                                        <textarea id="wiki-form-body" rows="12" placeholder="# Header\n\nContent goes here. Link other pages like [Credentials](auth/keys.md)." required style="padding: 0.6rem 0.8rem; background: #FBFBFA; border: 1px solid var(--card-border); color: var(--text-color); border-radius: 4px; font-family: var(--font-mono); font-size: 0.9rem; resize: vertical; line-height: 1.5;"></textarea>
                                     </div>
                                     <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
                                         <button type="button" class="btn btn-secondary" style="width: auto;" onclick="cancelWikiForm()">Cancel</button>
@@ -2787,7 +2788,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
                 if (line.trim().startsWith('```')) {
                     if (inCodeBlock) {
                         inCodeBlock = false;
-                        html += `<pre style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem; border: 1px solid var(--card-border); margin: 0.75rem 0; overflow-x: auto; color: #a5b4fc;"><code>${escapeHtml(codeBlockContent.join('\n'))}</code></pre>`;
+                        html += `<pre style="background: #15151A; padding: 1rem; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem; border: 1px solid var(--card-border); margin: 0.75rem 0; overflow-x: auto; color: #C7CBF5;"><code>${escapeHtml(codeBlockContent.join('\n'))}</code></pre>`;
                         codeBlockContent = [];
                     } else {
                         inCodeBlock = true;
@@ -2822,7 +2823,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
                     const content = parseMarkdownInline(headerMatch[2]);
                     const margin = level === 1 ? '1.5rem 0 0.75rem 0' : '1.25rem 0 0.5rem 0';
                     const fontSize = {1: '1.4rem', 2: '1.2rem', 3: '1.05rem'}[level] || '0.95rem';
-                    html += `<h${level} style="margin: ${margin}; font-weight: 600; color: #fff; font-size: ${fontSize};">${content}</h${level}>`;
+                    html += `<h${level} style="margin: ${margin}; font-weight: 600; color: var(--text-color); font-size: ${fontSize};">${content}</h${level}>`;
                     continue;
                 }
                 
@@ -2878,7 +2879,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
             const slots = [];
             const park = (fragment) => { slots.push(fragment); return `\u0000${slots.length - 1}\u0000`; };
             let src = String(text || '').replace(/\u0000/g, '');
-            src = src.replace(/`([^`]*)`/g, (_, code) => park(`<code style="background: rgba(255,255,255,0.06); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan);">${escapeHtml(code)}</code>`));
+            src = src.replace(/`([^`]*)`/g, (_, code) => park(`<code style="background: rgba(17,17,20,0.06); padding: 0.15rem 0.3rem; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan);">${escapeHtml(code)}</code>`));
             src = src.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, label, href) => park(renderMarkdownLink(label, href)));
             let html = escapeHtml(src);
             html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -3110,7 +3111,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
             ctx.translate(graphSim.transform.x, graphSim.transform.y);
             
             // Draw links
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            ctx.strokeStyle = 'rgba(17, 17, 20, 0.09)';
             ctx.lineWidth = 1.5;
             for (let link of graphSim.links) {
                 ctx.beginPath();
@@ -3142,7 +3143,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
                 ctx.fill();
                 ctx.shadowBlur = 0;
                 
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.strokeStyle = 'rgba(17, 17, 20, 0.35)';
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.stroke();
                 
@@ -3169,7 +3170,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
             const arrowLen = 5;
             const angle = Math.atan2(dy, dx);
             
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillStyle = 'rgba(17, 17, 20, 0.2)';
             ctx.beginPath();
             ctx.moveTo(tX, tY);
             ctx.lineTo(tX - arrowLen * Math.cos(angle - Math.PI/8), tY - arrowLen * Math.sin(angle - Math.PI/8));

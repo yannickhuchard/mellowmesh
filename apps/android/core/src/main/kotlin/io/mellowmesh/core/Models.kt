@@ -310,5 +310,25 @@ sealed class GraphScope(val query: String) {
     }
 }
 
+/** One AI platform the hub spotted on its own machine (`GET /platforms`). */
+@Serializable
+data class PlatformInfo(
+    val id: String,
+    val name: String = "",
+    val sessions: Int = 0,
+    val running: Boolean = false,
+    /** `command`, `paste` or `none` — how it joins the network. */
+    val invite: String = "none",
+    val command: String = "",
+)
+
+/** `GET /platforms` response: what runs on the hub's computer right now. */
+@Serializable
+data class PlatformsSnapshot(
+    val machine: String = "",
+    @SerialName("looked_at") val lookedAt: String? = null,
+    val platforms: List<PlatformInfo> = emptyList(),
+)
+
 /** A `payload` helper: the JSON object, or null. */
 internal fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject

@@ -88,6 +88,14 @@
     <string name="master_board">All tasks</string>
     <string name="roadmap">Roadmap</string>
     <string name="network_settings">Network</string>
+    <string name="spotted_title">Spotted on your computer</string>
+    <string name="spotted_hint">AI platforms MellowMesh noticed on the computer your network runs on. Nothing leaves that machine — it only reads the names of running programs.</string>
+    <string name="working_now">Working right now · %1$d running</string>
+    <string name="nothing_running">Nothing is working right now.</string>
+    <string name="also_known">Also looked for: %1$s</string>
+    <string name="spotted_invite_hint">To invite one into your network, open the dashboard on that computer and tap Invite.</string>
+    <string name="platform_arrived">%1$s just appeared!</string>
+    <string name="platform_arrived_hint">It started working on your computer. You can invite it from the dashboard there.</string>
     <string name="settings">Settings</string>
 
     <!-- Chats -->

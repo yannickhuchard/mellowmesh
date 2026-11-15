@@ -6,6 +6,7 @@ using MellowMesh.Core.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace MellowMesh.App.Views;
 
@@ -71,6 +72,10 @@ public sealed partial class NetworkPage : Page
         if (owner && net.Network.LanAccess is bool lanOn)
         {
             Body.Children.Add(LanAccessCard(lanOn, net.Network.LanAddress));
+        }
+        if (owner && _state.Client is not null)
+        {
+            Body.Children.Add(SpottedSection());
         }
         Body.Children.Add(SpacesSection(net, owner));
         Body.Children.Add(TeamsSection(net, owner));
@@ -370,6 +375,114 @@ public sealed partial class NetworkPage : Page
         catch (MeshApiException ex)
         {
             App.Shell?.ShowWhisper("Not created: " + ex.Friendly, isError: true);
+        }
+    }
+
+    /// <summary>
+    /// "Spotted on this machine": the AI platforms the hub noticed here, in
+    /// plain words, each with a one-action invite (copy a command, or copy a
+    /// message to paste in its chat — it carries a one-time code).
+    /// </summary>
+    private Border SpottedSection()
+    {
+        var list = Ui.Column(8);
+        list.Children.Add(Ui.Text("Looking at what runs on this machine…", 13, Ui.Ink2));
+        _ = FillSpottedAsync(list);
+        return Ui.Card(Ui.Column(10,
+            Ui.Caption("SPOTTED ON THIS MACHINE"),
+            Ui.Text("AI platforms MellowMesh noticed here. Nothing leaves this computer — only the names of running programs are read.", 13, Ui.Ink2),
+            list), padding: 16);
+    }
+
+    private async Task FillSpottedAsync(StackPanel list)
+    {
+        PlatformsSnapshot snap;
+        try
+        {
+            snap = await _state.Client!.GetPlatformsAsync();
+        }
+        catch (Exception)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                list.Children.Clear();
+                list.Children.Add(Ui.Text("This hub does not look around yet — update MellowMesh on this computer.", 13, Ui.Ink3));
+            });
+            return;
+        }
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            list.Children.Clear();
+            var running = snap.Platforms.Where(p => p.Running).ToList();
+            var quiet = snap.Platforms.Where(p => !p.Running).Select(p => p.Name).ToList();
+            if (running.Count == 0)
+            {
+                list.Children.Add(Ui.Text("Nothing is working right now.", 14, Ui.Ink2));
+            }
+            foreach (var p in running)
+            {
+                var name = Ui.Text(p.Name, 15, Ui.Ink, bold: true);
+                var state = Ui.Text($"Working right now · {p.Sessions} running", 12.5, Ui.Hex("#157A52"));
+                var info = Ui.Column(1, name, state);
+                var row = Ui.Row(12, info);
+                if (p.Invite is "command" or "paste")
+                {
+                    var platform = p;
+                    row.Children.Add(Ui.Secondary("Invite", async (_, _) => await InviteAsync(platform)));
+                }
+                list.Children.Add(row);
+            }
+            if (quiet.Count > 0)
+            {
+                list.Children.Add(Ui.Text("Also looked for: " + string.Join(" · ", quiet), 12, Ui.Ink3));
+            }
+        });
+    }
+
+    /// <summary>Put the invitation in the clipboard: the connect command, or a
+    /// pasteable message minted around a one-time claim code.</summary>
+    private async Task InviteAsync(PlatformInfo platform)
+    {
+        string text;
+        if (platform.Invite == "command")
+        {
+            text = platform.Command;
+        }
+        else
+        {
+            PairResponse pairing;
+            try
+            {
+                pairing = await _state.Client!.PairAsync(platform.Name);
+            }
+            catch (Exception e)
+            {
+                App.Shell?.ShowWhisper("Could not make a code: " + e.Message);
+                return;
+            }
+            text =
+                $"You are invited to join my MellowMesh network (\"{pairing.Network}\") as one of my helpers.\n\n" +
+                $"1. Exchange this one-time code for your key (it works once, for 15 minutes):\n" +
+                $"   POST {pairing.Url}/pair/claim\n" +
+                $"   Body: {{\"code\": \"{pairing.Code}\"}}\n" +
+                $"   The answer's \"link\" holds url and token parameters.\n" +
+                $"2. Connect to the MCP server at {pairing.Url}/mcp (Streamable HTTP) with the header:\n" +
+                $"   Authorization: Bearer <token from the link>\n" +
+                $"3. Say hello: call the \"publish\" tool with topic \"_forum.general\" and a short message.\n\n" +
+                "Rules of the house: you act as my helper, and anything important needs my explicit OK.";
+        }
+        try
+        {
+            var data = new DataPackage();
+            data.SetText(text);
+            Clipboard.SetContent(data);
+            App.Shell?.ShowWhisper(platform.Invite == "command"
+                ? $"Command copied — type it where {platform.Name} runs."
+                : $"Invitation copied — paste it into {platform.Name}'s chat. The code works for 15 minutes.");
+        }
+        catch (Exception)
+        {
+            // Clipboard can be busy; the whisper simply doesn't show.
         }
     }
 

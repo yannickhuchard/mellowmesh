@@ -235,6 +235,9 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     suspend fun taskGraph(scope: GraphScope): TaskGraph = io { it.taskGraph(scope) }
 
+    /** AI platforms spotted on the hub's computer (owner only). */
+    suspend fun platforms(): io.mellowmesh.core.PlatformsSnapshot = io { it.platforms() }
+
     suspend fun updateTask(id: String, patch: TaskPatch): Task? = io { it.updateTask(id, patch) }
 
     // ---- network -----------------------------------------------------------------

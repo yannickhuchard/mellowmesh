@@ -29,7 +29,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +75,10 @@ data class NetworkState(
     val whoami: WhoAmI? = null,
     val busy: Boolean = false,
     val error: String? = null,
+    /** AI platforms spotted on the hub's computer; null while unknown. */
+    val platforms: io.mellowmesh.core.PlatformsSnapshot? = null,
+    /** Name of a platform that just appeared — fuels the arrival banner. */
+    val justArrived: String? = null,
 ) {
     val isOwner: Boolean get() = whoami?.isOwner == true
 }
@@ -94,7 +101,27 @@ class NetworkViewModel(private val app: MellowMeshApp) : ViewModel() {
                 _state.update { it.copy(error = e.friendly()) }
             }
         }
+        refreshPlatforms()
     }
+
+    /** Ask the hub what runs on its computer. Quiet on failure: an older
+     * hub has no /platforms, and that must not break the screen. */
+    fun refreshPlatforms() {
+        viewModelScope.launch {
+            try {
+                val snap = app.repo.platforms()
+                val before = _state.value.platforms?.platforms?.filter { it.running }?.map { it.id }?.toSet()
+                val fresh = snap.platforms.filter { it.running }
+                // The first look sets the baseline; later looks celebrate.
+                val arrived = if (before != null) fresh.firstOrNull { it.id !in before }?.name else null
+                _state.update { it.copy(platforms = snap, justArrived = arrived ?: it.justArrived) }
+            } catch (e: Exception) {
+                // Not an error worth words: the section just stays away.
+            }
+        }
+    }
+
+    fun dismissArrival() = _state.update { it.copy(justArrived = null) }
 
     /** Run an admin action, then reload. */
     fun admin(onDone: () -> Unit = {}, action: suspend () -> Unit) {
@@ -155,6 +182,21 @@ fun NetworkScreen(onBack: () -> Unit, onSpace: (String) -> Unit, onTeam: (String
     val overview = state.overview
     val owner = state.isOwner
 
+    // Keep looking while the screen is open: a platform that starts on the
+    // computer shows up here within seconds.
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(20_000)
+            vm.refreshPlatforms()
+        }
+    }
+    state.justArrived?.let { name ->
+        LaunchedEffect(name) {
+            kotlinx.coroutines.delay(6_000)
+            vm.dismissArrival()
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Mesh.Paper)) {
         BackHeader(title = stringResource(R.string.network_title), onBack = onBack)
         LazyColumn(
@@ -162,6 +204,13 @@ fun NetworkScreen(onBack: () -> Unit, onSpace: (String) -> Unit, onTeam: (String
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             state.error?.let { e -> item { ErrorNote(e, onRetry = vm::load) } }
+            state.justArrived?.let { name ->
+                item { ArrivalBanner(name) }
+            }
+            state.platforms?.takeIf { it.platforms.isNotEmpty() }?.let { snap ->
+                item { SectionTitle(stringResource(R.string.spotted_title)) }
+                item { SpottedCard(snap) }
+            }
             if (!owner) item {
                 MeshCard(Modifier.fillMaxWidth(), color = Mesh.IndigoTint) {
                     Text(stringResource(R.string.read_only_note), color = Mesh.Ink, style = MaterialTheme.typography.bodyMedium)
@@ -313,4 +362,84 @@ fun NetworkScreen(onBack: () -> Unit, onSpace: (String) -> Unit, onTeam: (String
 @Composable
 fun SmallOutlined(text: String, onClick: () -> Unit, color: Color = Mesh.Ink, enabled: Boolean = true) {
     OutlinedButton(onClick = onClick, enabled = enabled) { Text(text, color = color) }
+}
+
+/** A loud, happy arrival: Mello bounces, the card breathes mint. */
+@Composable
+fun ArrivalBanner(name: String) {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "arrive")
+    val scale by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.12f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(650),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "arrive-scale",
+    )
+    MeshCard(Modifier.fillMaxWidth(), color = Mesh.GreenTint) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            io.mellowmesh.app.ui.components.Mello(
+                size = 54.dp,
+                modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+                mood = io.mellowmesh.core.Mood.DONE,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.platform_arrived, name),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Mesh.Ink,
+                )
+                Text(
+                    stringResource(R.string.platform_arrived_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mesh.Ink2,
+                )
+            }
+        }
+    }
+}
+
+/** What runs on the hub's computer, in plain words. */
+@Composable
+fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot) {
+    val running = snap.platforms.filter { it.running }
+    val quiet = snap.platforms.filter { !it.running }
+    MeshCard(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.spotted_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
+        Gap(10.dp)
+        for (p in running) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                Box(
+                    Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(Mesh.IndigoTint),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(p.name.take(1).uppercase(), style = MaterialTheme.typography.titleSmall, color = Mesh.Indigo)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(p.name, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                    Text(
+                        stringResource(R.string.working_now, p.sessions),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Mesh.Mint,
+                    )
+                }
+            }
+        }
+        if (running.isEmpty()) {
+            Text(stringResource(R.string.nothing_running), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
+        }
+        if (quiet.isNotEmpty()) {
+            Gap(6.dp)
+            Text(
+                stringResource(R.string.also_known, quiet.joinToString(" · ") { it.name }),
+                style = MaterialTheme.typography.labelSmall,
+                color = Mesh.Ink3,
+            )
+        }
+        Gap(8.dp)
+        Text(stringResource(R.string.spotted_invite_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
+    }
 }
