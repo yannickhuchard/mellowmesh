@@ -650,15 +650,134 @@
         }
 
         .pair-modal {
-            width: min(420px, calc(100vw - 2rem));
-            text-align: center;
-            padding: 1.5rem;
+            width: min(600px, calc(100vw - 2rem));
+            padding: 1.75rem;
         }
 
-        .pair-hint {
-            font-size: 0.85rem;
+        .pair-caption {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
             color: var(--text-muted);
-            margin: 0.5rem 0 1rem 0;
+        }
+
+        .pair-headline {
+            margin: 0.35rem 0 1.25rem 0;
+            font-size: 1.25rem;
+        }
+
+        .pair-columns {
+            display: flex;
+            gap: 1.5rem;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .pair-side {
+            flex: 1 1 220px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .pair-steps {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+            font-size: 0.95rem;
+        }
+
+        .pair-steps li {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+        }
+
+        .pair-badge {
+            flex: 0 0 auto;
+            width: 1.5rem;
+            height: 1.5rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            background: rgba(139, 92, 246, 0.25);
+            border: 1px solid rgba(139, 92, 246, 0.5);
+        }
+
+        .pair-status {
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 0.55rem 0.8rem;
+            border-radius: 8px;
+        }
+
+        .pair-status-waiting {
+            color: var(--accent-amber, #f59e0b);
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        .pair-status-ok {
+            color: var(--accent-emerald, #10b981);
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+
+        .pair-status-error {
+            color: #f87171;
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid rgba(248, 113, 113, 0.35);
+        }
+
+        .pair-expired {
+            margin-top: 1rem;
+            padding: 0.7rem 0.9rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--accent-amber, #f59e0b);
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        .pair-details {
+            margin-top: 1rem;
+            padding: 0.8rem 0.9rem;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            text-align: left;
+        }
+
+        .pair-details[hidden] {
+            display: none;
+        }
+
+        .pair-details code {
+            word-break: break-all;
+            user-select: all;
+        }
+
+        .pair-details p {
+            margin: 0.2rem 0 0 0;
+        }
+
+        .pair-details-label {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            margin-right: 0.35rem;
         }
 
         /* QR codes need a light quiet zone to scan reliably on a dark theme. */
@@ -675,21 +794,11 @@
             display: block;
         }
 
-        .pair-url {
-            display: block;
-            margin: 1rem 0;
-            padding: 0.5rem 0.75rem;
-            border-radius: 8px;
-            background: rgba(0, 0, 0, 0.3);
-            font-size: 0.78rem;
-            word-break: break-all;
-            user-select: all;
-        }
-
         .pair-actions {
             display: flex;
             gap: 0.5rem;
-            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 1.25rem;
         }
 
         .decision-result {
@@ -953,7 +1062,7 @@
                 <div id="status-indicator" class="status-indicator connecting"></div>
                 <span id="status-text">Connecting to Fabric...</span>
             </div>
-            <button type="button" id="pair-open-btn" class="btn btn-sm btn-secondary">Pair Mobile</button>
+            <button type="button" id="pair-open-btn" class="btn btn-sm btn-secondary">Connect a Phone</button>
             <button type="button" id="token-open-btn" class="btn btn-sm btn-secondary">Access Token</button>
         </div>
     </header>
@@ -967,16 +1076,37 @@
         <button type="button" id="token-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
     </form>
 
-    <!-- Mobile pairing: QR of the hub's MCP endpoint (+ this dashboard's token) -->
+    <!-- Connect a phone: one QR code the MellowMesh phone app scans.
+         Plain words up front; the technical details live behind ⓘ. -->
     <div id="pair-overlay" class="pair-overlay" hidden>
         <div class="glass-card pair-modal">
-            <h2>Pair a mobile device</h2>
-            <p id="pair-hint" class="pair-hint"></p>
-            <div id="pair-qr" class="pair-qr"></div>
-            <code id="pair-url" class="pair-url"></code>
+            <div class="pair-caption">Connect a phone</div>
+            <h2 class="pair-headline">Scan with the MellowMesh app on your phone</h2>
+            <div class="pair-columns">
+                <div id="pair-qr" class="pair-qr"></div>
+                <div class="pair-side">
+                    <ol class="pair-steps">
+                        <li><span class="pair-badge">1</span>Open the MellowMesh app on your phone.</li>
+                        <li><span class="pair-badge">2</span>Tap &ldquo;Connect to my network&rdquo;.</li>
+                        <li><span class="pair-badge">3</span>Point the camera at this code.</li>
+                    </ol>
+                    <div id="pair-status" class="pair-status pair-status-waiting">Making a code&hellip;</div>
+                </div>
+            </div>
+            <div id="pair-expired" class="pair-expired" hidden>
+                This code expired. Codes work for 15 minutes, so a photo of your screen can&rsquo;t be used later.
+            </div>
             <div class="pair-actions">
-                <button type="button" id="pair-copy-btn" class="btn btn-sm">Copy URL</button>
+                <button type="button" id="pair-new-btn" class="btn btn-sm">New code</button>
+                <button type="button" id="pair-copy-btn" class="btn btn-sm btn-secondary">Copy the pairing link</button>
+                <button type="button" id="pair-details-btn" class="btn btn-sm btn-secondary" title="Technical details">&#9432;</button>
                 <button type="button" id="pair-close-btn" class="btn btn-sm btn-secondary">Close</button>
+            </div>
+            <div id="pair-details" class="pair-details" hidden>
+                <div><span class="pair-details-label">Your phone will use</span> <code id="pair-url"></code></div>
+                <div><span class="pair-details-label">Pairing link</span> <code id="pair-link"></code></div>
+                <div><span class="pair-details-label">Code expires</span> <span id="pair-expiry"></span></div>
+                <p>The link carries a one-device key that only works for 15 minutes and can be removed any time from Devices. Not on the same Wi-Fi? Point a tunnel (Cloudflare, Tailscale) at port 40000 and pair with <code>mellowmesh pair --url</code>.</p>
             </div>
         </div>
     </div>
@@ -1466,56 +1596,135 @@
             return qrLibPromise;
         }
 
-        function closePairModal() {
-            document.getElementById('pair-overlay').hidden = true;
-            // The QR encodes the bearer token: don't keep it in the DOM.
-            document.getElementById('pair-qr').innerHTML = '';
+        // One pairing session at a time: the link, its countdown and the
+        // "has the phone connected yet?" poll.
+        let pairSession = null; // { link, url, tokenId, expiresAt, pollTimer, tickTimer }
+
+        function pairStatusEl() { return document.getElementById('pair-status'); }
+
+        function setPairStatus(kind, text) {
+            const el = pairStatusEl();
+            el.className = 'pair-status pair-status-' + kind;
+            el.textContent = text;
         }
 
-        async function openPairModal() {
-            const overlay = document.getElementById('pair-overlay');
-            const hint = document.getElementById('pair-hint');
+        function stopPairTimers() {
+            if (pairSession) {
+                clearInterval(pairSession.pollTimer);
+                clearInterval(pairSession.tickTimer);
+            }
+        }
+
+        function closePairModal() {
+            stopPairTimers();
+            pairSession = null;
+            document.getElementById('pair-overlay').hidden = true;
+            // The QR encodes a device key: don't keep it in the DOM.
+            document.getElementById('pair-qr').innerHTML = '';
+            document.getElementById('pair-link').textContent = '';
+        }
+
+        function pairExpired() {
+            stopPairTimers();
+            document.getElementById('pair-qr').innerHTML = '';
+            document.getElementById('pair-expired').hidden = false;
+            setPairStatus('waiting', 'Waiting for a new code…');
+        }
+
+        async function startPairing() {
             const qrEl = document.getElementById('pair-qr');
-            const urlEl = document.getElementById('pair-url');
-            overlay.hidden = false;
+            stopPairTimers();
+            pairSession = null;
             qrEl.innerHTML = '';
             qrEl.style.wordBreak = '';
-            urlEl.textContent = '';
-            hint.textContent = 'Preparing pairing code…';
+            document.getElementById('pair-expired').hidden = true;
+            setPairStatus('waiting', 'Making a code…');
 
-            let info = {};
-            try { info = await apiJson('/pairing'); } catch (e) { /* no relay info: fall back to this origin */ }
-            const mcpUrl = info.mcp_url || (window.location.origin + API_BASE + '/mcp');
-            const token = currentToken();
-            const payload = 'mellowmesh://pair?url=' + encodeURIComponent(mcpUrl)
-                + (token ? '&token=' + encodeURIComponent(token) : '');
+            let info;
+            try {
+                const res = await apiFetch('/pair', { method: 'POST' });
+                if (!res.ok) throw new Error(String(res.status));
+                info = await res.json();
+            } catch (e) {
+                setPairStatus('error', 'Something went wrong while making a code. Try again.');
+                return;
+            }
 
-            urlEl.textContent = mcpUrl;
-            hint.textContent = info.relay
-                ? 'Scan with your phone, or add this MCP endpoint (with your bearer token) as a remote connector.'
-                : 'No relay configured (MELLOWMESH_RELAY_URL): this address is only reachable from this machine\'s own network.';
+            // Technical details, tucked behind ⓘ.
+            document.getElementById('pair-url').textContent = info.url;
+            document.getElementById('pair-link').textContent = info.link;
+            document.getElementById('pair-expiry').textContent =
+                new Date(info.expires_at).toLocaleTimeString();
 
             try {
                 await loadQrLib();
                 qrEl.innerHTML = '';
-                new QRCode(qrEl, { text: payload, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+                new QRCode(qrEl, { text: info.link, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
             } catch (e) {
-                // Offline fallback: show the pairing URI itself.
-                qrEl.innerHTML = '';
+                // The code still works pasted into the phone app.
                 qrEl.style.wordBreak = 'break-all';
-                qrEl.textContent = payload;
+                qrEl.textContent = info.link;
             }
+
+            const expiresAt = new Date(info.expires_at).getTime();
+            const session = {
+                link: info.link,
+                url: info.url,
+                tokenId: info.token_id,
+                expiresAt,
+                pollTimer: 0,
+                tickTimer: 0,
+            };
+            pairSession = session;
+
+            const tick = () => {
+                const left = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+                if (left <= 0) { pairExpired(); return; }
+                const m = Math.floor(left / 60), s = String(left % 60).padStart(2, '0');
+                setPairStatus('waiting', `Waiting for your phone… (code works for ${m}:${s})`);
+            };
+            tick();
+            session.tickTimer = setInterval(tick, 1000);
+
+            session.pollTimer = setInterval(async () => {
+                let status;
+                try {
+                    status = await apiJson('/pair/' + encodeURIComponent(session.tokenId));
+                } catch (e) {
+                    return; // transient: keep waiting
+                }
+                if (pairSession !== session) return;
+                if (status.connected) {
+                    stopPairTimers();
+                    setPairStatus('ok', `${status.name || 'Your phone'} is connected`);
+                    document.getElementById('pair-qr').innerHTML = '';
+                    document.getElementById('pair-expired').hidden = true;
+                } else if (status.expired) {
+                    pairExpired();
+                }
+            }, 2500);
+        }
+
+        function openPairModal() {
+            document.getElementById('pair-overlay').hidden = false;
+            document.getElementById('pair-details').hidden = true;
+            startPairing();
         }
 
         function initPairUi() {
             document.getElementById('pair-open-btn').addEventListener('click', openPairModal);
             document.getElementById('pair-close-btn').addEventListener('click', closePairModal);
+            document.getElementById('pair-new-btn').addEventListener('click', startPairing);
+            document.getElementById('pair-details-btn').addEventListener('click', () => {
+                const d = document.getElementById('pair-details');
+                d.hidden = !d.hidden;
+            });
             document.getElementById('pair-overlay').addEventListener('click', (e) => {
                 if (e.target === e.currentTarget) closePairModal();
             });
             document.getElementById('pair-copy-btn').addEventListener('click', async () => {
-                const url = document.getElementById('pair-url').textContent;
-                try { await navigator.clipboard.writeText(url); } catch (e) { /* clipboard unavailable */ }
+                if (!pairSession) return;
+                try { await navigator.clipboard.writeText(pairSession.link); } catch (e) { /* clipboard unavailable */ }
             });
         }
 
