@@ -1380,7 +1380,7 @@ mod tests {
     #[test]
     fn respond_decision_is_not_an_agent_tool() {
         let tools = list_tools_schema();
-        assert_eq!(tools.len(), 29);
+        assert_eq!(tools.len(), 31);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 

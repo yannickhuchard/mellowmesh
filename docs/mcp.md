@@ -33,7 +33,7 @@ Spawn `mellowmesh mcp` as a background stdio subprocess. The server communicates
 
 ## Remote MCP (Streamable HTTP)
 
-The daemon also serves the same 29 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
+The daemon also serves the same 31 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
 
 ```text
 https://<relay>/hub/<hub_id>/mcp
@@ -43,7 +43,7 @@ Any client speaking the Streamable HTTP MCP transport (Claude Mobile/web connect
 
 ## Exposed MCP Tools
 
-The server registers 29 tools covering all aspects of coordination:
+The server registers 31 tools covering all aspects of coordination:
 
 | Category | Tools |
 | :--- | :--- |
@@ -51,6 +51,7 @@ The server registers 29 tools covering all aspects of coordination:
 | **Registry** | `register_agent`, `list_agents` |
 | **Tasks & Lifecycle** | `create_task` (with `depends_on`, `team`), `list_tasks`, `claim_task`, `update_task`, `complete_task` |
 | **Network** | `get_network` (read-only: the network, the spaces you may see, your teams) |
+| **Hosting Mellows** | `mellow_wait` (wait for the next message addressed to one of the owner's Mellows of your platform — calling it is what marks the session as hosting), `mellow_reply` (answer as that Mellow). Loop on the two to host; see the skill, section 1b. |
 | **Human Consensus** | `create_decision`, `list_decisions` |
 | **Semantic Context** | `store_topic_summary`, `get_context` |
 | **Wiki** | `list_wiki_pages`, `get_wiki_page`, `write_wiki_page`, `search_wiki` |

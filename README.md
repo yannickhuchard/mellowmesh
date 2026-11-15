@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 29 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 31 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, hosting your Mellows from an open session, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
