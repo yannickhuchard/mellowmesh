@@ -162,6 +162,17 @@ async fn main() -> anyhow::Result<()> {
                 sync: false,
             },
         ),
+        // The other half of a conversation: without it a reply reloaded
+        // from history reads "Metadata-only: size=…" instead of its words.
+        (
+            "_agent.**.outbox".to_string(),
+            PersistencePolicy {
+                mode: PersistenceMode::Queryable,
+                retention: "30d".to_string(),
+                max_message_size: None,
+                sync: false,
+            },
+        ),
         (
             "_agent.*.stream.**".to_string(),
             PersistencePolicy {
@@ -338,8 +349,10 @@ async fn main() -> anyhow::Result<()> {
         args.port
     );
 
-    // Notice the AI platforms running on this machine (names only, local).
+    // Notice the AI platforms on this machine (names only, local), and
+    // wake the Mellows that were made from them.
     mellowmesh_daemon::platforms::start();
+    mellowmesh_daemon::mellows::load(&state.store);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     state.access.pairing.set_primary_listen(args.listen);

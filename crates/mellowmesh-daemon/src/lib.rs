@@ -3,6 +3,7 @@ pub mod auth;
 pub mod cache;
 pub mod guard;
 pub mod handlers;
+pub mod mellows;
 pub mod metrics;
 pub mod notify;
 pub mod pairing;

@@ -79,6 +79,9 @@ data class NetworkState(
     val platforms: io.mellowmesh.core.PlatformsSnapshot? = null,
     /** Name of a platform that just appeared — fuels the arrival banner. */
     val justArrived: String? = null,
+    /** A Mellow is being made right now. */
+    val making: Boolean = false,
+    val makeError: String? = null,
 ) {
     val isOwner: Boolean get() = whoami?.isOwner == true
 }
@@ -122,6 +125,22 @@ class NetworkViewModel(private val app: MellowMeshApp) : ViewModel() {
     }
 
     fun dismissArrival() = _state.update { it.copy(justArrived = null) }
+
+    fun clearMakeError() = _state.update { it.copy(makeError = null) }
+
+    /** Make a Mellow from a platform; `onMade` gets its conversation id. */
+    fun makeMellow(platformId: String, name: String, purpose: String, onMade: (String) -> Unit) {
+        _state.update { it.copy(making = true, makeError = null) }
+        viewModelScope.launch {
+            try {
+                val made = app.repo.createMellow(platformId, name, purpose)
+                _state.update { it.copy(making = false, justArrived = made.name) }
+                onMade(made.conversationId)
+            } catch (e: Exception) {
+                _state.update { it.copy(making = false, makeError = e.friendly()) }
+            }
+        }
+    }
 
     /** Run an admin action, then reload. */
     fun admin(onDone: () -> Unit = {}, action: suspend () -> Unit) {
@@ -174,9 +193,32 @@ fun inkSwitchColors() = SwitchDefaults.colors(
 val TeamColors = listOf("#4F46E5", "#10B981", "#F59E0B", "#E11D48", "#38BDF8", "#8B5CF6")
 
 @Composable
-fun NetworkScreen(onBack: () -> Unit, onSpace: (String) -> Unit, onTeam: (String) -> Unit) {
+fun NetworkScreen(
+    onBack: () -> Unit,
+    onSpace: (String) -> Unit,
+    onTeam: (String) -> Unit,
+    onChat: (String) -> Unit = {},
+) {
     val vm = meshViewModel(key = "network") { NetworkViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    var makingFrom by remember { mutableStateOf<io.mellowmesh.core.PlatformInfo?>(null) }
+    makingFrom?.let { platform ->
+        MakeMellowDialog(
+            platform = platform,
+            busy = state.making,
+            error = state.makeError,
+            onDismiss = {
+                makingFrom = null
+                vm.clearMakeError()
+            },
+            onCreate = { name, purpose ->
+                vm.makeMellow(platform.id, name, purpose) { conversationId ->
+                    makingFrom = null
+                    if (conversationId.isNotBlank()) onChat(conversationId)
+                }
+            },
+        )
+    }
     var newTeam by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     val overview = state.overview
@@ -209,7 +251,7 @@ fun NetworkScreen(onBack: () -> Unit, onSpace: (String) -> Unit, onTeam: (String
             }
             state.platforms?.takeIf { it.platforms.isNotEmpty() }?.let { snap ->
                 item { SectionTitle(stringResource(R.string.spotted_title)) }
-                item { SpottedCard(snap) }
+                item { SpottedCard(snap, onMake = { makingFrom = it }) }
             }
             if (!owner) item {
                 MeshCard(Modifier.fillMaxWidth(), color = Mesh.IndigoTint) {
@@ -401,45 +443,127 @@ fun ArrivalBanner(name: String) {
     }
 }
 
-/** What runs on the hub's computer, in plain words. */
+/**
+ * What the hub's computer has, in three plain states — working right now,
+ * installed and asleep, not there — and, for the ones the hub can pilot,
+ * the one action that matters: make a Mellow from it.
+ */
 @Composable
-fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot) {
-    val running = snap.platforms.filter { it.running }
-    val quiet = snap.platforms.filter { !it.running }
+fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowmesh.core.PlatformInfo) -> Unit) {
+    val present = snap.platforms.filter { it.installed || it.running }
+        .sortedWith(compareByDescending<io.mellowmesh.core.PlatformInfo> { it.canChat }.thenByDescending { it.running })
+    val absent = snap.platforms.filter { !it.installed && !it.running }
     MeshCard(Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.spotted_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
-        Gap(10.dp)
-        for (p in running) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(Mesh.IndigoTint),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(p.name.take(1).uppercase(), style = MaterialTheme.typography.titleSmall, color = Mesh.Indigo)
+        Gap(6.dp)
+        if (present.isEmpty()) {
+            Text(stringResource(R.string.nothing_installed), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
+        }
+        for (p in present) {
+            Column(Modifier.padding(vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Mesh.IndigoTint),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(p.name.take(1).uppercase(), style = MaterialTheme.typography.titleMedium, color = Mesh.Indigo)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.name, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                        Text(
+                            stringResource(if (p.running) R.string.state_working else R.string.state_asleep),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (p.running) Mesh.Green else Mesh.Ink2,
+                        )
+                    }
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(p.name, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                Gap(8.dp)
+                if (p.canChat) {
+                    io.mellowmesh.app.ui.components.InkButton(
+                        text = stringResource(R.string.make_mellow),
+                        onClick = { onMake(p) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
                     Text(
-                        stringResource(R.string.working_now, p.sessions),
+                        stringResource(R.string.no_remote_door),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Mesh.Mint,
+                        color = Mesh.Ink2,
                     )
                 }
             }
         }
-        if (running.isEmpty()) {
-            Text(stringResource(R.string.nothing_running), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
-        }
-        if (quiet.isNotEmpty()) {
-            Gap(6.dp)
+        if (absent.isNotEmpty()) {
+            Gap(4.dp)
             Text(
-                stringResource(R.string.also_known, quiet.joinToString(" · ") { it.name }),
+                stringResource(R.string.not_on_computer, absent.joinToString(" · ") { it.name }),
                 style = MaterialTheme.typography.labelSmall,
                 color = Mesh.Ink3,
             )
         }
-        Gap(8.dp)
-        Text(stringResource(R.string.spotted_invite_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
     }
+}
+
+/** Name it, give it a job: the two things that turn an app into a Mellow. */
+@Composable
+fun MakeMellowDialog(
+    platform: io.mellowmesh.core.PlatformInfo,
+    busy: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, purpose: String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var purpose by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        containerColor = Color.White,
+        title = { Text(stringResource(R.string.make_mellow_title, platform.name), color = Mesh.Ink) },
+        text = {
+            Column {
+                Text(stringResource(R.string.make_mellow_body), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
+                Gap(12.dp)
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(48) },
+                    label = { Text(stringResource(R.string.mellow_name)) },
+                    placeholder = { Text(stringResource(R.string.mellow_name_hint)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Gap(8.dp)
+                androidx.compose.material3.OutlinedTextField(
+                    value = purpose,
+                    onValueChange = { purpose = it.take(500) },
+                    label = { Text(stringResource(R.string.mellow_purpose)) },
+                    placeholder = { Text(stringResource(R.string.mellow_purpose_hint)) },
+                    minLines = 2,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Gap(8.dp)
+                Text(stringResource(R.string.mellow_safety), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
+                error?.let {
+                    Gap(8.dp)
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Mesh.Rose)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCreate(name, purpose) },
+                enabled = !busy && name.isNotBlank() && purpose.isNotBlank(),
+            ) {
+                Text(
+                    stringResource(if (busy) R.string.making_mellow else R.string.create_say_hello),
+                    color = Mesh.Indigo,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.cancel), color = Mesh.Ink2) }
+        },
+    )
 }

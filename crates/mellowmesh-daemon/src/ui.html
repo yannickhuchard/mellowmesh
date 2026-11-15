@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MellowMesh // Core Fabric Dashboard</title>
+    <title>MellowMesh — Developer console</title>
     <!-- Google Fonts Outfit & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -130,7 +130,7 @@
 
         main {
             display: grid;
-            grid-template-columns: 320px 1fr;
+            grid-template-columns: 210px 1fr;
             gap: 1.5rem;
             padding: 1.5rem 2rem;
             flex-grow: 1;
@@ -291,6 +291,7 @@
         }
 
         .btn-sm {
+            white-space: nowrap;
             padding: 0.4rem 0.8rem;
             font-size: 0.8rem;
             border-radius: 6px;
@@ -750,6 +751,82 @@
             margin-top: 0.2rem;
             font-size: 0.72rem;
             color: var(--text-muted);
+        }
+
+
+        /* Developer console chrome */
+        .console-badge {
+            height: 22px;
+            padding: 0 10px;
+            border-radius: 11px;
+            background: #111114;
+            color: #FFFFFF;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        .console-tagline {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .console-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            position: sticky;
+            top: 5.5rem;
+            align-self: start;
+        }
+
+        .console-nav-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #8A8A90;
+            padding: 0.9rem 0.75rem 0.35rem;
+        }
+
+        .console-nav .tab-btn {
+            text-align: left;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.75rem;
+            width: 100%;
+        }
+
+        .console-nav .tab-btn.active {
+            color: var(--text-color);
+            background: #FFFFFF;
+            box-shadow: 0 0 0 1px var(--card-border);
+        }
+
+        .registry-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        .tool-narrow {
+            max-width: 560px;
+        }
+
+        .platform-row .btn + .btn {
+            margin-left: 0.4rem;
+        }
+
+        @media (max-width: 1024px) {
+            main { grid-template-columns: 1fr; }
+            .console-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+            .console-nav-label { display: none; }
+            .console-nav .tab-btn { width: auto; }
+            .console-tagline { display: none; }
         }
 
         /* Spotted on this machine */
@@ -1302,6 +1379,8 @@
         <div class="logo-container">
             <div class="logo-symbol"></div>
             <h1>MellowMesh</h1>
+            <span class="console-badge">Developer console</span>
+            <span class="console-tagline">The workshop for builders. The app people use is on your phone and desktop.</span>
         </div>
         <div style="display: flex; gap: 0.75rem; align-items: center;">
             <div class="status-badge">
@@ -1363,134 +1442,20 @@
     </div>
 
     <main>
-        <!-- Left Column: Publisher and Mappings -->
-        <aside>
-            <!-- Publisher Card -->
-            <div class="glass-card">
-                <h2>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                    Publisher Panel
-                </h2>
-                
-                <div class="form-group">
-                    <label for="publish-type">Publish Type</label>
-                    <select id="publish-type" onchange="togglePublisherType()">
-                        <option value="message">Standard Message</option>
-                        <option value="task">Create Task</option>
-                        <option value="decision">Create Decision</option>
-                    </select>
-                </div>
-
-                <!-- Form 1: Message -->
-                <form id="form-message" onsubmit="handlePublishMessage(event)">
-                    <div class="form-group">
-                        <label for="msg-input-topic">Topic</label>
-                        <input type="text" id="msg-input-topic" value="_forum.general" required placeholder="e.g. _forum.general">
-                    </div>
-                    <div class="form-group">
-                        <label for="msg-input-sender">From (Identity)</label>
-                        <input type="text" id="msg-input-sender" value="human://yannick" required placeholder="e.g. human://yannick">
-                    </div>
-                    <div class="form-group">
-                        <label for="msg-input-body">Content</label>
-                        <textarea id="msg-input-body" rows="4" required placeholder="Type your markdown message here..."></textarea>
-                    </div>
-                    <button type="submit" class="btn">Publish Message</button>
-                </form>
-
-                <!-- Form 2: Task -->
-                <form id="form-task" onsubmit="handlePublishTask(event)" style="display: none;">
-                    <div class="form-group">
-                        <label for="task-input-title">Task Title</label>
-                        <input type="text" id="task-input-title" required placeholder="e.g. Review claims API security">
-                    </div>
-                    <div class="form-group">
-                        <label for="task-input-desc">Description</label>
-                        <textarea id="task-input-desc" rows="2" placeholder="Describe the task..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="task-input-topic">Topic</label>
-                        <input type="text" id="task-input-topic" value="_task.security.review" required placeholder="e.g. _task.security.review">
-                    </div>
-                    <div class="form-group">
-                        <label for="task-input-caps">Required Capabilities (comma separated)</label>
-                        <input type="text" id="task-input-caps" value="security.review,code.review" placeholder="e.g. code.review">
-                    </div>
-                    <div class="form-group">
-                        <label for="task-input-priority">Priority</label>
-                        <select id="task-input-priority">
-                            <option value="low">Low</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="high">High</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="task-input-sender">Created By (Identity)</label>
-                        <input type="text" id="task-input-sender" value="human://yannick" required>
-                    </div>
-                    <button type="submit" class="btn">Create Task</button>
-                </form>
-
-                <!-- Form 3: Decision -->
-                <form id="form-decision" onsubmit="handlePublishDecision(event)" style="display: none;">
-                    <div class="form-group">
-                        <label for="dec-input-title">Decision Title</label>
-                        <input type="text" id="dec-input-title" required placeholder="e.g. Choose storage engine">
-                    </div>
-                    <div class="form-group">
-                        <label for="dec-input-question">Question</label>
-                        <input type="text" id="dec-input-question" required placeholder="e.g. SQLite or Redb?">
-                    </div>
-                    <div class="form-group">
-                        <label for="dec-input-decider">Required Decider</label>
-                        <input type="text" id="dec-input-decider" value="human://yannick" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="dec-input-sender">Created By</label>
-                        <input type="text" id="dec-input-sender" value="agent://yannick/codex" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Options (JSON: labels or {label, outcome})</label>
-                        <textarea id="dec-input-options" rows="3" required placeholder='[{"label":"Ship it","outcome":"approve"},{"label":"Hold","outcome":"reject"}]'></textarea>
-                    </div>
-                    <button type="submit" class="btn">Request Decision</button>
-                </form>
-            </div>
-
-            <!-- Identity Mapping Card -->
-            <div class="glass-card">
-                <h2>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    Identity Mappings
-                </h2>
-                <div id="mappings-container" class="mappings-list">
-                    <!-- Loaded dynamically -->
-                </div>
-                <form onsubmit="handleAddMapping(event)">
-                    <div class="form-group">
-                        <label for="map-input-ext">External Profile ID</label>
-                        <input type="text" id="map-input-ext" required placeholder="e.g. discord://12345">
-                    </div>
-                    <div class="form-group">
-                        <label for="map-input-fm">MellowMesh ID</label>
-                        <input type="text" id="map-input-fm" required placeholder="e.g. human://yannick">
-                    </div>
-                    <button type="submit" class="btn btn-secondary btn-sm">Add Mapping</button>
-                </form>
-            </div>
-
-            <!-- AI platforms spotted on this machine -->
-            <div class="glass-card">
-                <h2>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 5a7 7 0 0 1 7 7M12 1a11 11 0 0 1 11 11M12 19a7 7 0 0 1-7-7M12 23A11 11 0 0 1 1 12"/></svg>
-                    Spotted on this machine
-                </h2>
-                <p class="platforms-hint">AI platforms MellowMesh noticed here. Nothing leaves this computer — it only reads the names of running programs.</p>
-                <div id="platforms-list" class="platforms-list">
-                    <div class="empty-state">Looking around…</div>
-                </div>
-            </div>
-        </aside>
+        <!-- Console navigation: watch, registry, tools -->
+        <nav class="console-nav" aria-label="Console">
+            <div class="console-nav-label">Watch</div>
+            <button class="tab-btn active" data-tab="tab-forum" onclick="switchTab('tab-forum')">Live traffic</button>
+            <button class="tab-btn" data-tab="tab-tasks" onclick="switchTab('tab-tasks')">Tasks</button>
+            <button class="tab-btn" data-tab="tab-decisions" onclick="switchTab('tab-decisions')">Decisions</button>
+            <div class="console-nav-label">Registry</div>
+            <button class="tab-btn" data-tab="tab-registry" onclick="switchTab('tab-registry')">Agents &amp; platforms</button>
+            <button class="tab-btn" data-tab="tab-summaries" onclick="switchTab('tab-summaries')">Summaries</button>
+            <button class="tab-btn" data-tab="tab-wiki" onclick="switchTab('tab-wiki')">Wiki</button>
+            <div class="console-nav-label">Tools</div>
+            <button class="tab-btn" data-tab="tab-publish" onclick="switchTab('tab-publish')">Publish a message</button>
+            <button class="tab-btn" data-tab="tab-mappings" onclick="switchTab('tab-mappings')">Identity mappings</button>
+        </nav>
 
         <!-- Invite a platform: one command, or one message to paste -->
         <div id="invite-overlay" class="pair-overlay" hidden>
@@ -1513,6 +1478,28 @@
             </div>
         </div>
 
+        <!-- Make a Mellow from a drivable platform: a name and a purpose -->
+        <div id="make-overlay" class="pair-overlay" hidden>
+            <form id="make-form" class="glass-card pair-modal">
+                <div class="pair-caption">Registry</div>
+                <h2 id="make-title" class="pair-headline">Make a Mellow</h2>
+                <div class="form-group">
+                    <label for="make-name">Its name</label>
+                    <input type="text" id="make-name" maxlength="48" required placeholder="Reviewer">
+                </div>
+                <div class="form-group">
+                    <label for="make-purpose">Its job, in one sentence</label>
+                    <textarea id="make-purpose" rows="2" maxlength="500" required placeholder="Review my pull requests and tell me what worries you."></textarea>
+                </div>
+                <p class="platforms-hint">Registers <code>agent://&lt;owner&gt;/&lt;name&gt;</code> and binds its inbox to one headless turn of the platform. It answers in words; nothing here grants it tools.</p>
+                <p id="make-error" class="platforms-hint" style="color: var(--accent-pink);"></p>
+                <div class="pair-actions">
+                    <button type="submit" class="btn btn-sm">Create and say hello</button>
+                    <button type="button" id="make-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Someone new: a loud, happy arrival -->
         <div id="celebrate" class="celebrate" hidden>
             <div class="celebrate-confetti" aria-hidden="true"></div>
@@ -1525,13 +1512,6 @@
 
         <!-- Right Column: Navigation Tabs & Grid Contents -->
         <section class="dashboard-grid">
-            <div class="tabs-header">
-                <button class="tab-btn active" onclick="switchTab('tab-forum')">Forum UI</button>
-                <button class="tab-btn" onclick="switchTab('tab-tasks')">Task Board</button>
-                <button class="tab-btn" onclick="switchTab('tab-decisions')">Decision Log</button>
-                <button class="tab-btn" onclick="switchTab('tab-summaries')">Topic Summaries</button>
-                <button class="tab-btn" onclick="switchTab('tab-wiki')">LLMWiki</button>
-            </div>
 
             <!-- Tab 1: Forum UI -->
             <div id="tab-forum" class="tab-content active">
@@ -1711,6 +1691,157 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Registry: what this machine has, and the Mellows made from it -->
+            <div id="tab-registry" class="tab-content">
+                <div class="registry-grid">
+            <!-- AI platforms spotted on this machine -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 5a7 7 0 0 1 7 7M12 1a11 11 0 0 1 11 11M12 19a7 7 0 0 1-7-7M12 23A11 11 0 0 1 1 12"/></svg>
+                    Platforms on this machine
+                </h2>
+                <p class="platforms-hint">AI platforms MellowMesh noticed here. Nothing leaves this computer — it only reads the names of running programs.</p>
+                <div id="platforms-list" class="platforms-list">
+                    <div class="empty-state">Looking around…</div>
+                </div>
+            </div>
+
+                    <div class="glass-card">
+                        <h2>Mellows made from platforms</h2>
+                        <p class="platforms-hint">Bindings: a Mellow, the platform that speaks for it, and its purpose. Its inbox is answered by one headless turn of the platform.</p>
+                        <div id="mellows-list" class="platforms-list"><div class="empty-state">None yet.</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tools: publish a raw message -->
+            <div id="tab-publish" class="tab-content">
+                <div class="tool-narrow">
+            <!-- Publisher Card -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                    Publisher Panel
+                </h2>
+                
+                <div class="form-group">
+                    <label for="publish-type">Publish Type</label>
+                    <select id="publish-type" onchange="togglePublisherType()">
+                        <option value="message">Standard Message</option>
+                        <option value="task">Create Task</option>
+                        <option value="decision">Create Decision</option>
+                    </select>
+                </div>
+
+                <!-- Form 1: Message -->
+                <form id="form-message" onsubmit="handlePublishMessage(event)">
+                    <div class="form-group">
+                        <label for="msg-input-topic">Topic</label>
+                        <input type="text" id="msg-input-topic" value="_forum.general" required placeholder="e.g. _forum.general">
+                    </div>
+                    <div class="form-group">
+                        <label for="msg-input-sender">From (Identity)</label>
+                        <input type="text" id="msg-input-sender" value="human://yannick" required placeholder="e.g. human://yannick">
+                    </div>
+                    <div class="form-group">
+                        <label for="msg-input-body">Content</label>
+                        <textarea id="msg-input-body" rows="4" required placeholder="Type your markdown message here..."></textarea>
+                    </div>
+                    <button type="submit" class="btn">Publish Message</button>
+                </form>
+
+                <!-- Form 2: Task -->
+                <form id="form-task" onsubmit="handlePublishTask(event)" style="display: none;">
+                    <div class="form-group">
+                        <label for="task-input-title">Task Title</label>
+                        <input type="text" id="task-input-title" required placeholder="e.g. Review claims API security">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-desc">Description</label>
+                        <textarea id="task-input-desc" rows="2" placeholder="Describe the task..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-topic">Topic</label>
+                        <input type="text" id="task-input-topic" value="_task.security.review" required placeholder="e.g. _task.security.review">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-caps">Required Capabilities (comma separated)</label>
+                        <input type="text" id="task-input-caps" value="security.review,code.review" placeholder="e.g. code.review">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-priority">Priority</label>
+                        <select id="task-input-priority">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-input-sender">Created By (Identity)</label>
+                        <input type="text" id="task-input-sender" value="human://yannick" required>
+                    </div>
+                    <button type="submit" class="btn">Create Task</button>
+                </form>
+
+                <!-- Form 3: Decision -->
+                <form id="form-decision" onsubmit="handlePublishDecision(event)" style="display: none;">
+                    <div class="form-group">
+                        <label for="dec-input-title">Decision Title</label>
+                        <input type="text" id="dec-input-title" required placeholder="e.g. Choose storage engine">
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-question">Question</label>
+                        <input type="text" id="dec-input-question" required placeholder="e.g. SQLite or Redb?">
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-decider">Required Decider</label>
+                        <input type="text" id="dec-input-decider" value="human://yannick" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dec-input-sender">Created By</label>
+                        <input type="text" id="dec-input-sender" value="agent://yannick/codex" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Options (JSON: labels or {label, outcome})</label>
+                        <textarea id="dec-input-options" rows="3" required placeholder='[{"label":"Ship it","outcome":"approve"},{"label":"Hold","outcome":"reject"}]'></textarea>
+                    </div>
+                    <button type="submit" class="btn">Request Decision</button>
+                </form>
+            </div>
+
+
+                </div>
+            </div>
+
+            <!-- Tools: identity mappings -->
+            <div id="tab-mappings" class="tab-content">
+                <div class="tool-narrow">
+            <!-- Identity Mapping Card -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Identity Mappings
+                </h2>
+                <div id="mappings-container" class="mappings-list">
+                    <!-- Loaded dynamically -->
+                </div>
+                <form onsubmit="handleAddMapping(event)">
+                    <div class="form-group">
+                        <label for="map-input-ext">External Profile ID</label>
+                        <input type="text" id="map-input-ext" required placeholder="e.g. discord://12345">
+                    </div>
+                    <div class="form-group">
+                        <label for="map-input-fm">MellowMesh ID</label>
+                        <input type="text" id="map-input-fm" required placeholder="e.g. human://yannick">
+                    </div>
+                    <button type="submit" class="btn btn-secondary btn-sm">Add Mapping</button>
+                </form>
+            </div>
+
+
                 </div>
             </div>
         </section>
@@ -2069,14 +2200,13 @@
             let data;
             try { data = await apiJson('/platforms'); } catch (e) { return; }
             const running = data.platforms.filter(p => p.running);
-            const off = data.platforms.filter(p => !p.running);
 
             // A platform that starts running after the first look = spotted now.
             const ids = new Set(running.map(p => p.id));
             if (platformsSeen) {
                 for (const p of running) {
                     if (!platformsSeen.has(p.id)) {
-                        celebrate(`${p.name} spotted!`, 'It is working on this machine right now. Invite it from the Plaza.');
+                        celebrate(`${p.name} spotted!`, 'It is working on this machine right now.');
                     }
                 }
             }
@@ -2090,42 +2220,126 @@
 
             const list = document.getElementById('platforms-list');
             list.innerHTML = '';
-            if (!running.length && !off.length) {
-                list.innerHTML = '<div class="empty-state">Nothing spotted yet.</div>';
-                return;
+            // Three states: running, installed (asleep), not on this machine.
+            const present = data.platforms.filter(p => p.installed || p.running)
+                .sort((x, y) => (y.can_chat - x.can_chat) || (y.running - x.running));
+            const absent = data.platforms.filter(p => !p.installed && !p.running);
+            if (!present.length) {
+                list.innerHTML = '<div class="empty-state">No AI app found on this machine yet.</div>';
             }
-            for (const p of running) {
+            for (const p of present) {
                 const row = document.createElement('div');
                 row.className = 'platform-row';
+                const drivable = p.can_chat ? ' · drivable' : '';
+                const state = p.running
+                    ? `<div class="platform-state on"><span class="dot"></span>running · ${p.sessions} process${p.sessions > 1 ? 'es' : ''}${drivable}</div>`
+                    : `<div class="platform-state"><span class="dot"></span>installed · asleep${drivable}</div>`;
                 row.innerHTML = `
                     <span class="platform-glyph">${platformGlyph(p.name)}</span>
                     <div class="platform-main">
                         <div class="platform-name"></div>
-                        <div class="platform-state on"><span class="dot"></span>Working right now · ${p.sessions} session${p.sessions > 1 ? 's' : ''}</div>
+                        ${state}
                     </div>`;
                 row.querySelector('.platform-name').textContent = p.name;
+                if (p.can_chat) {
+                    const make = document.createElement('button');
+                    make.type = 'button';
+                    make.className = 'btn btn-sm';
+                    make.textContent = 'Make a Mellow';
+                    make.addEventListener('click', () => openMake(p));
+                    row.appendChild(make);
+                }
                 if (p.invite !== 'none') {
                     const btn = document.createElement('button');
                     btn.type = 'button';
-                    btn.className = 'btn btn-sm';
+                    btn.className = 'btn btn-sm btn-secondary';
                     btn.textContent = 'Invite';
                     btn.addEventListener('click', () => openInvite(p));
                     row.appendChild(btn);
                 }
                 list.appendChild(row);
             }
-            // The quiet ones, folded into one line each.
-            for (const p of off) {
+            if (absent.length) {
+                const note = document.createElement('div');
+                note.className = 'platforms-hint';
+                note.style.margin = '0.5rem 0 0 0';
+                note.textContent = 'Not on this machine: ' + absent.map(p => p.name).join(' · ');
+                list.appendChild(note);
+            }
+        }
+
+        // Mellows bound to platforms: the registry's other half.
+        async function loadMellows() {
+            let bindings;
+            try { bindings = await apiJson('/mellows'); } catch (e) { return; }
+            const fingerprint = JSON.stringify(bindings);
+            if (loadMellows._fp === fingerprint) return;
+            loadMellows._fp = fingerprint;
+            const list = document.getElementById('mellows-list');
+            list.innerHTML = '';
+            if (!bindings.length) {
+                list.innerHTML = '<div class="empty-state">None yet. Make one from a drivable platform.</div>';
+                return;
+            }
+            for (const b of bindings) {
                 const row = document.createElement('div');
-                row.className = 'platform-row off';
+                row.className = 'platform-row';
                 row.innerHTML = `
-                    <span class="platform-glyph">${platformGlyph(p.name)}</span>
+                    <span class="platform-glyph"></span>
                     <div class="platform-main">
                         <div class="platform-name"></div>
-                        <div class="platform-state"><span class="dot"></span>Not seen right now</div>
+                        <div class="platform-state"></div>
+                        <div class="platform-state"></div>
                     </div>`;
-                row.querySelector('.platform-name').textContent = p.name;
+                row.querySelector('.platform-glyph').textContent = platformGlyph(b.name);
+                row.querySelector('.platform-name').textContent = `${b.name}  ·  ${b.agent_id}`;
+                const lines = row.querySelectorAll('.platform-state');
+                lines[0].textContent = `← ${b.platform} · inbox ${b.inbox}`;
+                lines[1].textContent = `purpose: ${b.purpose}`;
                 list.appendChild(row);
+            }
+        }
+
+        let makeContext = null; // platform a Mellow is being made from
+
+        function openMake(p) {
+            makeContext = p;
+            document.getElementById('make-title').textContent = 'Make a Mellow from ' + p.name;
+            document.getElementById('make-name').value = '';
+            document.getElementById('make-purpose').value = '';
+            document.getElementById('make-error').textContent = '';
+            document.getElementById('make-overlay').hidden = false;
+            setTimeout(() => document.getElementById('make-name').focus(), 0);
+        }
+
+        async function submitMake(e) {
+            e.preventDefault();
+            if (!makeContext) return;
+            const errorEl = document.getElementById('make-error');
+            errorEl.textContent = '';
+            const body = {
+                name: document.getElementById('make-name').value,
+                purpose: document.getElementById('make-purpose').value,
+            };
+            try {
+                const res = await apiFetch('/platforms/' + encodeURIComponent(makeContext.id) + '/mellows', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    errorEl.textContent = data.error || 'Could not make it. Try again.';
+                    return;
+                }
+                document.getElementById('make-overlay').hidden = true;
+                // The agent watcher would celebrate too; mark it seen so the
+                // arrival is announced once, with its origin.
+                if (agentsSeen) agentsSeen.add(data.agent_id);
+                celebrate(`${data.name} joined your network!`, `Made from ${makeContext.name} — say hello in any MellowMesh app.`);
+                loadMellows();
+            } catch (err) {
+                errorEl.textContent = 'Could not reach the hub. Try again.';
             }
         }
 
@@ -2198,6 +2412,10 @@ Rules of the house: you act as my helper, and anything important needs my explic
             document.getElementById('invite-overlay').addEventListener('click', (e) => {
                 if (e.target === e.currentTarget) e.currentTarget.hidden = true;
             });
+            document.getElementById('make-form').addEventListener('submit', submitMake);
+            document.getElementById('make-cancel-btn').addEventListener('click', () => {
+                document.getElementById('make-overlay').hidden = true;
+            });
             document.getElementById('invite-copy-btn').addEventListener('click', async () => {
                 if (!inviteContext) return;
                 try { await navigator.clipboard.writeText(inviteContext.text); } catch (e) { /* unavailable */ }
@@ -2268,15 +2486,8 @@ Rules of the house: you act as my helper, and anything important needs my explic
 
             document.getElementById(tabId).classList.add('active');
 
-            // Find btn corresponding
-            const tabBtnIndex = {
-                'tab-forum': 0,
-                'tab-tasks': 1,
-                'tab-decisions': 2,
-                'tab-summaries': 3,
-                'tab-wiki': 4
-            }[tabId];
-            document.querySelectorAll('.tab-btn')[tabBtnIndex].classList.add('active');
+            const btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+            if (btn) btn.classList.add('active');
 
             if (tabId === 'tab-wiki') {
                 loadWikiPages();
@@ -2294,7 +2505,7 @@ Rules of the house: you act as my helper, and anything important needs my explic
         async function loadAllData() {
             // While the token field is open, don't queue more requests behind it.
             if (tokenPrompt) return;
-            const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries, loadPlatforms, watchAgents];
+            const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries, loadPlatforms, loadMellows, watchAgents];
             if (document.getElementById('tab-wiki').classList.contains('active')) {
                 loaders.push(loadWikiPages);
             }

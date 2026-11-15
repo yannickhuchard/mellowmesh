@@ -238,6 +238,13 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     /** AI platforms spotted on the hub's computer (owner only). */
     suspend fun platforms(): io.mellowmesh.core.PlatformsSnapshot = io { it.platforms() }
 
+    /** Make a Mellow from a platform, then refresh the directory so it shows everywhere. */
+    suspend fun createMellow(platformId: String, name: String, purpose: String): io.mellowmesh.core.MellowCreated {
+        val made = io { it.createMellow(platformId, name, purpose) }
+        runCatching { loadAgents() }
+        return made
+    }
+
     suspend fun updateTask(id: String, patch: TaskPatch): Task? = io { it.updateTask(id, patch) }
 
     // ---- network -----------------------------------------------------------------

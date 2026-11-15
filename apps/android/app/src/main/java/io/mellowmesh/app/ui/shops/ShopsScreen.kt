@@ -44,7 +44,7 @@ import androidx.compose.runtime.setValue
 
 /** Window-shopping for helpers, by floor (Popular · Study · Writing · Money · Work · Everything). */
 @Composable
-fun ShopsScreen(onHelp: () -> Unit, onChat: (String) -> Unit, onHelper: (String) -> Unit) {
+fun ShopsScreen(onHelp: () -> Unit, onChat: (String) -> Unit, onHelper: (String) -> Unit, onMake: () -> Unit = {}) {
     val app = LocalContext.current.meshApp
     val agents by app.repo.agents.collectAsStateWithLifecycle()
     val home by app.repo.home.collectAsStateWithLifecycle()
@@ -69,9 +69,27 @@ fun ShopsScreen(onHelp: () -> Unit, onChat: (String) -> Unit, onHelper: (String)
                 Mello(size = 110.dp)
                 Gap()
                 Text(stringResource(R.string.shops_empty), color = Mesh.Ink2, style = MaterialTheme.typography.bodyLarge)
+                Gap(20.dp)
+                io.mellowmesh.app.ui.components.InkButton(
+                    text = stringResource(R.string.make_one_title),
+                    onClick = onMake,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                item(key = "make-one") {
+                    MeshCard(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                            .clickable(onClick = onMake),
+                        color = Mesh.IndigoTint,
+                    ) {
+                        Text(stringResource(R.string.make_one_title), style = MaterialTheme.typography.titleMedium, color = Mesh.Ink)
+                        Text(stringResource(R.string.make_one_body), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
+                    }
+                }
                 for (floor in floors) {
                     item(key = "floor-" + floor.floor.name) {
                         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp)) {
@@ -110,7 +128,15 @@ private fun ShopWindowCard(shop: ShopWindow, mood: Mood, onOpen: () -> Unit, onH
         NameWithTag(shop.name, isHelper = true)
         // Where this helper comes from: its owner, and whether it is only
         // a demo example — so no helper is ever a mystery.
-        if (shop.agent.capabilities.contains("demo")) {
+        val madeFrom = shop.agent.capabilities.firstOrNull { it.startsWith("from:") }?.removePrefix("from:")
+        if (madeFrom != null) {
+            Text(
+                stringResource(R.string.made_from, madeFrom.replace('-', ' ').replaceFirstChar { it.uppercase() }),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Indigo,
+                maxLines = 2,
+            )
+        } else if (shop.agent.capabilities.contains("demo")) {
             Text(
                 stringResource(R.string.demo_badge),
                 style = MaterialTheme.typography.bodySmall,

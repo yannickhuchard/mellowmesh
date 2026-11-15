@@ -29,7 +29,7 @@ Windows notifications with buttons, as loud as your ladder allows.
 
 * Windows 10 version 1809 (build 17763) or later, or Windows 11 — x64 or ARM64.
   Mica appears on Windows 11; Windows 10 shows a plain background.
-* [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (8.0.100 or newer; a newer SDK works too).
+* [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (8.0.100 or newer; .NET 9 and 10 SDKs work too — the app uses Windows App SDK 1.8 for that).
 * Optional: Visual Studio 2022 (17.8+) with the **Windows application development**
   workload (or ".NET desktop development" + "Windows App SDK C# Templates").
 * A running MellowMesh hub (`mellowmeshd`), on this PC or reachable on your network.

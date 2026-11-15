@@ -386,11 +386,11 @@ public sealed partial class NetworkPage : Page
     private Border SpottedSection()
     {
         var list = Ui.Column(8);
-        list.Children.Add(Ui.Text("Looking at what runs on this machine…", 13, Ui.Ink2));
+        list.Children.Add(Ui.Text("Looking at what this computer has…", 13, Ui.Ink2));
         _ = FillSpottedAsync(list);
         return Ui.Card(Ui.Column(10,
-            Ui.Caption("SPOTTED ON THIS MACHINE"),
-            Ui.Text("AI platforms MellowMesh noticed here. Nothing leaves this computer — only the names of running programs are read.", 13, Ui.Ink2),
+            Ui.Caption("ON THIS COMPUTER"),
+            Ui.Text("AI apps MellowMesh found here. Make a Mellow from one and talk to it from any of your devices. Nothing leaves this computer to find them.", 13, Ui.Ink2),
             list), padding: 16);
     }
 
@@ -413,30 +413,93 @@ public sealed partial class NetworkPage : Page
         DispatcherQueue.TryEnqueue(() =>
         {
             list.Children.Clear();
-            var running = snap.Platforms.Where(p => p.Running).ToList();
-            var quiet = snap.Platforms.Where(p => !p.Running).Select(p => p.Name).ToList();
-            if (running.Count == 0)
+            // Three plain states: working right now, installed and asleep,
+            // not on this computer. Pilotable ones come first.
+            var present = snap.Platforms.Where(p => p.Installed || p.Running)
+                .OrderByDescending(p => p.CanChat).ThenByDescending(p => p.Running).ToList();
+            var absent = snap.Platforms.Where(p => !p.Installed && !p.Running).Select(p => p.Name).ToList();
+            if (present.Count == 0)
             {
-                list.Children.Add(Ui.Text("Nothing is working right now.", 14, Ui.Ink2));
+                list.Children.Add(Ui.Text("No AI app was found on this computer yet.", 14, Ui.Ink2));
             }
-            foreach (var p in running)
+            foreach (var p in present)
             {
+                var platform = p;
                 var name = Ui.Text(p.Name, 15, Ui.Ink, bold: true);
-                var state = Ui.Text($"Working right now · {p.Sessions} running", 12.5, Ui.Hex("#157A52"));
+                var state = p.Running
+                    ? Ui.Text("Working right now", 12.5, Ui.Hex("#157A52"))
+                    : Ui.Text("Installed · asleep", 12.5, Ui.Ink2);
                 var info = Ui.Column(1, name, state);
+                info.MinWidth = 220;
                 var row = Ui.Row(12, info);
+                if (p.CanChat)
+                {
+                    row.Children.Add(Ui.Primary("Make a Mellow", async (_, _) => await MakeMellowAsync(platform)));
+                }
                 if (p.Invite is "command" or "paste")
                 {
-                    var platform = p;
                     row.Children.Add(Ui.Secondary("Invite", async (_, _) => await InviteAsync(platform)));
                 }
                 list.Children.Add(row);
+                if (!p.CanChat && p.Invite == "paste")
+                {
+                    list.Children.Add(Ui.Text("It has no remote door, so it cannot be piloted from here — Invite copies a message to paste in its chat.", 12, Ui.Ink3));
+                }
             }
-            if (quiet.Count > 0)
+            if (absent.Count > 0)
             {
-                list.Children.Add(Ui.Text("Also looked for: " + string.Join(" · ", quiet), 12, Ui.Ink3));
+                list.Children.Add(Ui.Text("Not on this computer: " + string.Join(" · ", absent), 12, Ui.Ink3));
             }
         });
+    }
+
+    /// <summary>
+    /// Name it, give it a job: the dialog that turns an installed AI app into
+    /// a Mellow registered on the network, ready to talk to in Chats.
+    /// </summary>
+    private async Task MakeMellowAsync(PlatformInfo platform)
+    {
+        var nameBox = new TextBox { Header = "Its name", PlaceholderText = "Reviewer", MaxLength = 48 };
+        var purposeBox = new TextBox
+        {
+            Header = "Its job, in one sentence",
+            PlaceholderText = "Review my pull requests and tell me what worries you.",
+            MaxLength = 500,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = false,
+            MinHeight = 72,
+        };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Make a Mellow from {platform.Name}",
+            PrimaryButtonText = "Create and say hello",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = Ui.Column(12,
+                Ui.Text("Give it a name and a job. It joins your network and you can talk to it right away.", 14, Ui.Ink2),
+                nameBox,
+                purposeBox,
+                Ui.Text("It answers in words. Anything that would touch your files asks you first.", 12.5, Ui.Ink3)),
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(nameBox.Text) || string.IsNullOrWhiteSpace(purposeBox.Text))
+        {
+            App.Shell?.ShowWhisper("It needs both a name and a job.");
+            return;
+        }
+        try
+        {
+            var made = await _state.Client!.CreateMellowAsync(platform.Id, nameBox.Text, purposeBox.Text);
+            App.Shell?.ShowWhisper($"{made.Name} joined your network — say hello in Chats.");
+        }
+        catch (Exception e)
+        {
+            App.Shell?.ShowWhisper(e.Message);
+        }
     }
 
     /// <summary>Put the invitation in the clipboard: the connect command, or a

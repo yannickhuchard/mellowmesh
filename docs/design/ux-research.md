@@ -153,6 +153,62 @@ run it" in one sentence → once the platform joins, the row turns mint:
 | :--- | :--- | :--- | :--- |
 | T6 | Find out which AI assistants are running on this computer, and connect one. | 4 min | Finds the card without the search box; can say afterwards what was shared (nothing left the machine). |
 
+## Feature research — one client to pilot every AI app (v2 of "Spotted")
+
+*What the first version got wrong.* It listed what was *running* (and a
+detached hub saw nothing at all), pointed at the computer for every action,
+and stopped at "invite". People asked a different question: **"What AI do I
+have, and can I just talk to it from here?"**
+
+*Jobs, in the user's words.*
+
+1. "Show me what is **installed** on my machine(s), not only what happens
+   to be open." Three plain states: *working right now* · *installed,
+   asleep* · *not on this computer*.
+2. "Let me **start a chat** with one — or several — from my phone." The
+   phone (and the Windows app) is the single remote control: no terminal,
+   no window switching.
+3. "Let me **make a Mellow out of it, for a purpose**": a name and one
+   sentence of mission ("review my pull requests", "plan my week"). It is
+   registered on the network, shows up in Shops and Chats like any other,
+   and its shop window says where it comes from ("Made from Claude Code on
+   darkseid").
+
+*Who.* Karim (indie dev) makes three Mellows from Claude Code, one per
+project, and talks to them from the tram. Léa makes "Ops" from Codex and
+approves its requests from the café. Marc never sees a platform name unless
+he opens *Spotted*: he just meets a new Mellow in Shops.
+
+*Rules.*
+
+* **Nothing is created silently.** A platform becomes a Mellow only when
+  the owner names it and gives it a purpose.
+* **A Mellow made this way is a guest with no keys**: it answers in words.
+  Anything that would touch files or run commands still comes back as a
+  request on the To-do desk.
+* **Honest states.** If a platform cannot be piloted from here (ChatGPT's
+  desktop app has no remote door), the row says so and offers the
+  paste-invitation instead — never a button that does nothing.
+* **Sovereignty.** Detection reads program names and looks for known
+  programs on the machine; conversations go phone → your hub → the
+  platform on your computer. No third party is added.
+
+*Flow F7 — From "what do I have?" to a conversation (Karim, phone).*
+Plaza → Your network → *Spotted on your computer* → Claude Code ·
+*installed* → **Make a Mellow** → name "Reviewer", purpose "Review my pull
+requests and tell me what worries you" → the Mellow arrives with the
+celebration → its conversation opens with its first words → Karim types.
+
+*Developer console (web).* Tomás (agent builder) is its only persona: the
+web client stops pretending to be the product and becomes the workshop —
+live traffic first, raw payloads, the registry (agents, platforms,
+bindings), then tools (publish, mappings, wiki). Dense on purpose, labelled
+as such, with a link out to "the app people use".
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T7 | From your phone, find out which AI apps your computer has and talk to one. | 5 min | Creates a Mellow with a purpose and gets its first answer without touching the computer. |
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

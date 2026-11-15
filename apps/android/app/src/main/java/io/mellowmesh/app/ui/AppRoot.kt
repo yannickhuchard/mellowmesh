@@ -248,6 +248,7 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                         onHelp = help,
                         onChat = { nav.navigate(Routes.conversation(it)) },
                         onHelper = { nav.navigate(Routes.helper(it)) },
+                        onMake = { nav.navigate(Routes.NETWORK) },
                     )
                 }
                 composable(
@@ -286,6 +287,7 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                         onBack = { nav.popBackStack() },
                         onSpace = { nav.navigate(Routes.space(it)) },
                         onTeam = { nav.navigate(Routes.team(it)) },
+                        onChat = { nav.navigate(Routes.conversation(it)) },
                     )
                 }
                 composable("space/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->

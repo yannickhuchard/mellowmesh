@@ -33,6 +33,8 @@ flowchart TD
 
     Shops -->|Say hello| Conversation
     Shops -->|shop window| Helper
+    Shops -->|Make a new one| Network
+    Network -->|Make a Mellow: name + job| Conversation
 
     Todo -->|All tasks| Board
     Todo -->|Roadmap| Roadmap
@@ -59,11 +61,13 @@ flowchart TD
 | I1 | **Chats, empty, was a dead end**: "Say hello to one of your helpers" with nothing to tap. | **Fixed** — "Meet your helpers" button leads to Shops, where *Say hello* starts the conversation. |
 | I2 | **Helpers came from nowhere**: `builder` and `scout` appeared with no origin. | **Fixed** — every shop window names its origin: a demo badge ("from `mellowmesh demo`") or *Brought by \<owner\>*. |
 | I3 | **The Connect screen was a wall of cramped pills.** | **Fixed** — centered hero, one dominant *Scan the code* action, the other ways in as an airy list under "Not in front of the computer?". |
-| I4 | **Discovery lived only on the computer**: the phone could not see which AI platforms run there. | **Fixed** — *Your network* shows "Spotted on your computer", refreshed while open, with an animated arrival banner when a platform appears. |
+| I4 | **Discovery lived only on the computer**: the phone could not see which AI apps are there. | **Fixed** — *Your network* shows "On your computer" in three states (working right now · installed, asleep · not there), refreshed while open. |
+| I9 | **Seeing an AI app led nowhere**: no way to talk to it from the phone. | **Fixed** — *Make a Mellow* (a name and a job) registers it and opens its conversation; *Shops* starts with "Make a new one", and Shops' empty state offers it too. |
+| I10 | **A reply reloaded from history read "Metadata-only: size=…"**: agent replies were stored without their words. | **Fixed** — `_agent.**.outbox` is kept like the inbox. |
 | I5 | *Say hello* / *Chat* silently disabled when a helper's id is malformed (no conversation topic can exist). | **Open (rare)** — needs a one-line explanation instead of a dead button. |
 | I6 | No **Devices** screen on Android (design names one: paired phones, last seen, Remove). | **Open** — the dashboard and `mellowmesh devices` cover it meanwhile. |
 | I7 | **Welcome is a hard gate**: without a hub there is nothing to try. | **Open** — design direction: a "look around first" sample plaza before pairing. |
-| I8 | **Inviting a platform from the phone**: the Spotted list points at the computer's dashboard instead of offering the paste-invitation itself. | **Open** — phone-side invite (share sheet with the pasteable message) is designed, not yet built. |
+| I8 | **Platforms with no remote door** (ChatGPT, Cursor…) can only be invited from the computer with a pasted message. | **Open** — a phone-side share sheet for that message is designed, not yet built. |
 
 ## Rules this graph keeps
 

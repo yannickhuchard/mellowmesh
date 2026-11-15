@@ -317,9 +317,24 @@ data class PlatformInfo(
     val name: String = "",
     val sessions: Int = 0,
     val running: Boolean = false,
+    /** Present on the computer (a running platform counts). */
+    val installed: Boolean = false,
+    /** The hub can pilot it: a Mellow can be made from it. */
+    @SerialName("can_chat") val canChat: Boolean = false,
     /** `command`, `paste` or `none` — how it joins the network. */
     val invite: String = "none",
     val command: String = "",
+)
+
+/** `POST /platforms/:id/mellows` response: the Mellow that was just made. */
+@Serializable
+data class MellowCreated(
+    @SerialName("agent_id") val agentId: String = "",
+    val name: String = "",
+    val platform: String = "",
+    val purpose: String = "",
+    /** The conversation to open (`_agent.<owner>.<name>`). */
+    @SerialName("conversation_id") val conversationId: String = "",
 )
 
 /** `GET /platforms` response: what runs on the hub's computer right now. */

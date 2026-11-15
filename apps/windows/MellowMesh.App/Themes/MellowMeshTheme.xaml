@@ -40,30 +40,6 @@
     <SolidColorBrush x:Key="RoseTintBrush" Color="{StaticResource RoseTintColor}" />
     <SolidColorBrush x:Key="VioletBrush" Color="{StaticResource VioletColor}" />
 
-    <!-- Primary actions are black ink (lightweight styling of AccentButtonStyle). -->
-    <ResourceDictionary.ThemeDictionaries>
-        <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="AccentButtonBackground" Color="#111114" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2A2A31" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#000000" />
-            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#E6E6EA" />
-            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F3EF" />
-            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#0F111114" />
-        </ResourceDictionary>
-        <ResourceDictionary x:Key="Default">
-            <SolidColorBrush x:Key="AccentButtonBackground" Color="#111114" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2A2A31" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#000000" />
-            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#E6E6EA" />
-            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F3EF" />
-            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#0F111114" />
-        </ResourceDictionary>
-    </ResourceDictionary.ThemeDictionaries>
-
     <!-- Type: large and tight for headlines and numbers, comfortable body. -->
     <Style x:Key="HeadlineTextStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="32" />
@@ -118,4 +94,30 @@
         <Setter Property="Background" Value="{StaticResource PaperBrush}" />
         <Setter Property="Padding" Value="32,24,32,24" />
     </Style>
+
+    <!-- XAML allows a dictionary's own items on one side of a property
+         element only, so the theme dictionaries close the file. -->
+    <!-- Primary actions are black ink (lightweight styling of AccentButtonStyle). -->
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="AccentButtonBackground" Color="#111114" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2A2A31" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#E6E6EA" />
+            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F3EF" />
+            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#0F111114" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Default">
+            <SolidColorBrush x:Key="AccentButtonBackground" Color="#111114" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#2A2A31" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#E6E6EA" />
+            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#F4F3EF" />
+            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#0F111114" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

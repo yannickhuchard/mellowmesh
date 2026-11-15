@@ -293,6 +293,22 @@ class MeshClient(
     /** AI platforms the hub spotted on its own machine (owner only). */
     fun platforms(): PlatformsSnapshot = get("platforms", PlatformsSnapshot.serializer())
 
+    /**
+     * Make a Mellow from an AI app installed on the hub's computer: it is
+     * registered on the network with this name and purpose, and answers in
+     * its conversation from then on (owner only).
+     */
+    fun createMellow(platformId: String, name: String, purpose: String): MellowCreated {
+        require(platformId.isNotBlank() && platformId.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+            "invalid platform id"
+        }
+        val body = buildJsonObject {
+            put("name", JsonPrimitive(name.trim()))
+            put("purpose", JsonPrimitive(purpose.trim()))
+        }
+        return decode(MellowCreated.serializer(), send("POST", "platforms/$platformId/mellows", body.toString()))
+    }
+
     fun decisions(): List<Decision> = get("decisions", ListSerializer(Decision.serializer()))
 
     /** Answer a decision. The app gates this behind BiometricPrompt. Never queued offline. */

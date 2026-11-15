@@ -220,6 +220,28 @@ procedure.
 * Failure speaks in places, not network terms: *Your phone can't reach this
   PC — same Wi-Fi? If not, use a tunnel address.*
 
+## 9. One client for every AI app — "On your computer"
+
+The network shows which AI apps a machine **has**, in three plain states:
+*working right now* (mint, pulsing) · *installed, asleep* (grey) · *not on
+this computer* (one quiet line). Never a count of processes outside the
+developer console.
+
+* **Make a Mellow** is the one primary action on a row the hub can pilot: a
+  sheet with two fields — *Its name*, *Its job, in one sentence* — and one
+  promise ("It answers in words. Anything that would touch your files asks
+  you first."). Creating it lands in its conversation, where it has already
+  said hello.
+* A platform with **no remote door** never shows a dead button: it says so
+  and offers the pasted invitation instead.
+* A Mellow made this way carries its origin everywhere: *Made from Claude
+  Code on your computer*.
+* **Web = developer console.** The web client is the workshop (persona:
+  Tomás): a rail — *Watch* (live traffic, tasks, decisions) · *Registry*
+  (agents & platforms, summaries, wiki) · *Tools* (publish, mappings) —
+  dense, monospace where it helps, badged "Developer console", and pointing
+  people to the apps.
+
 ## Platform signatures
 
 | | iOS | macOS | Android | Windows |

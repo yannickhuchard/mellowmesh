@@ -379,6 +379,8 @@ pub fn handle_publish(
 
         // Broadcast in-memory (Hot path)
         state.registry.broadcast(&msg);
+        // A Mellow bound to a platform on this machine answers its inbox.
+        crate::mellows::maybe_dispatch(&state, &msg);
         state
             .metrics
             .messages_routed_total

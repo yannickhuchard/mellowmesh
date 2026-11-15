@@ -132,6 +132,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/access/check", get(handlers::network::access_check))
         .route("/platforms", get(platforms_handler))
+        .route("/platforms/:id/mellows", post(create_mellow_handler))
+        .route("/mellows", get(list_mellows_handler))
         .route("/pair", post(handlers::pairing::pair))
         .route("/pair/claim", post(handlers::pairing::claim_pairing_code))
         .route("/pair/:token_id", get(handlers::pairing::pair_status))
@@ -190,6 +192,82 @@ async fn platforms_handler(
         "platforms": snap.platforms,
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct CreateMellow {
+    name: String,
+    purpose: String,
+}
+
+fn owner_only(state: &AppState, ctx: &crate::auth::AuthContext) -> Option<axum::response::Response> {
+    if crate::auth::is_admin(state, ctx) {
+        return None;
+    }
+    Some(
+        (
+            StatusCode::FORBIDDEN,
+            axum::response::Json(serde_json::json!({
+                "error": "Only the owner may do this on their own computer"
+            })),
+        )
+            .into_response(),
+    )
+}
+
+/// `POST /platforms/:id/mellows`: make a Mellow from an installed platform
+/// (owner only). Body: `{ "name": "...", "purpose": "..." }`.
+async fn create_mellow_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::Json(body): axum::Json<CreateMellow>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    use crate::mellows::CreateError;
+    match crate::mellows::create(&state, &id, &body.name, &body.purpose).await {
+        Ok(binding) => {
+            // The conversation id the apps open: inbox without ".inbox".
+            let conversation = binding.inbox.trim_end_matches(".inbox").to_string();
+            (
+                StatusCode::CREATED,
+                axum::response::Json(serde_json::json!({
+                    "agent_id": binding.agent_id,
+                    "name": binding.name,
+                    "platform": binding.platform,
+                    "purpose": binding.purpose,
+                    "conversation_id": conversation,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let status = match e {
+                CreateError::UnknownPlatform => StatusCode::NOT_FOUND,
+                CreateError::Exists(_) => StatusCode::CONFLICT,
+                CreateError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            (
+                status,
+                axum::response::Json(serde_json::json!({ "error": e.message() })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `GET /mellows`: the Mellows bound to platforms on this machine.
+async fn list_mellows_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    axum::response::Json(crate::mellows::list()).into_response()
 }
 
 async fn ui_handler() -> impl IntoResponse {
