@@ -81,6 +81,12 @@ public sealed partial class PlazaPage : Page
             return;
         }
 
+        // No phone yet (and we may make codes): one big, friendly way in.
+        if (_state.IsOwner && _state.Devices is { } devices && !devices.Any(d => d.Connected) && !_state.Settings.PhoneCardDismissed)
+        {
+            Body.Children.Add(ConnectPhoneCard());
+        }
+
         var cards = new Grid { ColumnSpacing = 16 };
         cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -124,6 +130,49 @@ public sealed partial class PlazaPage : Page
             HorizontalScrollMode = ScrollMode.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
         });
+    }
+
+    /// <summary>"Connect your phone": shown while no phone is paired; "Not now" puts it away.</summary>
+    private Border ConnectPhoneCard()
+    {
+        var phone = new Border
+        {
+            Width = 72,
+            Height = 72,
+            CornerRadius = new CornerRadius(20),
+            Background = Ui.Brush(Ui.Hex("#EEF0FF")),
+            Child = Ui.Glyph("\uE8EA", 34, Ui.Indigo),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        // Mello peeks out from behind the phone, raising a hand.
+        var mello = new HelperBlob { Width = 56, Height = 56, BlobColor = Ui.Violet, Mood = HelperMood.Waiting, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(-14, 0, 0, -6) };
+        var notNow = new HyperlinkButton { Content = "Not now", VerticalAlignment = VerticalAlignment.Center };
+        notNow.Click += (_, _) =>
+        {
+            _state.Settings.PhoneCardDismissed = true;
+            _state.SaveSettings();
+            Render();
+            App.Shell?.ShowWhisper("You can connect a phone any time from Settings → Devices.");
+        };
+        var connect = Ui.Primary("Connect your phone", (_, _) => App.Shell?.Navigate("phone"));
+        connect.VerticalAlignment = VerticalAlignment.Center;
+
+        var grid = new Grid { ColumnSpacing = 20 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(Ui.Row(0, phone, mello));
+        var text = Ui.Column(4,
+            Ui.Title("Connect your phone", 22),
+            Ui.Text("Scan one code with the MellowMesh app and your helpers, chats and requests come with you. Nothing to type.", 15, Ui.Ink2));
+        text.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+        var actions = Ui.Row(8, connect, notNow);
+        actions.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(actions, 2);
+        grid.Children.Add(actions);
+        return Ui.Card(grid, border: Ui.Indigo, padding: 22);
     }
 
     private static string Subline(HomeSnapshot home)

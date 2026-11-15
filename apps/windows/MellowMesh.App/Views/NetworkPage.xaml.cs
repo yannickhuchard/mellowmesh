@@ -68,6 +68,10 @@ public sealed partial class NetworkPage : Page
             });
         }
         Body.Children.Add(NetworkCard(net.Network, owner));
+        if (owner && net.Network.LanAccess is bool lanOn)
+        {
+            Body.Children.Add(LanAccessCard(lanOn, net.Network.LanAddress));
+        }
         Body.Children.Add(SpacesSection(net, owner));
         Body.Children.Add(TeamsSection(net, owner));
         if (owner)
@@ -115,6 +119,60 @@ public sealed partial class NetworkPage : Page
         });
         save.Visibility = owner ? Visibility.Visible : Visibility.Collapsed;
         return Ui.Card(Ui.Column(14, name, level, consequence, visitors, save));
+    }
+
+    /// <summary>
+    /// "Phones on your Wi-Fi": the hub's LAN listener (<c>lan_access</c>).
+    /// Connections from the network always need a key, so turning it on only
+    /// lets connected phones in.
+    /// </summary>
+    private Border LanAccessCard(bool on, string? address)
+    {
+        var toggle = new ToggleSwitch
+        {
+            Header = "Phones on your Wi-Fi can reach this hub",
+            IsOn = on,
+            OnContent = "On",
+            OffContent = "Off",
+        };
+        var consequence = Ui.Text(on
+            ? (string.IsNullOrWhiteSpace(address)
+                ? "On: your hub listens on this PC's Wi-Fi address. Every phone needs its own key, so only phones you connected get in."
+                : $"On: phones reach your hub at {SafeText.SanitizeLine(address)}. Every phone needs its own key, so only phones you connected get in.")
+            : "Off: only this PC (and tunnels you set up) can reach your hub. Phones on your Wi-Fi can't connect.", 14, Ui.Ink2);
+        var busy = false;
+        toggle.Toggled += async (_, _) =>
+        {
+            var client = _state.Client;
+            if (busy || client is null || toggle.IsOn == on)
+            {
+                return;
+            }
+            busy = true;
+            toggle.IsEnabled = false;
+            try
+            {
+                await client.SetLanAccessAsync(toggle.IsOn);
+                App.Shell?.ShowWhisper(toggle.IsOn ? "Phones on your Wi-Fi can reach your hub." : "Your hub no longer listens on Wi-Fi.");
+                await _state.RefreshAsync();
+            }
+            catch (MeshApiException ex)
+            {
+                App.Shell?.ShowWhisper("Not changed: " + ex.Friendly, isError: true);
+                toggle.IsOn = on;
+            }
+            finally
+            {
+                busy = false;
+                toggle.IsEnabled = true;
+            }
+        };
+        return Ui.Card(Ui.Column(10,
+            Ui.Row(10, Ui.Glyph("", 18, Ui.Indigo), Ui.Title("Phones on your Wi-Fi", 16)),
+            toggle,
+            consequence,
+            Ui.Caption("“Connect a phone” turns this on for you. If Windows Firewall asks about MellowMesh, choose “Allow access”."),
+            Ui.Secondary("Connect a phone", (_, _) => App.Shell?.Navigate("phone"))));
     }
 
     private FrameworkElement SpacesSection(NetworkOverview net, bool owner)
