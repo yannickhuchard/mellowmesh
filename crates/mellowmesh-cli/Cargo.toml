@@ -25,6 +25,14 @@ futures-util = "0.3"
 ulid = { version = "1.1", features = ["serde"] }
 qrcode = { version = "0.14", default-features = false }
 
+# Turns on VT escape processing so the pairing QR code can set its colors
+# in cmd and Windows PowerShell consoles.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[dev-dependencies]
+rqrr = { version = "0.11", default-features = false }
+
 [package.metadata.packager]
 product-name = "mellowmesh"
 version = "0.1.1"

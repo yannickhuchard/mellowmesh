@@ -7,6 +7,7 @@ pub mod message;
 pub mod metrics;
 pub mod named_topic;
 pub mod network;
+pub mod pairing;
 pub mod schema;
 pub mod summary;
 pub mod task;

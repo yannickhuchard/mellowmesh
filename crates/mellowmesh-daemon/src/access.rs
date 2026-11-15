@@ -29,14 +29,37 @@ pub struct RequestOrigin {
     pub remote: bool,
 }
 
+/// Public hosts: those configured (`--public-host`, or added by pairing)
+/// plus the LAN listener's address, merged into one shared list.
+#[derive(Default)]
+struct PublicHosts {
+    configured: Vec<String>,
+    lan: Option<String>,
+    all: Arc<Vec<String>>,
+}
+
+impl PublicHosts {
+    fn rebuild(&mut self) {
+        let mut all = self.configured.clone();
+        if let Some(lan) = &self.lan {
+            if !all.contains(lan) {
+                all.push(lan.clone());
+            }
+        }
+        self.all = Arc::new(all);
+    }
+}
+
 /// Runtime access state shared by every request.
 pub struct AccessState {
     snapshot: RwLock<Option<Arc<NetworkSnapshot>>>,
     /// Extra `Host` names (`host` or `host:port`, lowercase) the hub answers
-    /// to; requests naming one are remote.
-    pub public_hosts: Vec<String>,
+    /// to; requests naming one are remote. Changed at runtime by pairing.
+    public_hosts: RwLock<PublicHosts>,
     /// Random per-process marker for [`REMOTE_MARKER_HEADER`].
     pub remote_marker: String,
+    /// Pairing: device-token lifetime and the runtime LAN listener.
+    pub pairing: crate::pairing::PairingState,
 }
 
 impl Default for AccessState {
@@ -45,17 +68,64 @@ impl Default for AccessState {
     }
 }
 
+/// Normalise a public host entry (`host` or `host:port`).
+fn normalize_host(h: &str) -> Option<String> {
+    let h = h.trim().to_ascii_lowercase();
+    (!h.is_empty()).then_some(h)
+}
+
 impl AccessState {
     pub fn new(public_hosts: Vec<String>) -> Self {
+        let mut hosts = PublicHosts::default();
+        for h in public_hosts.iter().filter_map(|h| normalize_host(h)) {
+            if !hosts.configured.contains(&h) {
+                hosts.configured.push(h);
+            }
+        }
+        hosts.rebuild();
         Self {
             snapshot: RwLock::new(None),
-            public_hosts: public_hosts
-                .into_iter()
-                .map(|h| h.trim().to_ascii_lowercase())
-                .filter(|h| !h.is_empty())
-                .collect(),
+            public_hosts: RwLock::new(hosts),
             remote_marker: mellowmesh_core::auth::generate_token(),
+            pairing: Default::default(),
         }
+    }
+
+    /// Replace the pairing settings (device-token lifetime, LAN address
+    /// source); used by tests and embedders.
+    pub fn with_pairing(mut self, pairing: crate::pairing::PairingState) -> Self {
+        self.pairing = pairing;
+        self
+    }
+
+    /// The current public hosts.
+    pub fn public_hosts(&self) -> Arc<Vec<String>> {
+        self.public_hosts
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .all
+            .clone()
+    }
+
+    /// Answer to `host` from now on. Returns `false` when it already was.
+    pub fn add_public_host(&self, host: &str) -> bool {
+        let Some(host) = normalize_host(host) else {
+            return false;
+        };
+        let mut hosts = self.public_hosts.write().unwrap_or_else(|p| p.into_inner());
+        if hosts.configured.contains(&host) {
+            return false;
+        }
+        hosts.configured.push(host);
+        hosts.rebuild();
+        true
+    }
+
+    /// Set (or clear) the LAN listener's `ip:port` public host.
+    pub(crate) fn set_lan_host(&self, host: Option<String>) {
+        let mut hosts = self.public_hosts.write().unwrap_or_else(|p| p.into_inner());
+        hosts.lan = host.and_then(|h| normalize_host(&h));
+        hosts.rebuild();
     }
 
     /// Drop the cached snapshot; the next check reloads it.
@@ -324,6 +394,24 @@ mod tests {
         assert!(!is_public_origin(&hosts, "https://evil.example"));
         assert!(!is_public_origin(&hosts, "mesh.example.com"));
         assert!(!is_public_origin(&hosts, "https://x@mesh.example.com"));
+    }
+
+    #[test]
+    fn public_hosts_change_at_runtime() {
+        let access = AccessState::new(vec!["Mesh.Example.com".into(), "".into()]);
+        assert_eq!(*access.public_hosts(), vec!["mesh.example.com"]);
+        assert!(access.add_public_host("x.trycloudflare.com"));
+        assert!(!access.add_public_host("X.trycloudflare.com"));
+        access.set_lan_host(Some("192.168.1.20:40000".into()));
+        let hosts = access.public_hosts();
+        assert!(is_public_host(&hosts, "x.trycloudflare.com"));
+        assert!(is_public_host(&hosts, "192.168.1.20:40000"));
+        access.set_lan_host(None);
+        assert!(!is_public_host(
+            &access.public_hosts(),
+            "192.168.1.20:40000"
+        ));
+        assert_eq!(access.public_hosts().len(), 2);
     }
 
     #[test]

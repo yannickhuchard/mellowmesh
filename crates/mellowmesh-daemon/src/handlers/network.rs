@@ -70,28 +70,61 @@ pub async fn get_network(
     let snap = crate::access::snapshot(&state);
     let admin = is_admin(&state, &ctx);
     let caller = ctx.caller();
+    let mut network = snap.network.clone();
+    // The LAN address is shown to the owner only.
+    if admin {
+        network.lan_address = lan_address(&state);
+    }
     Json(NetworkView {
-        network: snap.network.clone(),
+        network,
         spaces: snap.visible_spaces(&caller, admin),
         teams: snap.visible_teams(&caller, admin),
     })
 }
 
-/// `PUT /network` (admin): partial update.
+fn lan_address(state: &AppState) -> Option<String> {
+    state.access.pairing.lan_address().map(|a| a.to_string())
+}
+
+/// `PUT /network` (admin): partial update. Errors are `{ "error": "…" }`.
 pub async fn put_network(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthContext>,
     Json(patch): Json<NetworkPatch>,
-) -> Result<impl IntoResponse, ApiError> {
-    require_admin(&state, &ctx)?;
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    update_network(&state, &ctx, patch)
+        .await
+        .map(Json)
+        .map_err(|(status, msg)| (status, Json(serde_json::json!({ "error": msg }))))
+}
+
+async fn update_network(
+    state: &AppState,
+    ctx: &AuthContext,
+    patch: NetworkPatch,
+) -> Result<mellowmesh_core::network::Network, ApiError> {
+    let state = state.clone();
+    require_admin(&state, ctx)?;
     let mut network = state.store.get_network().map_err(internal)?;
     patch.apply(&mut network);
     network.validate().map_err(bad_request)?;
+    // Open or close the LAN listener before the setting is saved, so a
+    // listener that cannot open leaves `lan_access` as it was.
+    match patch.lan_access {
+        Some(true) => {
+            crate::pairing::open_lan(&state)
+                .await
+                .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+        }
+        Some(false) => crate::pairing::close_lan(&state).await,
+        None => {}
+    }
     let store = state.store.clone();
     let saved = network.clone();
     blocking(move || store.set_network(&saved)).await?;
     crate::access::refresh(&state);
-    Ok(Json(network))
+    network.lan_address = lan_address(&state);
+    Ok(network)
 }
 
 /// `GET /spaces`

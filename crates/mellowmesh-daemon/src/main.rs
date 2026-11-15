@@ -73,11 +73,17 @@ async fn main() -> anyhow::Result<()> {
         tracing::error!("{}", e);
         anyhow::bail!(e);
     }
-    let public_hosts = mellowmesh_daemon::access::parse_public_hosts(&args.public_host);
+    let mut public_hosts = mellowmesh_daemon::access::parse_public_hosts(&args.public_host);
 
     let db_path = args.db.unwrap_or_else(default_db_path);
     tracing::info!("Initializing SQLite storage at: {:?}", db_path);
     let store = Store::new(&db_path)?;
+    // Public hosts added by `mellowmesh pair --url` (e.g. a tunnel).
+    for host in mellowmesh_daemon::pairing::persisted_public_hosts(&store) {
+        if !public_hosts.contains(&host) {
+            public_hosts.push(host);
+        }
+    }
 
     // First-run identity bootstrap: owner principal + full-access token.
     let owner = mellowmesh_daemon::auth::bootstrap_owner(&store, &db_path);
@@ -329,6 +335,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("MellowMesh daemon listening on: {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    state.access.pairing.set_primary_listen(args.listen);
 
     // The daemon talks to itself over 127.0.0.1 (relay link, sealed
     // requests, MCP, connectors). When it listens on one specific
@@ -345,6 +352,10 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
+
+    // LAN access turned on by an earlier `mellowmesh pair`: listen on the
+    // current LAN address again (a failure is logged, not fatal).
+    mellowmesh_daemon::pairing::restore_lan(&state).await;
 
     // PID file next to the database (and owner.token), written once the
     // port is ours and removed on graceful shutdown.

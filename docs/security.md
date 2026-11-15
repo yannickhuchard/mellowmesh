@@ -15,6 +15,19 @@ reachable daemon without auth is not a configuration MellowMesh will ever
 support. Likewise the daemon refuses to listen on a non-loopback address
 (`--listen 0.0.0.0`) without `--require-auth`.
 
+**Pairing and the LAN listener.** `mellowmesh pair` (`POST /pair`, owner
+only) may open an extra listener on the machine's LAN address at runtime,
+even in open mode. That is safe because every connection on it comes from
+another machine and is therefore **remote**: never a trusted local caller,
+so a token or an open space is required, exactly as with `--listen` plus
+`--require-auth`. It binds that one address, never the wildcard. The device
+token it mints (full access for the owner) **expires if it is not used
+within 15 minutes**, so a QR code photographed off a screen later is
+useless; once the phone has used it, it stays valid until removed
+(`mellowmesh devices remove <id>`, which takes effect at once). A pairing
+url's host becomes a public host (requests naming it are remote). Turn the
+LAN listener off with `PUT /network { "lan_access": false }`.
+
 ## Remote callers and spaces
 
 A request is **remote** when it names a configured `--public-host`, arrives

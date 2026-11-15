@@ -50,6 +50,11 @@ pub(crate) fn migrate(conn: &rusqlite::Connection) -> anyhow::Result<()> {
             PRIMARY KEY (team_id, principal)
         );",
     )?;
+    // Whether the hub listens on its LAN address (re-opened at startup).
+    let _ = conn.execute(
+        "ALTER TABLE network_settings ADD COLUMN lan_access INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     Ok(())
 }
 
@@ -154,7 +159,7 @@ impl Store {
         let conn = self.conn()?;
         let found = conn
             .query_row(
-                "SELECT name, description, default_access, visitor_write FROM network_settings WHERE id = 1",
+                "SELECT name, description, default_access, visitor_write, lan_access FROM network_settings WHERE id = 1",
                 [],
                 |row| {
                     Ok(Network {
@@ -162,6 +167,8 @@ impl Store {
                         description: row.get(1)?,
                         default_access: access_from(&row.get::<_, String>(2)?),
                         visitor_write: row.get::<_, i64>(3)? != 0,
+                        lan_access: row.get::<_, i64>(4)? != 0,
+                        lan_address: None,
                     })
                 },
             )
@@ -172,16 +179,17 @@ impl Store {
     pub fn set_network(&self, network: &Network) -> anyhow::Result<()> {
         let conn = self.conn()?;
         conn.execute(
-            "INSERT INTO network_settings (id, name, description, default_access, visitor_write, updated_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO network_settings (id, name, description, default_access, visitor_write, lan_access, updated_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
                 default_access = excluded.default_access, visitor_write = excluded.visitor_write,
-                updated_at = excluded.updated_at",
+                lan_access = excluded.lan_access, updated_at = excluded.updated_at",
             params![
                 network.name,
                 network.description,
                 network.default_access.as_str(),
                 network.visitor_write as i64,
+                network.lan_access as i64,
                 Utc::now().to_rfc3339()
             ],
         )?;
@@ -402,6 +410,8 @@ mod tests {
             description: "home".into(),
             default_access: AccessLevel::Open,
             visitor_write: true,
+            lan_access: true,
+            lan_address: None,
         };
         store.set_network(&n).unwrap();
         assert_eq!(store.get_network().unwrap(), n);

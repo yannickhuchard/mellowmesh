@@ -6,6 +6,7 @@ pub mod mentions;
 pub mod message;
 pub mod network;
 pub mod okf;
+pub mod pairing;
 pub mod persistence;
 pub mod relay;
 pub mod task;

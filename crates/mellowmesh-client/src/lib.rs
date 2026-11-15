@@ -10,6 +10,7 @@ use mellowmesh_core::message::Message;
 use mellowmesh_core::network::{
     AccessCheck, Network, NetworkPatch, NetworkView, Space, Team, TeamRole, WhoAmI,
 };
+use mellowmesh_core::pairing::{DeviceInfo, PairRequest, PairResponse, PairStatus};
 use mellowmesh_core::task::{Task, TaskGraph, TaskUpdate};
 use mellowmesh_core::telemetry::TraceSession;
 pub use mellowmesh_core::topic::NamedTopic;
@@ -55,6 +56,23 @@ impl ApiResponse {
                 sanitize::sanitize_text(&self.body)
             ))
         }
+    }
+
+    /// Like [`Self::ensure`], for endpoints whose errors are
+    /// `{ "error": "…" }`: the message alone is reported.
+    fn ensure_api(self, context: &str) -> anyhow::Result<Self> {
+        if self.is_success() {
+            return Ok(self);
+        }
+        let message = serde_json::from_str::<serde_json::Value>(&self.body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+            .unwrap_or_else(|| self.body.clone());
+        Err(anyhow::anyhow!(
+            "{context} failed ({}): {}",
+            self.status,
+            sanitize::sanitize_text(&message)
+        ))
     }
 
     fn json<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
@@ -1154,6 +1172,45 @@ impl MellowMeshClient {
             .await?
             .ensure("Task graph")?
             .json()
+    }
+
+    // -----------------------------------------------------------------
+    // Pairing (owner only; contract: docs/network.md "Pairing a device")
+    // -----------------------------------------------------------------
+
+    /// Start pairing a device (`POST /pair`). Without a url the hub opens
+    /// its LAN listener and pairs over the LAN.
+    pub async fn pair(&self, request: &PairRequest) -> anyhow::Result<PairResponse> {
+        self.send(Method::POST, "/pair", Some(serde_json::to_value(request)?))
+            .await?
+            .ensure_api("Pairing")?
+            .json()
+    }
+
+    /// Whether the device being paired has connected (`GET /pair/:id`).
+    pub async fn pair_status(&self, token_id: &str) -> anyhow::Result<PairStatus> {
+        let path = format!("/pair/{}", path_segment(token_id)?);
+        self.send(Method::GET, &path, None)
+            .await?
+            .ensure_api("Pairing status")?
+            .json()
+    }
+
+    /// Paired and pending devices, newest first (`GET /devices`).
+    pub async fn list_devices(&self) -> anyhow::Result<Vec<DeviceInfo>> {
+        self.send(Method::GET, "/devices", None)
+            .await?
+            .ensure_api("List devices")?
+            .json()
+    }
+
+    /// Revoke a device's token (`DELETE /devices/:id`).
+    pub async fn remove_device(&self, token_id: &str) -> anyhow::Result<()> {
+        let path = format!("/devices/{}", path_segment(token_id)?);
+        self.send(Method::DELETE, &path, None)
+            .await?
+            .ensure_api("Remove device")?;
+        Ok(())
     }
 }
 
