@@ -36,7 +36,21 @@ pub struct PairingState {
     lan: tokio::sync::Mutex<LanListener>,
     /// Mirror of the listener's address for synchronous readers.
     lan_addr: RwLock<Option<SocketAddr>>,
+    /// Outstanding claim codes → the pairing link each one redeems
+    /// (single use, expires with its device token).
+    codes: std::sync::Mutex<std::collections::HashMap<String, ClaimEntry>>,
+    /// Failed-claim throttle: (window start, misses in the window).
+    claim_misses: std::sync::Mutex<(std::time::Instant, u32)>,
 }
+
+struct ClaimEntry {
+    link: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Failed claim attempts allowed per minute, across all callers: with a
+/// 31^6 code space and 15-minute codes, this makes guessing hopeless.
+const CLAIM_MISSES_PER_MINUTE: u32 = 20;
 
 impl Default for PairingState {
     fn default() -> Self {
@@ -46,6 +60,8 @@ impl Default for PairingState {
             primary_listen: RwLock::new(None),
             lan: Default::default(),
             lan_addr: RwLock::new(None),
+            codes: Default::default(),
+            claim_misses: std::sync::Mutex::new((std::time::Instant::now(), 0)),
         }
     }
 }
@@ -86,6 +102,56 @@ impl PairingState {
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .is_some_and(|l| l.is_unspecified() || l == ip)
+    }
+
+    /// Mint a claim code for `link`, replacing nothing: each `POST /pair`
+    /// gets its own. Expired entries are swept on the way.
+    pub fn register_claim_code(
+        &self,
+        link: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> String {
+        let mut codes = self.codes.lock().unwrap_or_else(|p| p.into_inner());
+        let now = chrono::Utc::now();
+        codes.retain(|_, e| e.expires_at > now);
+        loop {
+            let code = mellowmesh_core::pairing::generate_claim_code();
+            let key = code.replace('-', "");
+            if let std::collections::hash_map::Entry::Vacant(slot) = codes.entry(key) {
+                slot.insert(ClaimEntry {
+                    link: link.to_string(),
+                    expires_at,
+                });
+                return code;
+            }
+        }
+    }
+
+    /// Redeem a typed code: the link, once — the entry is gone after.
+    /// `Err(())` when the throttle is exhausted; `Ok(None)` for a wrong,
+    /// used or expired code (counted against the throttle).
+    pub fn claim_code(&self, typed: &str) -> Result<Option<String>, ()> {
+        {
+            let mut misses = self.claim_misses.lock().unwrap_or_else(|p| p.into_inner());
+            if misses.0.elapsed() > std::time::Duration::from_secs(60) {
+                *misses = (std::time::Instant::now(), 0);
+            }
+            if misses.1 >= CLAIM_MISSES_PER_MINUTE {
+                return Err(());
+            }
+        }
+        let hit = mellowmesh_core::pairing::normalize_claim_code(typed).and_then(|key| {
+            let mut codes = self.codes.lock().unwrap_or_else(|p| p.into_inner());
+            codes
+                .remove(&key)
+                .filter(|e| e.expires_at > chrono::Utc::now())
+                .map(|e| e.link)
+        });
+        if hit.is_none() {
+            let mut misses = self.claim_misses.lock().unwrap_or_else(|p| p.into_inner());
+            misses.1 += 1;
+        }
+        Ok(hit)
     }
 }
 

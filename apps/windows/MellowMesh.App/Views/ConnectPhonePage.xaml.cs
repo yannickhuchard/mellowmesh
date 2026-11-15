@@ -47,6 +47,7 @@ public sealed partial class ConnectPhonePage : Page
     private readonly Button _newCode;
     private readonly TextBlock _network = Ui.Text("", 17, Ui.Ink, bold: true);
     private readonly TextBlock _address = new() { FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Ui.Brush(Ui.Indigo), IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _claimCode = new() { FontSize = 22, FontWeight = FontWeights.Bold, Foreground = Ui.Brush(Ui.Ink), IsTextSelectionEnabled = true, CharacterSpacing = 160 };
     private readonly TextBlock _hint = Ui.Caption("");
     private readonly StackPanel _statusRow;
     private readonly TextBlock _status = Ui.Text("Waiting for your phone…", 15, Ui.Ink, bold: true);
@@ -175,7 +176,10 @@ public sealed partial class ConnectPhonePage : Page
             new Border { Height = 6 },
             Ui.Caption("YOUR PHONE WILL USE"),
             _address,
-            _hint);
+            _hint,
+            new Border { Height = 6 },
+            Ui.Caption("NO CAMERA? IN THE APP, CHOOSE “ENTER A CODE” AND TYPE"),
+            _claimCode);
 
         _error.ActionButton = Ui.Secondary("Try again", async (_, _) => await NewCodeAsync());
 
@@ -530,6 +534,7 @@ public sealed partial class ConnectPhonePage : Page
         _newCode.IsEnabled = true;
         _network.Text = pairing.Network is { Length: > 0 } n ? n : _state.Network?.Network.Name is { Length: > 0 } m ? m : "Your network";
         _address.Text = pairing.DisplayAddress;
+        _claimCode.Text = pairing.Code is { Length: > 0 } c ? c : "—";
         var lan = _tunnelUrl is null;
         _hint.Text = lan
             ? "Your phone needs to be on the same Wi-Fi as this PC. If Windows Firewall asks about MellowMesh, choose “Allow access”."

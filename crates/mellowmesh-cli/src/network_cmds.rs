@@ -456,6 +456,13 @@ fn print_pairing(p: &PairResponse, lan_mode: bool) -> anyhow::Result<()> {
     println!();
     println!("{qr}");
     println!();
+    if !p.code.is_empty() {
+        println!(
+            "No camera handy? In the app, choose \"Enter a code\" and type: {}",
+            sanitize_line(&p.code)
+        );
+        println!();
+    }
     println!("Or paste this pairing link in the app:");
     println!("{}", p.link);
     println!();

@@ -333,6 +333,10 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = SocketAddr::new(args.listen, args.port);
     tracing::info!("MellowMesh daemon listening on: {}", addr);
+    tracing::info!(
+        "Dashboard: http://127.0.0.1:{}/ui — pair a phone there (Connect a Phone) or with: mellowmesh pair",
+        args.port
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     state.access.pairing.set_primary_listen(args.listen);

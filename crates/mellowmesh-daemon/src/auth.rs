@@ -1,8 +1,9 @@
 //! Bearer-token authentication middleware and token administration endpoints.
 //!
 //! Every request passes through [`auth_middleware`], which resolves an
-//! optional `Authorization: Bearer <token>` header (or `?token=` query
-//! parameter, for WebSocket clients that cannot set headers) into an
+//! optional `Authorization: Bearer <token>` header (or, on `/ws` only, a
+//! `?token=` query parameter, for browser WebSocket clients that cannot
+//! set headers) into an
 //! [`AuthContext`] request extension. When the daemon runs with
 //! `--require-auth`, requests without a valid token are rejected with 401
 //! except for a small set of open endpoints (health, dashboard).
@@ -116,7 +117,9 @@ pub struct AuthContext {
 fn is_open_path(path: &str) -> bool {
     matches!(
         path,
-        "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request"
+        // `/pair/claim` authenticates by possession of a single-use,
+        // short-lived claim code, checked by its own handler.
+        "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request" | "/pair/claim"
     )
 }
 
@@ -153,11 +156,16 @@ fn extract_bearer(req: &Request<Body>) -> Option<String> {
             }
         }
     }
-    // WebSocket clients (browsers) cannot set headers on the upgrade request.
-    if let Some(query) = req.uri().query() {
-        for pair in query.split('&') {
-            if let Some(value) = pair.strip_prefix("token=") {
-                return Some(value.to_string());
+    // Browser WebSocket clients cannot set headers on the upgrade request,
+    // so `/ws` — and only `/ws` — may carry the token as a query parameter.
+    // Everywhere else the URL is the one place a token must never be, since
+    // proxies and access logs keep URLs.
+    if req.uri().path() == "/ws" {
+        if let Some(query) = req.uri().query() {
+            for pair in query.split('&') {
+                if let Some(value) = pair.strip_prefix("token=") {
+                    return Some(value.to_string());
+                }
             }
         }
     }
@@ -292,7 +300,7 @@ pub async fn auth_middleware(
     {
         return (
             StatusCode::UNAUTHORIZED,
-            "Authentication required: pass a bearer token (Authorization header or ?token=)",
+            "Authentication required: pass a bearer token (Authorization: Bearer mm_...)",
         )
             .into_response();
     }

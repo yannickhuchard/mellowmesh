@@ -133,8 +133,10 @@ pub async fn pair(
     .await?;
     tracing::info!("Pairing '{}' (token {}) via {}", name, record.id, url);
 
+    let link = pairing_link(&url, &plaintext, &network.name, &owner);
+    let code = state.access.pairing.register_claim_code(&link, expires_at);
     let response = PairResponse {
-        link: pairing_link(&url, &plaintext, &network.name, &owner),
+        link,
         url,
         token_id: record.id,
         name,
@@ -142,8 +144,29 @@ pub async fn pair(
         principal: owner,
         expires_at,
         lan: crate::pairing::lan_status(&state, network.lan_access),
+        code,
     };
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// `POST /pair/claim`: exchange a typed short code for the pairing link.
+/// Open (the phone has no token yet); codes are single-use, short-lived
+/// and guessing is throttled.
+pub async fn claim_pairing_code(
+    State(state): State<AppState>,
+    Json(request): Json<mellowmesh_core::pairing::ClaimRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    match state.access.pairing.claim_code(&request.code) {
+        Err(()) => Err(error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a minute, then enter the code again.",
+        )),
+        Ok(None) => Err(error(
+            StatusCode::NOT_FOUND,
+            "That code isn't valid any more. Make a new one on your computer.",
+        )),
+        Ok(Some(link)) => Ok(Json(mellowmesh_core::pairing::ClaimResponse { link })),
+    }
 }
 
 async fn device(state: &AppState, id: String) -> Result<DeviceToken, ApiError> {

@@ -321,8 +321,10 @@ class MeshClient(
 
     // ---- live ----------------------------------------------------------------
 
-    /** The WebSocket URL: `/ws?pattern=<p>&token=<t>` (http→ws is handled by OkHttp). */
-    internal fun wsUrl(pattern: String): HttpUrl = url("ws", mapOf("pattern" to pattern, "token" to config.token?.takeIf { it.isNotEmpty() }))
+    /** The WebSocket URL: `/ws?pattern=<p>`. The token travels only in the
+     * Authorization header (OkHttp sends it on the upgrade request), never
+     * in the URL, where proxies and logs would see it. */
+    internal fun wsUrl(pattern: String): HttpUrl = url("ws", mapOf("pattern" to pattern))
 
     /** Subscribe to `pattern`; frames are JSON messages. Non-message frames are ignored. */
     fun subscribe(pattern: String, listener: LiveListener): Subscription {

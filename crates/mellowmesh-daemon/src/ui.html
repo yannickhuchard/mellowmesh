@@ -730,6 +730,71 @@
             border: 1px solid rgba(16, 185, 129, 0.35);
         }
 
+        .pair-code-row {
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding-top: 0.8rem;
+        }
+
+        .pair-code-label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .pair-code {
+            margin-top: 0.35rem;
+            font-family: 'Courier New', monospace;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+        }
+
+        .pair-code-where {
+            margin-top: 0.2rem;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+
+        /* The moment the phone joins: a mint check that pops in. */
+        .pair-success {
+            width: 220px;
+            height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pair-success svg {
+            width: 140px;
+            height: 140px;
+            animation: pair-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+        }
+
+        .pair-success circle {
+            fill: rgba(16, 185, 129, 0.15);
+            stroke: #10b981;
+            stroke-width: 3;
+        }
+
+        .pair-success path {
+            fill: none;
+            stroke: #10b981;
+            stroke-width: 7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 60;
+            stroke-dashoffset: 60;
+            animation: pair-draw 0.45s ease-out 0.25s forwards;
+        }
+
+        @keyframes pair-pop {
+            from { transform: scale(0.4); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes pair-draw {
+            to { stroke-dashoffset: 0; }
+        }
+
         .pair-status-error {
             color: #f87171;
             background: rgba(248, 113, 113, 0.1);
@@ -1091,6 +1156,11 @@
                         <li><span class="pair-badge">3</span>Point the camera at this code.</li>
                     </ol>
                     <div id="pair-status" class="pair-status pair-status-waiting">Making a code&hellip;</div>
+                    <div class="pair-code-row">
+                        <div class="pair-code-label">No camera handy? In the app, choose &ldquo;Enter a code&rdquo; and type</div>
+                        <div id="pair-code" class="pair-code"></div>
+                        <div id="pair-code-where" class="pair-code-where"></div>
+                    </div>
                 </div>
             </div>
             <div id="pair-expired" class="pair-expired" hidden>
@@ -1638,6 +1708,8 @@
             qrEl.innerHTML = '';
             qrEl.style.wordBreak = '';
             document.getElementById('pair-expired').hidden = true;
+            document.getElementById('pair-code').textContent = '';
+            document.getElementById('pair-code-where').textContent = '';
             setPairStatus('waiting', 'Making a code…');
 
             let info;
@@ -1649,6 +1721,11 @@
                 setPairStatus('error', 'Something went wrong while making a code. Try again.');
                 return;
             }
+
+            // The short code, for phones with no camera on the screen.
+            document.getElementById('pair-code').textContent = info.code || '';
+            document.getElementById('pair-code-where').textContent =
+                'It will ask where: ' + info.url.replace(/^https?:\/\//, '');
 
             // Technical details, tucked behind ⓘ.
             document.getElementById('pair-url').textContent = info.url;
@@ -1697,7 +1774,12 @@
                 if (status.connected) {
                     stopPairTimers();
                     setPairStatus('ok', `${status.name || 'Your phone'} is connected`);
-                    document.getElementById('pair-qr').innerHTML = '';
+                    // The QR gives way to a mint check: the pairing is done.
+                    document.getElementById('pair-qr').innerHTML =
+                        '<div class="pair-success"><svg viewBox="0 0 100 100">'
+                        + '<circle cx="50" cy="50" r="45"></circle>'
+                        + '<path d="M30 52 L45 66 L71 38"></path>'
+                        + '</svg></div>';
                     document.getElementById('pair-expired').hidden = true;
                 } else if (status.expired) {
                     pairExpired();

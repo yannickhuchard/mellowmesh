@@ -63,7 +63,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ConnectMode { CHOOSE, PASTE, MANUAL }
+enum class ConnectMode { CHOOSE, CODE, PASTE, MANUAL }
 
 data class PairingState(
     val tourDone: Boolean = false,
@@ -72,6 +72,9 @@ data class PairingState(
     val url: String = "",
     val token: String = "",
     val principal: String = "",
+    /** "Enter a code" fields: the short code and the hub address beside it. */
+    val code: String = "",
+    val codeUrl: String = "",
     val busy: Boolean = false,
     val error: String? = null,
     /** Set when the address is plain http over the internet and needs an explicit OK. */
@@ -99,6 +102,25 @@ class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
     }
     fun setToken(v: String) = _state.update { it.copy(token = v.trim(), error = null) }
     fun setPrincipal(v: String) = _state.update { it.copy(principal = v.trim(), error = null) }
+    fun setCode(v: String) = _state.update { it.copy(code = v, error = null) }
+    fun setCodeUrl(v: String) = _state.update { it.copy(codeUrl = v, error = null) }
+
+    /** "Enter a code": trade the short code for the pairing link, then connect. */
+    fun submitCode() {
+        val s = _state.value
+        _state.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    Pairing.claim(s.codeUrl, s.code)
+                }
+                _state.update { it.copy(busy = false, safety = Pairing.safety(info.baseUrl)) }
+                connectChecked(info.baseUrl, info.token, info.principal, info.networkName)
+            } catch (e: Exception) {
+                _state.update { it.copy(busy = false, error = e.friendly()) }
+            }
+        }
+    }
 
     /** A scanned or pasted pairing link. */
     fun submitLink(text: String) {
@@ -279,6 +301,9 @@ private fun ConnectPanel(state: PairingState, vm: PairingViewModel) {
         )
         Gap(10.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { vm.setMode(ConnectMode.CODE) }, modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.enter_code), color = Mesh.Ink)
+            }
             OutlinedButton(onClick = { vm.setMode(ConnectMode.PASTE) }, modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.paste_link), color = Mesh.Ink)
             }
@@ -289,6 +314,40 @@ private fun ConnectPanel(state: PairingState, vm: PairingViewModel) {
         Gap(16.dp)
 
         when (state.mode) {
+            ConnectMode.CODE -> MeshCard(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = state.code,
+                    onValueChange = vm::setCode,
+                    label = { Text(stringResource(R.string.pairing_code_label)) },
+                    placeholder = { Text(stringResource(R.string.pairing_code_hint)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Gap(8.dp)
+                OutlinedTextField(
+                    value = state.codeUrl,
+                    onValueChange = vm::setCodeUrl,
+                    label = { Text(stringResource(R.string.hub_address)) },
+                    placeholder = { Text(stringResource(R.string.hub_address_hint)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Gap(8.dp)
+                Text(
+                    stringResource(R.string.pairing_code_where),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mesh.Ink2,
+                )
+                Gap()
+                InkButton(
+                    text = stringResource(if (state.busy) R.string.connecting else R.string.connect),
+                    enabled = !state.busy && state.code.isNotBlank() && state.codeUrl.isNotBlank(),
+                    onClick = vm::submitCode,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             ConnectMode.PASTE -> MeshCard(Modifier.fillMaxWidth()) {
                 OutlinedTextField(
                     value = state.link,

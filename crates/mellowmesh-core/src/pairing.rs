@@ -50,6 +50,60 @@ pub struct PairResponse {
     /// When the token expires if the device never uses it.
     pub expires_at: DateTime<Utc>,
     pub lan: LanStatus,
+    /// Short claim code typed instead of scanning the QR (same lifetime,
+    /// single use). Empty when the daemon predates claim codes.
+    #[serde(default)]
+    pub code: String,
+}
+
+/// `POST /pair/claim` body: the short code read off the hub's screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimRequest {
+    pub code: String,
+}
+
+/// `POST /pair/claim` response: the same link the QR encodes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimResponse {
+    pub link: String,
+}
+
+/// Alphabet of claim codes: no 0/O, 1/I/L — every character survives being
+/// read aloud or copied from a screen.
+pub const CLAIM_CODE_ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+/// Length of a claim code (characters of [`CLAIM_CODE_ALPHABET`]).
+pub const CLAIM_CODE_LEN: usize = 6;
+
+/// A fresh claim code, formatted `XXX-XXX` for reading.
+pub fn generate_claim_code() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let mut code = String::with_capacity(CLAIM_CODE_LEN + 1);
+    for i in 0..CLAIM_CODE_LEN {
+        if i == CLAIM_CODE_LEN / 2 {
+            code.push('-');
+        }
+        code.push(CLAIM_CODE_ALPHABET[rng.gen_range(0..CLAIM_CODE_ALPHABET.len())] as char);
+    }
+    code
+}
+
+/// A claim code as typed, normalized for lookup: uppercased, separators
+/// dropped, the easy misreadings mapped back (`0`→`O` is not in the
+/// alphabet, so `0`/`O` both normalize away from valid codes; `1`/`I`/`L`
+/// likewise). Returns `None` when what remains is not a plausible code.
+pub fn normalize_claim_code(typed: &str) -> Option<String> {
+    let cleaned: String = typed
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    (cleaned.len() == CLAIM_CODE_LEN
+        && cleaned
+            .bytes()
+            .all(|b| CLAIM_CODE_ALPHABET.contains(&b)))
+    .then_some(cleaned)
 }
 
 /// `GET /pair/:token_id` response.

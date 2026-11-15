@@ -1,8 +1,16 @@
 package io.mellowmesh.core
 
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 
 /**
  * Pairing link v2 (docs/network.md):
@@ -136,6 +144,54 @@ object Pairing {
         val url: HttpUrl = s.toHttpUrlOrNull() ?: bad("This address does not look right.")
         if (url.host.isEmpty()) bad("The address has no host.")
         return url.toString().trimEnd('/')
+    }
+
+    /** Characters of a claim code (matches the hub's alphabet). */
+    private const val CODE_LEN = 6
+
+    /**
+     * Exchange a short claim code (read off the hub's screen) for the
+     * pairing link, and parse it. Blocking: call from a background thread.
+     * `baseUrl` is the hub address shown beside the code. Throws
+     * [PairingException] for input problems, [MeshException] for the call.
+     */
+    fun claim(baseUrl: String, code: String, httpClient: OkHttpClient? = null): PairingInfo {
+        val cleaned = code.filter { it.isLetterOrDigit() }.uppercase()
+        if (cleaned.length != CODE_LEN) {
+            bad("A pairing code has $CODE_LEN letters and digits, like 7KM-P4Q.")
+        }
+        val base = validateBaseUrl(baseUrl)
+        val http = httpClient ?: OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+        val body = MeshJson.encodeToString(
+            kotlinx.serialization.json.JsonObject.serializer(),
+            kotlinx.serialization.json.buildJsonObject {
+                put("code", kotlinx.serialization.json.JsonPrimitive(cleaned))
+            },
+        ).toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$base/pair/claim")
+            .post(body)
+            .header("Accept", "application/json")
+            .build()
+        val response = try {
+            http.newCall(request).execute()
+        } catch (e: IOException) {
+            throw MeshException(MeshException.Kind.NETWORK, 0, e.javaClass.simpleName, e)
+        }
+        response.use { r ->
+            val text = r.body?.string() ?: ""
+            val parsed = runCatching { MeshJson.parseToJsonElement(text).jsonObject }.getOrNull()
+            if (!r.isSuccessful) {
+                val detail = parsed?.get("error")?.jsonPrimitive?.content ?: text
+                throw MeshException.fromStatus(r.code, detail)
+            }
+            val link = parsed?.get("link")?.jsonPrimitive?.content
+                ?: throw MeshException(MeshException.Kind.PROTOCOL, r.code, "No link in the hub's answer")
+            return parse(link)
+        }
     }
 
     /** Classify how safe it is to send a token to `baseUrl`. */

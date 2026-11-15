@@ -38,6 +38,9 @@ public sealed class PairResponse
     /// <summary>The code must be scanned before this instant.</summary>
     [JsonPropertyName("expires_at")] public DateTimeOffset? ExpiresAt { get; set; }
     [JsonPropertyName("lan")] public LanStatus? Lan { get; set; }
+    /// <summary>Short claim code typed in the app instead of scanning
+    /// (same lifetime, single use). Empty on an older hub.</summary>
+    [JsonPropertyName("code")] public string Code { get; set; } = "";
 
     /// <summary>
     /// What to show as "the address it will use": host[:port] of <see cref="Url"/>

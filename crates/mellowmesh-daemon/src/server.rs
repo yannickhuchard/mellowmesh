@@ -132,6 +132,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/access/check", get(handlers::network::access_check))
         .route("/pair", post(handlers::pairing::pair))
+        .route("/pair/claim", post(handlers::pairing::claim_pairing_code))
         .route("/pair/:token_id", get(handlers::pairing::pair_status))
         .route("/devices", get(handlers::pairing::list_devices))
         .route(

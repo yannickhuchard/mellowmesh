@@ -52,6 +52,10 @@
     <string name="scan_prompt">Point your camera at the MellowMesh code</string>
     <string name="paste_link">Paste a pairing link</string>
     <string name="pairing_link_label">Pairing link</string>
+    <string name="enter_code">Enter a code</string>
+    <string name="pairing_code_label">Code on the screen</string>
+    <string name="pairing_code_hint">7KM-P4Q</string>
+    <string name="pairing_code_where">Where the code is shown, it also says where: type that address here.</string>
     <string name="enter_manually">Type the address myself</string>
     <string name="hub_address">Hub address</string>
     <string name="hub_address_hint">192.168.1.20:40000</string>
