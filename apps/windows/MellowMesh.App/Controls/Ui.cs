@@ -31,6 +31,28 @@ public static class Ui
     public static readonly Color Mint = Hex("#34D399");
     public static readonly Color Asleep = Hex("#B8B8BE");
 
+    private static bool? _animationsEnabled;
+
+    /// <summary>Windows "Animation effects" setting: motion becomes a still pose when off.</summary>
+    public static bool AnimationsEnabled
+    {
+        get
+        {
+            if (_animationsEnabled is null)
+            {
+                try
+                {
+                    _animationsEnabled = new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+                }
+                catch (Exception)
+                {
+                    _animationsEnabled = false;
+                }
+            }
+            return _animationsEnabled.Value;
+        }
+    }
+
     /// <summary>Parse <c>#RRGGBB</c> or <c>#AARRGGBB</c>; ink on failure.</summary>
     public static Color Hex(string? hex)
     {

@@ -21,6 +21,10 @@ public sealed class MeshApiException : Exception
     public bool IsUnauthorized => Status == HttpStatusCode.Unauthorized;
     public bool IsForbidden => Status == HttpStatusCode.Forbidden;
     public bool IsNotFound => Status == HttpStatusCode.NotFound;
+    public bool IsUnavailable => Status == HttpStatusCode.ServiceUnavailable;
+
+    /// <summary>The hub's own explanation (the <c>error</c> field of a JSON error body), sanitized.</summary>
+    public string? HubError { get; init; }
 
     /// <summary>A short, plain-language explanation for the UI.</summary>
     public string Friendly => Status switch
@@ -29,8 +33,37 @@ public sealed class MeshApiException : Exception
         HttpStatusCode.Forbidden => "You are not allowed to do that on this hub.",
         HttpStatusCode.NotFound => "Your hub does not know this yet (it may need an update).",
         null => "Can't reach your hub. Is it running?",
-        _ => SafeText.Preview(Message, 200),
+        _ => HubError ?? SafeText.Preview(Message, 200),
     };
+
+    /// <summary>The <c>error</c> (or <c>message</c>) string of a JSON error body, if any.</summary>
+    internal static string? ExtractHubError(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body) || !body.TrimStart().StartsWith('{'))
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+            foreach (var key in new[] { "error", "message" })
+            {
+                if (doc.RootElement.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String)
+                {
+                    var text = SafeText.Preview(v.GetString(), 300);
+                    return text.Length > 0 ? text : null;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return null;
+    }
 }
 
 /// <summary>
@@ -39,7 +72,7 @@ public sealed class MeshApiException : Exception
 /// in the <c>Authorization</c> header and is never logged or exposed by
 /// <see cref="ToString"/>.
 /// </summary>
-public sealed class MeshClient : IDisposable
+public sealed partial class MeshClient : IDisposable
 {
     public const int MaxSendBytes = 64 * 1024;
     private readonly HttpClient _http;
@@ -110,7 +143,10 @@ public sealed class MeshClient : IDisposable
                 var detail = SafeText.Preview(text, 300);
                 throw new MeshApiException(
                     $"{(int)resp.StatusCode} {resp.ReasonPhrase}{(detail.Length > 0 ? ": " + detail : "")}",
-                    resp.StatusCode);
+                    resp.StatusCode)
+                {
+                    HubError = MeshApiException.ExtractHubError(text),
+                };
             }
             return text;
         }

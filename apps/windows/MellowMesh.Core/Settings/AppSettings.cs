@@ -29,6 +29,8 @@ public sealed class AppSettings
     [JsonPropertyName("stamps")] public List<string> Stamps { get; set; } = new();
     [JsonPropertyName("read_markers")] public Dictionary<string, DateTimeOffset> ReadMarkers { get; set; } = new();
     [JsonPropertyName("last_digest")] public DateTimeOffset? LastDigest { get; set; }
+    /// <summary>The Plaza's "Connect your phone" card was put away with "Not now".</summary>
+    [JsonPropertyName("phone_card_dismissed")] public bool PhoneCardDismissed { get; set; }
 
     public static readonly IReadOnlyList<string> AllStamps = new[] { "meet_helper", "ask_question", "answer_request", "set_quiet_hours" };
 

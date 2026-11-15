@@ -21,6 +21,13 @@ public sealed class FakeHandler : HttpMessageHandler
         return this;
     }
 
+    /// <summary>A route computed per request (e.g. a sequence of answers).</summary>
+    public FakeHandler On(string method, string path, Func<HttpRequestMessage, (HttpStatusCode, string)> route)
+    {
+        _routes[$"{method} {path}"] = route;
+        return this;
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);

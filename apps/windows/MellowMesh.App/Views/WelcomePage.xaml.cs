@@ -96,7 +96,7 @@ public sealed partial class WelcomePage : Page
 
         _manualPanel.Children.Add(_url);
         _manualPanel.Children.Add(_token);
-        _manualPanel.Children.Add(Ui.Caption("Leave the key empty only for a hub on this PC running in open mode."));
+        _manualPanel.Children.Add(Ui.Caption("Leave the key empty only for the hub on this PC: MellowMesh then uses its owner key, like the mellowmesh command does."));
 
         var connectCard = Ui.Column(16,
             Ui.Title("Connect to your network"),

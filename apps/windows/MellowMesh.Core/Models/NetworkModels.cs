@@ -97,6 +97,13 @@ public sealed class MeshNetwork
     /// <summary><c>closed</c> (default) or <c>open</c>.</summary>
     [JsonPropertyName("default_access")] public string DefaultAccess { get; set; } = Access.Closed;
     [JsonPropertyName("visitor_write")] public bool VisitorWrite { get; set; }
+    /// <summary>
+    /// Phones on the local network may reach the hub (an extra listener on the
+    /// LAN address). Null on hubs that predate one-step pairing.
+    /// </summary>
+    [JsonPropertyName("lan_access")] public bool? LanAccess { get; set; }
+    /// <summary>Read-only: the LAN listener's <c>ip:port</c>, or null when it is closed.</summary>
+    [JsonPropertyName("lan_address")] public string? LanAddress { get; set; }
 }
 
 /// <summary>Partial network update for <c>PUT /network</c> (null = unchanged).</summary>
@@ -106,6 +113,8 @@ public sealed class NetworkPatch
     [JsonPropertyName("description")] public string? Description { get; set; }
     [JsonPropertyName("default_access")] public string? DefaultAccess { get; set; }
     [JsonPropertyName("visitor_write")] public bool? VisitorWrite { get; set; }
+    /// <summary>Open (true) or close (false) the hub's LAN listener for phones.</summary>
+    [JsonPropertyName("lan_access")] public bool? LanAccess { get; set; }
 }
 
 /// <summary>A named part of the network: topic patterns plus who may read and write.</summary>

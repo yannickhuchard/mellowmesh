@@ -1,7 +1,10 @@
 using MellowMesh.App.Controls;
 using MellowMesh.App.Services;
+using MellowMesh.Core.Api;
 using MellowMesh.Core.Home;
+using MellowMesh.Core.Models;
 using MellowMesh.Core.Notifications;
+using MellowMesh.Core.Pairing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
@@ -10,11 +13,13 @@ namespace MellowMesh.App.Views;
 
 /// <summary>
 /// "How loud can helpers be?": the interruption ladder, quiet hours and the
-/// daily digest, explained by Mello; plus the connection and Disconnect.
+/// daily digest, explained by Mello; your devices (paired phones); plus the
+/// connection and Disconnect.
 /// </summary>
 public sealed partial class SettingsPage : Page
 {
     private readonly AppState _state = AppState.Instance;
+    private StackPanel? _deviceList;
 
     public SettingsPage()
     {
@@ -25,6 +30,13 @@ public sealed partial class SettingsPage : Page
     {
         base.OnNavigatedTo(e);
         Render();
+        _ = ReloadDevicesAsync();
+    }
+
+    private async Task ReloadDevicesAsync()
+    {
+        await _state.RefreshDevicesAsync();
+        FillDevices();
     }
 
     private void Render()
@@ -100,6 +112,8 @@ public sealed partial class SettingsPage : Page
             digestOn,
             digestAt)));
 
+        Body.Children.Add(DevicesCard());
+
         // Connection.
         var profile = _state.Settings.Connection;
         var conn = Ui.Column(8, Ui.Title("Connection"));
@@ -133,5 +147,113 @@ public sealed partial class SettingsPage : Page
 
         var version = typeof(SettingsPage).Assembly.GetName().Version?.ToString(3) ?? "";
         Body.Children.Add(Ui.Caption($"MellowMesh for Windows {version} · passport stamps: {_state.Settings.Stamps.Count}/4"));
+    }
+    // ---- devices -------------------------------------------------------------
+
+    /// <summary>Paired phones: name, last seen, Remove (with a confirmation); "Connect a phone".</summary>
+    private Border DevicesCard()
+    {
+        var (allowed, reason) = _state.PairingPermission;
+        var header = Ui.Row(12, Ui.Title("Devices"));
+        var col = Ui.Column(12, header,
+            Ui.Text("Phones that can open your network. Each has its own key; removing a phone stops its key at once.", 14, Ui.Ink2));
+        if (!allowed)
+        {
+            col.Children.Add(Ui.Text(reason ?? "Only the owner of this hub can manage devices.", 14, Ui.Ink3));
+            _deviceList = null;
+            return Ui.Card(col);
+        }
+        header.Children.Add(Ui.Primary("Connect a phone", (_, _) => App.Shell?.Navigate("phone")));
+        _deviceList = new StackPanel { Spacing = 8 };
+        col.Children.Add(_deviceList);
+        FillDevices();
+        return Ui.Card(col);
+    }
+
+    private void FillDevices()
+    {
+        var list = _deviceList;
+        if (list is null)
+        {
+            return;
+        }
+        list.Children.Clear();
+        var devices = _state.Devices;
+        if (devices is null)
+        {
+            list.Children.Add(Ui.Text(_state.IsOwner
+                ? "Your hub can't list devices yet (update mellowmeshd), or it could not be reached."
+                : "Only the owner of this hub can manage devices.", 14, Ui.Ink3));
+            return;
+        }
+        if (devices.Count == 0)
+        {
+            list.Children.Add(Ui.Text("No phones yet. “Connect a phone” shows a code to scan — that's all.", 14, Ui.Ink3));
+            return;
+        }
+        var now = DateTimeOffset.UtcNow;
+        foreach (var device in devices)
+        {
+            list.Children.Add(DeviceRow(device, now));
+        }
+    }
+
+    private Grid DeviceRow(PairedDevice device, DateTimeOffset now)
+    {
+        var row = new Grid { ColumnSpacing = 12, Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(12), Background = Ui.Brush(Ui.Paper) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = new Border
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(10),
+            Background = Ui.Brush(device.Connected ? Ui.GreenTint : Ui.AmberTint),
+            Child = Ui.Glyph("\uE8EA", 18, device.Connected ? Ui.Green : Ui.Amber),
+        };
+        row.Children.Add(icon);
+        var name = string.IsNullOrWhiteSpace(device.Name) ? PhonePairing.DefaultDeviceName : Core.SafeText.SanitizeLine(device.Name);
+        var text = Ui.Column(2,
+            Ui.Text(name, 15, Ui.Ink, bold: true, wrap: false),
+            Ui.Text(PhonePairing.Describe(device, now) + (device.CreatedAt is { } c ? " · added " + c.ToLocalTime().ToString("d MMM yyyy") : ""), 13, Ui.Ink3));
+        text.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+        var remove = Ui.Secondary(device.Connected ? "Remove" : "Remove code", async (_, _) => await RemoveDeviceAsync(device));
+        remove.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(remove, 2);
+        row.Children.Add(remove);
+        return row;
+    }
+
+    private async Task RemoveDeviceAsync(PairedDevice device)
+    {
+        var client = _state.Client;
+        if (client is null)
+        {
+            return;
+        }
+        var name = string.IsNullOrWhiteSpace(device.Name) ? PhonePairing.DefaultDeviceName : Core.SafeText.SanitizeLine(device.Name);
+        var ok = await NetworkDialogs.ConfirmAsync(XamlRoot,
+            device.Connected ? $"Remove {name}?" : "Remove this unused code?",
+            device.Connected
+                ? $"{name} stops reaching your network right away. To use it again, connect it with a new code."
+                : "Nobody has scanned it yet. It stops working right away.",
+            device.Connected ? "Remove" : "Remove code");
+        if (!ok)
+        {
+            return;
+        }
+        try
+        {
+            await client.RemoveDeviceAsync(device.TokenId);
+            App.Shell?.ShowWhisper(device.Connected ? $"{name} removed." : "Code removed.");
+        }
+        catch (MeshApiException ex)
+        {
+            App.Shell?.ShowWhisper("Not removed: " + ex.Friendly, isError: true);
+        }
+        await ReloadDevicesAsync();
     }
 }

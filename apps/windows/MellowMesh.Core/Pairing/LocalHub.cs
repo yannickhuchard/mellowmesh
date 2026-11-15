@@ -51,6 +51,36 @@ public static class LocalHub
         return paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// True when <paramref name="baseUrl"/> is this machine (<c>localhost</c> or a
+    /// loopback address), like the CLI's <c>url_is_local</c>: only then may the
+    /// owner token be sent.
+    /// </summary>
+    public static bool IsLocalUrl(string? baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+        return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || ((uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6) && uri.IsLoopback);
+    }
+
+    /// <summary>
+    /// The token to use for <paramref name="baseUrl"/>: the given one, or —
+    /// like the CLI's <c>as_local_human</c> — this PC's owner token when there
+    /// is none and the URL is the local hub. Never sends the owner token to
+    /// another machine.
+    /// </summary>
+    public static string? ResolveToken(string baseUrl, string? token, Func<string?>? readOwnerToken = null)
+    {
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            return token.Trim();
+        }
+        return IsLocalUrl(baseUrl) ? (readOwnerToken ?? (() => TryReadOwnerToken()))() : null;
+    }
+
     /// <summary>Read the owner token of this PC's hub, or null (never logs the value).</summary>
     public static string? TryReadOwnerToken(Func<string, string?>? getEnv = null, bool? isWindows = null)
     {

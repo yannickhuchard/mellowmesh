@@ -37,11 +37,16 @@ public sealed class AppState
     public IReadOnlyList<Decision> Decisions { get; private set; } = Array.Empty<Decision>();
     public IReadOnlyList<MeshTask> Tasks { get; private set; } = Array.Empty<MeshTask>();
     public IReadOnlyList<Message> History { get; private set; } = Array.Empty<Message>();
+    /// <summary>Paired and pending phones (owner only); null = unknown or not allowed.</summary>
+    public IReadOnlyList<PairedDevice>? Devices { get; private set; }
     public bool LiveConnected { get; private set; }
     public string? LastError { get; private set; }
 
     public bool IsConnected => Client is not null;
     public bool IsOwner => WhoAmI?.IsOwner ?? false;
+
+    /// <summary>May this connection show a "Connect a phone" code? (Owner only; Reason says why not.)</summary>
+    public (bool Allowed, string? Reason) PairingPermission => PhonePairing.CanPair(WhoAmI, IsConnected);
 
     /// <summary>The signed-in principal (falls back to the pairing link's, then a placeholder).</summary>
     public string Me => WhoAmI?.Principal ?? Settings.Connection?.Principal ?? "human://me";
@@ -74,6 +79,14 @@ public sealed class AppState
     public async Task ConnectAsync(string baseUrl, string? token, bool thisPc, string? principal = null, string? networkName = null)
     {
         var url = PairingLink.NormalizeBaseUrl(baseUrl);
+        // Like the CLI: no key for the hub on this PC = act as its owner with
+        // the owner.token it wrote next to its database (never sent elsewhere).
+        var resolved = LocalHub.ResolveToken(url, token);
+        if (string.IsNullOrWhiteSpace(token) && resolved is not null)
+        {
+            thisPc = true;
+        }
+        token = resolved;
         var client = new MeshClient(url, token, deviceName: DeviceName());
         if (!await client.HealthAsync())
         {
@@ -123,6 +136,7 @@ public sealed class AppState
             return false;
         }
         var token = profile.ThisPc ? LocalHub.TryReadOwnerToken() : _secrets.Load(profile.VaultResource, TokenUser);
+        token = LocalHub.ResolveToken(profile.BaseUrl, token);
         if (token is null && !profile.ThisPc && !IsLoopback(profile.BaseUrl))
         {
             // The saved key is gone (e.g. the Credential Locker was cleared): pair again.
@@ -163,6 +177,7 @@ public sealed class AppState
         Decisions = Array.Empty<Decision>();
         Tasks = Array.Empty<MeshTask>();
         History = Array.Empty<Message>();
+        Devices = null;
         if (raise)
         {
             ConnectionChanged?.Invoke(this, EventArgs.Empty);
@@ -196,7 +211,8 @@ public sealed class AppState
             var decisions = client.GetDecisionsAsync();
             var history = client.GetHistoryAsync(500);
             var network = SafeNetworkAsync(client);
-            await Task.WhenAll(agents, tasks, decisions, history, network);
+            var devices = IsOwner ? SafeDevicesAsync(client) : Task.FromResult<List<PairedDevice>?>(null);
+            await Task.WhenAll(agents, tasks, decisions, history, network, devices);
             if (!ReferenceEquals(client, Client))
             {
                 return;
@@ -206,6 +222,7 @@ public sealed class AppState
             Decisions = decisions.Result;
             History = history.Result;
             Network = network.Result;
+            Devices = devices.Result;
             LastError = null;
             RebuildHome();
         }
@@ -230,6 +247,58 @@ public sealed class AppState
         {
             return null; // hub without the network API yet
         }
+    }
+
+    private static async Task<List<PairedDevice>?> SafeDevicesAsync(MeshClient client)
+    {
+        try
+        {
+            return await client.ListDevicesAsync();
+        }
+        catch (MeshApiException)
+        {
+            return null; // hub without one-step pairing yet, or not the owner
+        }
+    }
+
+    /// <summary>Re-read who this connection is (e.g. before showing a pairing code).</summary>
+    public async Task<WhoAmI?> RefreshWhoAmIAsync()
+    {
+        var client = Client;
+        if (client is null)
+        {
+            return null;
+        }
+        try
+        {
+            var who = await client.WhoAmIAsync();
+            if (ReferenceEquals(client, Client))
+            {
+                WhoAmI = who;
+            }
+        }
+        catch (MeshApiException)
+        {
+            // Keep what we had; the caller shows PairingPermission.Reason.
+        }
+        return WhoAmI;
+    }
+
+    /// <summary>Reload the paired phones (owner only) and tell the pages.</summary>
+    public async Task<IReadOnlyList<PairedDevice>?> RefreshDevicesAsync()
+    {
+        var client = Client;
+        if (client is null || !IsOwner)
+        {
+            return Devices;
+        }
+        var devices = await SafeDevicesAsync(client);
+        if (ReferenceEquals(client, Client))
+        {
+            Devices = devices;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        return Devices;
     }
 
     public void RebuildHome()

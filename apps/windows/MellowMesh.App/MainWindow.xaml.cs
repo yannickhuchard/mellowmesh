@@ -107,12 +107,14 @@ public sealed partial class MainWindow : Window
             "helper" => typeof(HelperPage),
             "help" => typeof(HelpPage),
             "settings" => typeof(SettingsPage),
+            "phone" => typeof(ConnectPhonePage),
             _ => typeof(PlazaPage),
         };
         var navTag = tag switch
         {
             "team" => "network",
             "helper" => "shops",
+            "phone" => "settings",
             _ => tag,
         };
         _syncingSelection = true;
