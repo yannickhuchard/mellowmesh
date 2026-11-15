@@ -416,8 +416,9 @@ public sealed partial class NetworkPage : Page
             // Three plain states: working right now, installed and asleep,
             // not on this computer. Pilotable ones come first.
             var present = snap.Platforms.Where(p => p.Installed || p.Running)
-                .OrderByDescending(p => p.CanChat).ThenByDescending(p => p.Running).ToList();
-            var absent = snap.Platforms.Where(p => !p.Installed && !p.Running).Select(p => p.Name).ToList();
+                .OrderByDescending(p => p.Connected).ThenByDescending(p => p.CanChat).ThenByDescending(p => p.Running).ToList();
+            var web = snap.Platforms.Where(p => p.Web && !p.Installed && !p.Running).ToList();
+            var absent = snap.Platforms.Where(p => !p.Web && !p.Installed && !p.Running).Select(p => p.Name).ToList();
             if (present.Count == 0)
             {
                 list.Children.Add(Ui.Text("No AI app was found on this computer yet.", 14, Ui.Ink2));
@@ -432,20 +433,29 @@ public sealed partial class NetworkPage : Page
                 var info = Ui.Column(1, name, state);
                 info.MinWidth = 220;
                 var row = Ui.Row(12, info);
-                if (p.CanChat)
+                // The way in — exactly one of: Connected, Connect, Copy the setup.
+                if (p.Connected)
                 {
-                    row.Children.Add(Ui.Primary("Make a Mellow", async (_, _) => await MakeMellowAsync(platform)));
+                    row.Children.Add(Ui.Text("Connected", 13, Ui.Hex("#157A52"), bold: true));
+                    if (p.CanChat)
+                    {
+                        row.Children.Add(Ui.Primary("Make a Mellow", async (_, _) => await MakeMellowAsync(platform)));
+                    }
+                    if (p.HostPrompt.Length > 0)
+                    {
+                        row.Children.Add(Ui.Secondary("Copy host message", (_, _) => CopyHostMessage(platform)));
+                    }
                 }
-                if (p.HostPrompt.Length > 0)
+                else if (p.Connect == "one_click")
                 {
-                    row.Children.Add(Ui.Secondary("Copy host message", (_, _) => CopyHostMessage(platform)));
+                    row.Children.Add(Ui.Primary("Connect", async (_, _) => await ConnectAsync(platform)));
                 }
-                if (p.Invite is "command" or "paste")
+                else if (p.Connect == "snippet" && !string.IsNullOrEmpty(p.Snippet))
                 {
-                    row.Children.Add(Ui.Secondary("Invite", async (_, _) => await InviteAsync(platform)));
+                    row.Children.Add(Ui.Secondary("Copy the setup", (_, _) => CopySetup(platform)));
                 }
                 list.Children.Add(row);
-                if (p.CanChat)
+                if (p.CanChat && p.Connected)
                 {
                     list.Children.Add(p.Hosted
                         ? Ui.Text("A session is listening: your Mellows answer right away.", 12, Ui.Hex("#157A52"))
@@ -456,11 +466,51 @@ public sealed partial class NetworkPage : Page
                     list.Children.Add(Ui.Text("It has no remote door, so it cannot be piloted from here — Invite copies a message to paste in its chat.", 12, Ui.Ink3));
                 }
             }
+            foreach (var w in web)
+            {
+                var assistant = w;
+                var info = Ui.Column(1, Ui.Text(w.Name, 15, Ui.Ink, bold: true), Ui.Text("On the web · invite by message", 12.5, Ui.Ink2));
+                info.MinWidth = 220;
+                var row = Ui.Row(12, info);
+                row.Children.Add(Ui.Secondary("Invite", async (_, _) => await InviteAsync(assistant)));
+                list.Children.Add(row);
+            }
             if (absent.Count > 0)
             {
                 list.Children.Add(Ui.Text("Not on this computer: " + string.Join(" · ", absent), 12, Ui.Ink3));
             }
         });
+    }
+
+    /// <summary>One click: the hub writes that app's own tool-server setting.</summary>
+    private async Task ConnectAsync(PlatformInfo platform)
+    {
+        try
+        {
+            var result = await _state.Client!.ConnectPlatformAsync(platform.Id);
+            App.Shell?.ShowWhisper(result.Message);
+        }
+        catch (Exception e)
+        {
+            App.Shell?.ShowWhisper(e.Message);
+        }
+        Render();
+    }
+
+    /// <summary>The setup a person pastes once in the app's own settings.</summary>
+    private static void CopySetup(PlatformInfo platform)
+    {
+        try
+        {
+            var data = new DataPackage();
+            data.SetText(platform.Snippet ?? "");
+            Clipboard.SetContent(data);
+            App.Shell?.ShowWhisper($"Setup copied — paste it once in {platform.Name}'s tool-server settings.");
+        }
+        catch (Exception)
+        {
+            // Clipboard can be busy; the whisper simply doesn't show.
+        }
     }
 
     /// <summary>The one message an open session needs to host the Mellows.</summary>

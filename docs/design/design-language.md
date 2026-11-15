@@ -241,6 +241,12 @@ developer console.
 * **Asleep is said out loud.** A message sent while nobody hosts is kept,
   and the Mellow answers once, in its own conversation: "I'm asleep right
   now… your message is kept."
+* **Connect is one click.** A discovered platform shows exactly one of:
+  a mint *Connected* tag · a primary **Connect** button (MellowMesh writes
+  that app's own tool-server setting, keeps the previous file beside it and
+  says what changed in one sentence) · *Copy the setup* (paste once in the
+  app's settings) · *Invite by message* (web assistants). Discovery never
+  connects by itself — the click is the consent.
 * A platform that cannot connect to MellowMesh at all never shows a dead
   button: it says so.
 * A Mellow made this way carries its origin everywhere: *Made from Claude

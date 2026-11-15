@@ -908,6 +908,18 @@
 
         .platform-row { flex-wrap: wrap; }
 
+        .platform-connected {
+            height: 24px;
+            padding: 0 10px;
+            border-radius: 12px;
+            background: rgba(16, 185, 129, 0.14);
+            color: var(--accent-emerald);
+            font-size: 0.72rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+        }
+
         .invite-code {
             padding: 0.6rem 0.8rem;
             border-radius: 8px;
@@ -2224,8 +2236,9 @@
             list.innerHTML = '';
             // Three states: running, installed (asleep), not on this machine.
             const present = data.platforms.filter(p => p.installed || p.running)
-                .sort((x, y) => (y.can_chat - x.can_chat) || (y.running - x.running));
-            const absent = data.platforms.filter(p => !p.installed && !p.running);
+                .sort((x, y) => (y.connected - x.connected) || (y.can_chat - x.can_chat) || (y.running - x.running));
+            const web = data.platforms.filter(p => p.web && !p.installed && !p.running);
+            const absent = data.platforms.filter(p => !p.web && !p.installed && !p.running);
             if (!present.length) {
                 list.innerHTML = '<div class="empty-state">No AI app found on this machine yet.</div>';
             }
@@ -2243,7 +2256,34 @@
                         ${state}
                     </div>`;
                 row.querySelector('.platform-name').textContent = p.name;
-                if (p.can_chat) {
+                // The way in, one of: connected · Connect · Copy the setup.
+                if (p.connected) {
+                    const tag = document.createElement('span');
+                    tag.className = 'platform-connected';
+                    tag.textContent = 'Connected';
+                    row.appendChild(tag);
+                } else if (p.connect === 'one_click') {
+                    const go = document.createElement('button');
+                    go.type = 'button';
+                    go.className = 'btn btn-sm';
+                    go.textContent = 'Connect';
+                    go.title = 'Add MellowMesh to this app\'s own tool servers (its previous setting is kept)';
+                    go.addEventListener('click', () => connectPlatform(p, go));
+                    row.appendChild(go);
+                } else if (p.connect === 'snippet' && p.snippet) {
+                    const copy = document.createElement('button');
+                    copy.type = 'button';
+                    copy.className = 'btn btn-sm btn-secondary';
+                    copy.textContent = 'Copy the setup';
+                    copy.title = 'Paste it once in this app\'s own tool-server settings';
+                    copy.addEventListener('click', async () => {
+                        try { await navigator.clipboard.writeText(p.snippet); copy.textContent = 'Copied'; }
+                        catch (e) { copy.textContent = 'Copy failed'; }
+                        setTimeout(() => { copy.textContent = 'Copy the setup'; }, 1800);
+                    });
+                    row.appendChild(copy);
+                }
+                if (p.can_chat && p.connected) {
                     const make = document.createElement('button');
                     make.type = 'button';
                     make.className = 'btn btn-sm';
@@ -2251,7 +2291,7 @@
                     make.addEventListener('click', () => openMake(p));
                     row.appendChild(make);
                 }
-                if (p.host_prompt) {
+                if (p.host_prompt && p.connected) {
                     const host = document.createElement('button');
                     host.type = 'button';
                     host.className = 'btn btn-sm btn-secondary';
@@ -2264,14 +2304,25 @@
                     });
                     row.appendChild(host);
                 }
-                if (p.invite !== 'none') {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'btn btn-sm btn-secondary';
-                    btn.textContent = 'Invite';
-                    btn.addEventListener('click', () => openInvite(p));
-                    row.appendChild(btn);
-                }
+                list.appendChild(row);
+            }
+            // Web assistants: no program to set up — a pasted message.
+            for (const p of web) {
+                const row = document.createElement('div');
+                row.className = 'platform-row';
+                row.innerHTML = `
+                    <span class="platform-glyph">${platformGlyph(p.name)}</span>
+                    <div class="platform-main">
+                        <div class="platform-name"></div>
+                        <div class="platform-state"><span class="dot"></span>on the web · invite by message</div>
+                    </div>`;
+                row.querySelector('.platform-name').textContent = p.name;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-sm btn-secondary';
+                btn.textContent = 'Invite';
+                btn.addEventListener('click', () => openInvite(p));
+                row.appendChild(btn);
                 list.appendChild(row);
             }
             if (absent.length) {
@@ -2281,6 +2332,27 @@
                 note.textContent = 'Not on this machine: ' + absent.map(p => p.name).join(' · ');
                 list.appendChild(note);
             }
+        }
+
+        // One click: the hub writes this app's own tool-server setting.
+        async function connectPlatform(p, button) {
+            button.disabled = true;
+            button.textContent = 'Connecting…';
+            try {
+                const res = await apiFetch('/platforms/' + encodeURIComponent(p.id) + '/connect', { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    celebrate(`${p.name} is connected!`, data.message || '');
+                    loadPlatforms._fp = null;
+                    loadPlatforms();
+                    return;
+                }
+                alert(data.error || 'Could not connect it.');
+            } catch (e) {
+                alert('Could not reach the hub. Try again.');
+            }
+            button.disabled = false;
+            button.textContent = 'Connect';
         }
 
         // Mellows bound to platforms: the registry's other half.

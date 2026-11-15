@@ -323,9 +323,22 @@ data class PlatformInfo(
     @SerialName("can_chat") val canChat: Boolean = false,
     /** A session of this platform is hosting Mellows right now. */
     val hosted: Boolean = false,
+    /** The way in: `one_click`, `snippet`, `message` or `none`. */
+    val connect: String = "none",
+    /** MellowMesh is already among its tool servers. */
+    val connected: Boolean = false,
+    /** A web assistant: nothing to install, invited by a pasted message. */
+    val web: Boolean = false,
     /** `command`, `paste` or `none` — how it joins the network. */
     val invite: String = "none",
     val command: String = "",
+)
+
+/** `POST /platforms/:id/connect` response: one sentence on what changed. */
+@Serializable
+data class ConnectResult(
+    val connected: Boolean = false,
+    val message: String = "",
 )
 
 /** `POST /platforms/:id/mellows` response: the Mellow that was just made. */

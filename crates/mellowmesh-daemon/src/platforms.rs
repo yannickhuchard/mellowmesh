@@ -156,6 +156,76 @@ pub const CATALOG: &[PlatformSpec] = &[
         drive: None,
     },
     PlatformSpec {
+        id: "github-copilot",
+        name: "GitHub Copilot (VS Code)",
+        processes: &["code"],
+        bins: &["code"],
+        paths: &["%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe"],
+        invite: InviteKind::None,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "warp",
+        name: "Warp",
+        processes: &["warp"],
+        bins: &["warp"],
+        paths: &["%LOCALAPPDATA%\\Programs\\Warp\\warp.exe"],
+        invite: InviteKind::None,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "mistral-vibe",
+        name: "Mistral Vibe",
+        processes: &["vibe"],
+        bins: &["vibe"],
+        paths: &[],
+        invite: InviteKind::None,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "kimi",
+        name: "Kimi Code",
+        processes: &["kimi"],
+        bins: &["kimi"],
+        paths: &[],
+        invite: InviteKind::None,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "pi",
+        name: "Pi",
+        processes: &["pi"],
+        bins: &["pi"],
+        paths: &[],
+        invite: InviteKind::None,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "deepseek",
+        name: "DeepSeek",
+        processes: &[],
+        bins: &[],
+        paths: &[],
+        invite: InviteKind::Paste,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
+        id: "moonshot",
+        name: "Moonshot Platform (Kimi)",
+        processes: &[],
+        bins: &[],
+        paths: &[],
+        invite: InviteKind::Paste,
+        command: "",
+        drive: None,
+    },
+    PlatformSpec {
         id: "ollama",
         name: "Ollama (local models)",
         processes: &["ollama", "ollama app"],
@@ -288,9 +358,11 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Whether a catalog entry's program is present on this machine.
+/// Whether a catalog entry's program is present on this machine: on
+/// `PATH`, at its usual place, or having left its settings folder behind.
 pub fn is_installed(spec: &PlatformSpec) -> bool {
     spec.bins.iter().any(|b| which(b).is_some())
+        || crate::connect::has_settings_folder(spec.id)
         || spec
             .paths
             .iter()
@@ -419,7 +491,7 @@ mod tests {
     #[test]
     fn similar_names_do_not_false_positive() {
         // "cursor" the editor, not "precursor.exe"; "grok" not "grokking_notes".
-        let got = detect(&s(&["precursor.exe", "grokking_notes", "Code.exe"]));
+        let got = detect(&s(&["precursor.exe", "grokking_notes", "Codecs.exe", "pipeline"]));
         assert!(got.iter().all(|p| !p.running));
     }
 

@@ -209,6 +209,31 @@ pasted once, makes a session host every Mellow of its platform — including
 the ones made later from the phone. Background command-line turns remain
 possible but are switched off unless the owner opts in on the hub.
 
+*Connecting a platform: one click, not a ritual.* Every AI app has its own
+way of learning about a tool server — a command here, a JSON file there, a
+TOML table elsewhere, a settings screen for a fourth. Nobody outside the
+trade will do that, and the trade is tired of it. Observed need: **"I have
+it installed; connect it."**
+
+* **Four honest states per platform**, never more: *Connected* · *Connect*
+  (one click: MellowMesh writes that app's own setting for you) · *Copy the
+  setup* (the app has a door but no file MellowMesh may write — paste once
+  in its settings) · *Invite by message* (a web assistant: no local door at
+  all).
+* **Nothing is changed silently.** Discovery never connects on its own: the
+  click is the consent. The result says, in one sentence, what was changed
+  and where ("Added MellowMesh to Cursor's tool servers — restart Cursor to
+  see it"), and the previous file is kept beside it.
+* **Never break someone's setup.** If the app's file cannot be read as
+  expected, MellowMesh refuses to touch it and falls back to *Copy the
+  setup*.
+* **From anywhere.** The click works from the phone too: the owner connects
+  the Cursor on their desk from the tram.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T8 | Connect an AI app you have installed to your network. | 1 min | One tap; can say what changed and how to undo it. |
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

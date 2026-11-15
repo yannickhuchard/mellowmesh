@@ -13,6 +13,23 @@ public sealed partial class MeshClient
         GetJsonAsync<PlatformsSnapshot>("/platforms", ct);
 
     /// <summary>
+    /// <c>POST /platforms/:id/connect</c>: connect an AI app on the hub's
+    /// computer in one click — the hub writes that app's own tool-server
+    /// setting and keeps the previous one beside it (owner only).
+    /// </summary>
+    /// <exception cref="MeshApiException">The hub left the app untouched, and says why.</exception>
+    public async Task<ConnectResult> ConnectPlatformAsync(string platformId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(platformId) || !platformId.All(c => char.IsLetterOrDigit(c) || c is '-' or '_'))
+        {
+            throw new ArgumentException("invalid platform id", nameof(platformId));
+        }
+        var path = $"/platforms/{platformId}/connect";
+        var text = await SendAsync(HttpMethod.Post, path, new { }, ct).ConfigureAwait(false);
+        return Decode<ConnectResult>(text, path);
+    }
+
+    /// <summary>
     /// <c>POST /platforms/:id/mellows</c>: make a Mellow from an AI app
     /// installed on the hub's computer, with a name and a purpose (owner
     /// only). It is registered on the network and answers in its

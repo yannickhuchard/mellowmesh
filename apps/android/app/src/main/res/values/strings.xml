@@ -94,7 +94,11 @@
     <string name="state_asleep">Installed · asleep</string>
     <string name="nothing_installed">No AI app was found on that computer yet.</string>
     <string name="not_on_computer">Not on this computer: %1$s</string>
-    <string name="no_remote_door">It has no remote door, so it cannot be piloted from here. Invite it from the computer with a pasted message.</string>
+    <string name="no_remote_door">It has no way to connect to MellowMesh yet.</string>
+    <string name="platform_connected">Connected to your network</string>
+    <string name="connect_hint">Adds MellowMesh to %1$s\'s own tool servers. Its previous setting is kept beside it.</string>
+    <string name="connect_snippet_hint">%1$s keeps its tool servers in its own settings: on the computer, copy the setup from MellowMesh and paste it there once.</string>
+    <string name="on_the_web">On the web — invite with a pasted message from the computer: %1$s</string>
     <string name="session_listening">A session is listening: your Mellows answer right away.</string>
     <string name="session_not_listening">No session is listening yet. On the computer, open it and give it the host message once — your messages wait meanwhile.</string>
     <string name="make_mellow">Make a Mellow</string>

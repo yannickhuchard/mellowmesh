@@ -294,6 +294,17 @@ class MeshClient(
     fun platforms(): PlatformsSnapshot = get("platforms", PlatformsSnapshot.serializer())
 
     /**
+     * Connect an AI app on the hub's computer to the network in one tap:
+     * the hub writes that app's own tool-server setting (owner only).
+     */
+    fun connectPlatform(platformId: String): ConnectResult {
+        require(platformId.isNotBlank() && platformId.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+            "invalid platform id"
+        }
+        return decode(ConnectResult.serializer(), send("POST", "platforms/$platformId/connect", "{}"))
+    }
+
+    /**
      * Make a Mellow from an AI app installed on the hub's computer: it is
      * registered on the network with this name and purpose, and answers in
      * its conversation from then on (owner only).

@@ -133,6 +133,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/access/check", get(handlers::network::access_check))
         .route("/platforms", get(platforms_handler))
         .route("/platforms/:id/mellows", post(create_mellow_handler))
+        .route("/platforms/:id/connect", post(connect_platform_handler))
         .route("/mellows", get(list_mellows_handler))
         .route("/mellows/next", get(mellow_next_handler))
         .route("/mellows/reply", post(mellow_reply_handler))
@@ -196,8 +197,19 @@ async fn platforms_handler(
             let spec = crate::platforms::spec(p.id);
             // A session can host through the MellowMesh MCP whenever the
             // platform can connect to it; headless needs the owner's opt-in.
-            let can_host = spec.is_some_and(|s| s.invite != crate::platforms::InviteKind::None);
+            let way = crate::connect::connector(p.id);
+            let kind = way.kind();
+            let connected = crate::connect::is_connected(p.id);
+            // A session of the platform can host Mellows once the platform
+            // has a local door to the MellowMesh MCP.
+            let can_host = matches!(kind, "one_click" | "snippet");
             let mut v = serde_json::to_value(p).unwrap_or_default();
+            v["connect"] = serde_json::json!(kind);
+            v["connected"] = serde_json::json!(connected);
+            v["web"] = serde_json::json!(kind == "message");
+            if kind == "snippet" {
+                v["snippet"] = serde_json::json!(crate::connect::snippet());
+            }
             v["can_chat"] = serde_json::json!(can_host && (p.installed || p.running));
             v["hosted"] = serde_json::json!(crate::mellows::is_hosted(p.id));
             v["headless"] = serde_json::json!(headless && p.can_chat);
@@ -298,6 +310,34 @@ async fn create_mellow_handler(
             )
                 .into_response()
         }
+    }
+}
+
+/// `POST /platforms/:id/connect`: connect an AI app on this machine to
+/// the hub in one click — MellowMesh writes that app's own tool-server
+/// setting (owner only; see `connect.rs` for what is written and where).
+async fn connect_platform_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    let outcome = tokio::task::spawn_blocking(move || crate::connect::connect(&id))
+        .await
+        .unwrap_or_else(|e| Err(format!("Something went wrong while connecting: {e}")));
+    match outcome {
+        Ok(what_changed) => {
+            tracing::info!("One-click connect: {}", what_changed);
+            axum::response::Json(serde_json::json!({ "connected": true, "message": what_changed }))
+                .into_response()
+        }
+        Err(why) => (
+            StatusCode::BAD_REQUEST,
+            axum::response::Json(serde_json::json!({ "connected": false, "error": why })),
+        )
+            .into_response(),
     }
 }
 

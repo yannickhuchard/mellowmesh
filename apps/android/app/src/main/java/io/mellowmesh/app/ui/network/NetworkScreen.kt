@@ -81,6 +81,10 @@ data class NetworkState(
     val justArrived: String? = null,
     /** A Mellow is being made right now. */
     val making: Boolean = false,
+    /** Id of the platform being connected right now. */
+    val connecting: String? = null,
+    /** One sentence on what the last Connect changed (or why it did not). */
+    val connectNote: String? = null,
     val makeError: String? = null,
 ) {
     val isOwner: Boolean get() = whoami?.isOwner == true
@@ -127,6 +131,20 @@ class NetworkViewModel(private val app: MellowMeshApp) : ViewModel() {
     fun dismissArrival() = _state.update { it.copy(justArrived = null) }
 
     fun clearMakeError() = _state.update { it.copy(makeError = null) }
+
+    /** One tap: the hub writes that app's own setting, then we look again. */
+    fun connectPlatform(platformId: String) {
+        _state.update { it.copy(connecting = platformId, connectNote = null) }
+        viewModelScope.launch {
+            val note = try {
+                app.repo.connectPlatform(platformId).message
+            } catch (e: Exception) {
+                e.friendly()
+            }
+            _state.update { it.copy(connecting = null, connectNote = note) }
+            refreshPlatforms()
+        }
+    }
 
     /** Make a Mellow from a platform; `onMade` gets its conversation id. */
     fun makeMellow(platformId: String, name: String, purpose: String, onMade: (String) -> Unit) {
@@ -251,7 +269,21 @@ fun NetworkScreen(
             }
             state.platforms?.takeIf { it.platforms.isNotEmpty() }?.let { snap ->
                 item { SectionTitle(stringResource(R.string.spotted_title)) }
-                item { SpottedCard(snap, onMake = { makingFrom = it }) }
+                state.connectNote?.let { note ->
+                    item {
+                        MeshCard(Modifier.fillMaxWidth(), color = Mesh.GreenTint) {
+                            Text(note, style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink)
+                        }
+                    }
+                }
+                item {
+                    SpottedCard(
+                        snap,
+                        connecting = state.connecting,
+                        onConnect = { vm.connectPlatform(it.id) },
+                        onMake = { makingFrom = it },
+                    )
+                }
             }
             if (!owner) item {
                 MeshCard(Modifier.fillMaxWidth(), color = Mesh.IndigoTint) {
@@ -449,10 +481,20 @@ fun ArrivalBanner(name: String) {
  * the one action that matters: make a Mellow from it.
  */
 @Composable
-fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowmesh.core.PlatformInfo) -> Unit) {
+fun SpottedCard(
+    snap: io.mellowmesh.core.PlatformsSnapshot,
+    connecting: String? = null,
+    onConnect: (io.mellowmesh.core.PlatformInfo) -> Unit = {},
+    onMake: (io.mellowmesh.core.PlatformInfo) -> Unit,
+) {
     val present = snap.platforms.filter { it.installed || it.running }
-        .sortedWith(compareByDescending<io.mellowmesh.core.PlatformInfo> { it.canChat }.thenByDescending { it.running })
-    val absent = snap.platforms.filter { !it.installed && !it.running }
+        .sortedWith(
+            compareByDescending<io.mellowmesh.core.PlatformInfo> { it.connected }
+                .thenByDescending { it.canChat }
+                .thenByDescending { it.running },
+        )
+    val web = snap.platforms.filter { it.web && !it.installed && !it.running }
+    val absent = snap.platforms.filter { !it.web && !it.installed && !it.running }
     MeshCard(Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.spotted_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)
         Gap(6.dp)
@@ -479,7 +521,35 @@ fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowme
                     }
                 }
                 Gap(8.dp)
-                if (p.canChat) {
+                // The way in — exactly one of: connected, Connect, a note.
+                when {
+                    p.connected -> Text(
+                        stringResource(R.string.platform_connected),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Mesh.Green,
+                    )
+                    p.connect == "one_click" -> {
+                        io.mellowmesh.app.ui.components.InkButton(
+                            text = stringResource(if (connecting == p.id) R.string.connecting else R.string.connect),
+                            enabled = connecting == null,
+                            onClick = { onConnect(p) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Gap(4.dp)
+                        Text(
+                            stringResource(R.string.connect_hint, p.name),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Mesh.Ink2,
+                        )
+                    }
+                    p.connect == "snippet" -> Text(
+                        stringResource(R.string.connect_snippet_hint, p.name),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Mesh.Ink2,
+                    )
+                }
+                Gap(8.dp)
+                if (p.canChat && p.connected) {
                     Text(
                         stringResource(if (p.hosted) R.string.session_listening else R.string.session_not_listening),
                         style = MaterialTheme.typography.bodySmall,
@@ -491,7 +561,7 @@ fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowme
                         onClick = { onMake(p) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                } else {
+                } else if (p.connect == "none") {
                     Text(
                         stringResource(R.string.no_remote_door),
                         style = MaterialTheme.typography.bodySmall,
@@ -499,6 +569,14 @@ fun SpottedCard(snap: io.mellowmesh.core.PlatformsSnapshot, onMake: (io.mellowme
                     )
                 }
             }
+        }
+        if (web.isNotEmpty()) {
+            Gap(4.dp)
+            Text(
+                stringResource(R.string.on_the_web, web.joinToString(" · ") { it.name }),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Ink2,
+            )
         }
         if (absent.isNotEmpty()) {
             Gap(4.dp)

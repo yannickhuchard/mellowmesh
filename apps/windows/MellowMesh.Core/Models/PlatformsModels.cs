@@ -20,12 +20,28 @@ public sealed class PlatformInfo
     [JsonPropertyName("can_chat")] public bool CanChat { get; set; }
     /// <summary>A session of this platform is hosting Mellows right now.</summary>
     [JsonPropertyName("hosted")] public bool Hosted { get; set; }
+    /// <summary>The way in: <c>one_click</c>, <c>snippet</c>, <c>message</c> or <c>none</c>.</summary>
+    [JsonPropertyName("connect")] public string Connect { get; set; } = "none";
+    /// <summary>MellowMesh is already among its tool servers.</summary>
+    [JsonPropertyName("connected")] public bool Connected { get; set; }
+    /// <summary>A web assistant: nothing to install, invited by a pasted message.</summary>
+    [JsonPropertyName("web")] public bool Web { get; set; }
+    /// <summary>The setup to paste in the app's own settings (<c>snippet</c> kind).</summary>
+    [JsonPropertyName("snippet")] public string? Snippet { get; set; }
     /// <summary>The message that makes an open session host the Mellows.</summary>
     [JsonPropertyName("host_prompt")] public string HostPrompt { get; set; } = "";
     /// <summary><c>command</c>, <c>paste</c> or <c>none</c>: how it joins.</summary>
     [JsonPropertyName("invite")] public string Invite { get; set; } = "none";
     /// <summary>The one-line connect command, for <c>command</c> invites.</summary>
     [JsonPropertyName("command")] public string Command { get; set; } = "";
+}
+
+/// <summary><c>POST /platforms/:id/connect</c> response.</summary>
+public sealed class ConnectResult
+{
+    [JsonPropertyName("connected")] public bool Connected { get; set; }
+    /// <summary>One sentence on what changed.</summary>
+    [JsonPropertyName("message")] public string Message { get; set; } = "";
 }
 
 /// <summary><c>POST /platforms/:id/mellows</c> body.</summary>
