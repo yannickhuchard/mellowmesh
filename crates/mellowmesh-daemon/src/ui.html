@@ -633,6 +633,65 @@
             width: auto;
         }
 
+        /* Mobile pairing modal */
+        .pair-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
+        }
+
+        .pair-overlay[hidden] {
+            display: none;
+        }
+
+        .pair-modal {
+            width: min(420px, calc(100vw - 2rem));
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .pair-hint {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin: 0.5rem 0 1rem 0;
+        }
+
+        /* QR codes need a light quiet zone to scan reliably on a dark theme. */
+        .pair-qr {
+            display: inline-block;
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 12px;
+            min-width: 220px;
+            min-height: 220px;
+        }
+
+        .pair-qr img, .pair-qr canvas {
+            display: block;
+        }
+
+        .pair-url {
+            display: block;
+            margin: 1rem 0;
+            padding: 0.5rem 0.75rem;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            font-size: 0.78rem;
+            word-break: break-all;
+            user-select: all;
+        }
+
+        .pair-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+
         .decision-result {
             font-size: 0.85rem;
             font-weight: 600;
@@ -894,6 +953,7 @@
                 <div id="status-indicator" class="status-indicator connecting"></div>
                 <span id="status-text">Connecting to Fabric...</span>
             </div>
+            <button type="button" id="pair-open-btn" class="btn btn-sm btn-secondary">Pair Mobile</button>
             <button type="button" id="token-open-btn" class="btn btn-sm btn-secondary">Access Token</button>
         </div>
     </header>
@@ -906,6 +966,20 @@
         <button type="button" id="token-clear-btn" class="btn btn-sm btn-secondary">Forget</button>
         <button type="button" id="token-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
     </form>
+
+    <!-- Mobile pairing: QR of the hub's MCP endpoint (+ this dashboard's token) -->
+    <div id="pair-overlay" class="pair-overlay" hidden>
+        <div class="glass-card pair-modal">
+            <h2>Pair a mobile device</h2>
+            <p id="pair-hint" class="pair-hint"></p>
+            <div id="pair-qr" class="pair-qr"></div>
+            <code id="pair-url" class="pair-url"></code>
+            <div class="pair-actions">
+                <button type="button" id="pair-copy-btn" class="btn btn-sm">Copy URL</button>
+                <button type="button" id="pair-close-btn" class="btn btn-sm btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
 
     <main>
         <!-- Left Column: Publisher and Mappings -->
@@ -1361,6 +1435,77 @@
             });
         }
 
+        // ------------------------------------------------------------------
+        // Mobile pairing (QR)
+        // ------------------------------------------------------------------
+        let qrLibPromise = null;
+        function loadQrLib() {
+            if (window.QRCode) return Promise.resolve();
+            if (!qrLibPromise) {
+                qrLibPromise = new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+                    s.onload = resolve;
+                    s.onerror = () => { qrLibPromise = null; reject(new Error('QR library failed to load')); };
+                    document.head.appendChild(s);
+                });
+            }
+            return qrLibPromise;
+        }
+
+        function closePairModal() {
+            document.getElementById('pair-overlay').hidden = true;
+            // The QR encodes the bearer token: don't keep it in the DOM.
+            document.getElementById('pair-qr').innerHTML = '';
+        }
+
+        async function openPairModal() {
+            const overlay = document.getElementById('pair-overlay');
+            const hint = document.getElementById('pair-hint');
+            const qrEl = document.getElementById('pair-qr');
+            const urlEl = document.getElementById('pair-url');
+            overlay.hidden = false;
+            qrEl.innerHTML = '';
+            qrEl.style.wordBreak = '';
+            urlEl.textContent = '';
+            hint.textContent = 'Preparing pairing code…';
+
+            let info = {};
+            try { info = await apiJson('/pairing'); } catch (e) { /* no relay info: fall back to this origin */ }
+            const mcpUrl = info.mcp_url || (window.location.origin + '/mcp');
+            const token = currentToken();
+            const payload = 'mellowmesh://pair?url=' + encodeURIComponent(mcpUrl)
+                + (token ? '&token=' + encodeURIComponent(token) : '');
+
+            urlEl.textContent = mcpUrl;
+            hint.textContent = info.relay
+                ? 'Scan with your phone, or add this MCP endpoint (with your bearer token) as a remote connector.'
+                : 'No relay configured (MELLOWMESH_RELAY_URL): this address is only reachable from this machine\'s own network.';
+
+            try {
+                await loadQrLib();
+                qrEl.innerHTML = '';
+                new QRCode(qrEl, { text: payload, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+            } catch (e) {
+                // Offline fallback: show the pairing URI itself.
+                qrEl.innerHTML = '';
+                qrEl.style.wordBreak = 'break-all';
+                qrEl.textContent = payload;
+            }
+        }
+
+        function initPairUi() {
+            document.getElementById('pair-open-btn').addEventListener('click', openPairModal);
+            document.getElementById('pair-close-btn').addEventListener('click', closePairModal);
+            document.getElementById('pair-overlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) closePairModal();
+            });
+            document.getElementById('pair-copy-btn').addEventListener('click', async () => {
+                const url = document.getElementById('pair-url').textContent;
+                try { await navigator.clipboard.writeText(url); } catch (e) { /* clipboard unavailable */ }
+            });
+        }
+
         // Single wrapper for every HTTP call the dashboard makes: adds the
         // bearer token and, on 401, asks for a token once and retries.
         async function apiFetch(path, opts = {}, attempt = 0) {
@@ -1390,6 +1535,7 @@
         // Initial setup on window load
         window.addEventListener('DOMContentLoaded', () => {
             initTokenUi();
+            initPairUi();
             initWebSocket();
             loadAllData();
             // Poll for updates periodically as fallback

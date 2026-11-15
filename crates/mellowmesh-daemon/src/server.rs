@@ -92,6 +92,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/wiki/:wiki/sync", post(handlers::wiki::sync_wiki_endpoint))
         .route("/wiki/:wiki/graph", get(handlers::wiki::get_wiki_graph))
         .route("/shutdown", post(shutdown_handler))
+        .route("/pairing", get(pairing_handler))
         .route("/mcp", post(handlers::mcp::handle_mcp))
         .route("/e2e/request", post(handlers::e2e::handle_e2e_request))
         .route(
@@ -122,6 +123,28 @@ const WS_QUEUE_CAPACITY: usize = 1000;
 
 async fn health_handler() -> &'static str {
     "OK"
+}
+
+/// How a remote client (e.g. a phone) reaches this hub: the relay hub URL
+/// when a relay link is configured, else nothing — the dashboard then falls
+/// back to the address it was loaded from. The bearer token is the caller's
+/// own; this endpoint never returns one.
+async fn pairing_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let relay_url = std::env::var("MELLOWMESH_RELAY_URL")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty());
+    let hub_id = state.store.get_config("relay_hub_id").ok().flatten();
+    let hub_url = match (&relay_url, &hub_id) {
+        (Some(relay), Some(id)) => Some(format!("{relay}/hub/{id}")),
+        _ => None,
+    };
+    axum::response::Json(serde_json::json!({
+        "relay": hub_url.is_some(),
+        "hub_url": hub_url,
+        "mcp_url": hub_url.as_ref().map(|h| format!("{h}/mcp")),
+        "node_id": state.node_id,
+    }))
 }
 
 async fn ui_handler() -> impl IntoResponse {
