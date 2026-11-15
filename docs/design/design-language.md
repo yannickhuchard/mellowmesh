@@ -198,6 +198,28 @@ waiting, estimated end). Selecting a bar opens an inspector strip: waited,
 working so far, expected done, what it waits for and what it unblocks.
 Updates arrive through `_task.**` events — no refresh.
 
+## 8. Pairing a phone: one action
+
+Connecting a phone to your network is a single gesture, never a setup
+procedure.
+
+* **Desktop app**: *Connect your phone* (a card on the Plaza until a device
+  is paired, and *Devices* in the sidebar) opens a dialog with a large QR
+  code on a white card, three numbered steps (open the app → *Connect to my
+  network* → scan), and a status strip: an amber helper waving *Waiting for
+  your phone…* with the address it will use, then a mint helper smiling
+  *Pixel 8 is connected*. A ring counts down the code's 15 minutes; *New
+  code* replaces it. Secondary, in the footer: *Use a tunnel address* (phone
+  not on the same Wi-Fi) and *Copy the pairing link* (marked as a key).
+* **Terminal**: `mellowmesh pair` — no flags — prints the same QR code with
+  block characters, the three steps, waits, then prints
+  `✓ Pixel 8 connected`. On Windows one line says to click *Allow access* if
+  the firewall asks.
+* **Devices** lists paired phones (online / last seen, *Remove*) and the
+  *Reachable on my Wi-Fi* switch: off closes the door for every device.
+* Failure speaks in places, not network terms: *Your phone can't reach this
+  PC — same Wi-Fi? If not, use a tunnel address.*
+
 ## Platform signatures
 
 | | iOS | macOS | Android | Windows |
@@ -214,6 +236,7 @@ Updates arrive through `_task.**` events — no refresh.
   (first run, Plaza, meeting room, To-do desk, team room, my board), Android
   (Shops, interruption settings, your network, a helper's task board), macOS
   (group of people + helpers, master board), Windows (organization campus,
-  live roadmap).
+  live roadmap, connect your phone), pairing in the terminal and its three
+  moments.
 * Token export per platform (Swift asset catalog, Compose theme, WinUI
   resource dictionary) and the character rig when the shells start.
