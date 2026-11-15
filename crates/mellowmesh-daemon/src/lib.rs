@@ -1,9 +1,11 @@
+pub mod access;
 pub mod auth;
 pub mod cache;
 pub mod guard;
 pub mod handlers;
 pub mod metrics;
 pub mod notify;
+pub mod pairing;
 pub mod peer;
 pub mod pidfile;
 pub mod pipeline;

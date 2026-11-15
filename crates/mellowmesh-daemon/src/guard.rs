@@ -1,16 +1,24 @@
-//! Host / Origin enforcement for every route.
+//! Host / Origin enforcement for every route, and the remote flag.
 //!
-//! The daemon listens on loopback only, so a legitimate request always names
-//! a loopback host. Rejecting any other `Host` defeats DNS-rebinding, and
-//! rejecting any `Origin` other than the daemon's own (the dashboard is
-//! served same-origin) stops a web page in the user's browser from driving
-//! the API or opening a WebSocket subscription. Requests without an `Origin`
-//! header (CLI, SDKs, the relay link's loopback dispatch) are unaffected.
+//! A legitimate request names a loopback host, or one of the configured
+//! public hosts (`--public-host`). Rejecting any other `Host` defeats
+//! DNS-rebinding, and rejecting any `Origin` other than the daemon's own
+//! (the dashboard is served same-origin) or `http(s)://<public-host>` stops
+//! a web page in the user's browser from driving the API or opening a
+//! WebSocket subscription. Requests without an `Origin` header (CLI, SDKs,
+//! the relay link's loopback dispatch) are unaffected.
+//!
+//! Every request is tagged with a [`RequestOrigin`]: it is **remote** when
+//! it names a public host, arrives from a non-loopback address, or was
+//! dispatched over loopback on behalf of a remote caller (relay link,
+//! sealed E2E request; marked with a per-process secret header). Remote
+//! callers are never treated as trusted local callers.
 
+use crate::access::{is_public_host, is_public_origin, RequestOrigin, REMOTE_MARKER_HEADER};
 use crate::state::AppState;
 use axum::{
     body::Body,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{header, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -64,32 +72,53 @@ pub fn is_allowed_origin(origin: &str, port: u16, host_port: Option<u16>) -> boo
 
 pub async fn host_origin_guard(
     State(state): State<AppState>,
-    req: Request<Body>,
+    mut req: Request<Body>,
     next: Next,
 ) -> Response {
+    let public_hosts = state.access.public_hosts();
+    let public_hosts = public_hosts.as_slice();
     let host = req
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or_else(|| req.uri().authority().map(|a| a.as_str().to_string()));
-    let host_port = match host.as_deref() {
-        Some(h) if is_allowed_host(h) => split_host_port(h).and_then(|(_, p)| p),
+    let (host_port, mut remote) = match host.as_deref() {
+        Some(h) if is_allowed_host(h) => (split_host_port(h).and_then(|(_, p)| p), false),
+        Some(h) if is_public_host(public_hosts, h) => (None, true),
         _ => {
             return (StatusCode::FORBIDDEN, "Host not allowed").into_response();
         }
     };
 
+    // A connection from another machine is remote whatever Host it names.
+    if let Some(ConnectInfo(peer)) = req.extensions().get::<ConnectInfo<std::net::SocketAddr>>() {
+        if !peer.ip().is_loopback() {
+            remote = true;
+        }
+    }
+
+    // Loopback dispatch on behalf of a remote caller carries the marker.
+    // It is removed here so it never reaches a handler or a further hop.
+    if let Some(marker) = req.headers_mut().remove(REMOTE_MARKER_HEADER) {
+        if marker.as_bytes() == state.access.remote_marker.as_bytes() {
+            remote = true;
+        }
+    }
+
     if let Some(origin) = req.headers().get(header::ORIGIN) {
         let allowed = origin
             .to_str()
-            .map(|o| is_allowed_origin(o, state.port, host_port))
+            .map(|o| {
+                is_allowed_origin(o, state.port, host_port) || is_public_origin(public_hosts, o)
+            })
             .unwrap_or(false);
         if !allowed {
             return (StatusCode::FORBIDDEN, "Cross-origin request rejected").into_response();
         }
     }
 
+    req.extensions_mut().insert(RequestOrigin { remote });
     next.run(req).await
 }
 

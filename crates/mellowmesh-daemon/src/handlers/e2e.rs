@@ -20,6 +20,7 @@ use mellowmesh_core::e2e::{
 
 pub async fn handle_e2e_request(
     State(state): State<AppState>,
+    axum::Extension(origin): axum::Extension<crate::access::RequestOrigin>,
     Json(envelope): Json<Envelope>,
 ) -> impl IntoResponse {
     // Resolve the key by the envelope's key id. Unknown-key and
@@ -90,7 +91,9 @@ pub async fn handle_e2e_request(
 
     // Dispatch against our own loopback API. The inner Authorization header
     // carries the caller's token, so auth/scopes apply exactly as usual.
-    let dispatched = dispatch_local(&state.http, state.port, &sealed).await;
+    // A remote outer request stays remote once unsealed.
+    let marker = origin.remote.then_some(state.access.remote_marker.as_str());
+    let dispatched = dispatch_local(&state.http, state.port, marker, &sealed).await;
     let sealed_response = match dispatched {
         Ok(r) => r,
         Err(e) => SealedResponse {
@@ -124,11 +127,15 @@ pub async fn handle_e2e_request(
 async fn dispatch_local(
     http: &reqwest::Client,
     port: u16,
+    remote_marker: Option<&str>,
     sealed: &SealedRequest,
 ) -> anyhow::Result<SealedResponse> {
     let url = format!("http://127.0.0.1:{port}{}", sealed.path_and_query);
     let method = reqwest::Method::from_bytes(sealed.method.as_bytes())?;
     let mut req = http.request(method, &url);
+    if let Some(marker) = remote_marker {
+        req = req.header(crate::access::REMOTE_MARKER_HEADER, marker);
+    }
     if let Some(auth) = &sealed.authorization {
         req = req.header(reqwest::header::AUTHORIZATION, auth);
     }

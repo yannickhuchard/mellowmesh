@@ -33,10 +33,21 @@ pub fn start(state: AppState) {
             release_expired_leases(&state).await;
             if last_purge.is_none_or(|t| t.elapsed() >= PURGE_EVERY) {
                 purge_expired_messages(&state);
+                revoke_expired_devices(&state);
                 last_purge = Some(Instant::now());
             }
         }
     });
+}
+
+/// Revoke device tokens that expired unused (they already fail to
+/// authenticate; this also deletes their e2e keys).
+fn revoke_expired_devices(state: &AppState) {
+    match state.store.revoke_expired_device_tokens(Utc::now()) {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("Revoked {} device token(s) that expired unused", n),
+        Err(e) => tracing::error!("Device token sweep failed: {}", e),
+    }
 }
 
 /// Return every expired claim to `open` and announce each release on
@@ -73,6 +84,7 @@ async fn release_expired_leases(state: &AppState) {
                 "task_id": task.id,
                 "previous_claimant": previous_holder,
                 "status": "open",
+                "topics": task.topics,
             })),
             parent_id: None,
         };

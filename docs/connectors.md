@@ -73,7 +73,7 @@ expose it to Teams through your reverse proxy, or set `TEAMS_BIND` (e.g.
 ## How decision relaying is audited
 
 Connectors authenticate to the daemon as an `interface://` principal (their
-token is minted automatically at boot under `--require-auth`). Interface
+token is minted automatically at every boot, in open mode too). Interface
 principals may **relay** a human's decision response — never originate one as
 an agent could try to — and the audit trail records both parties:
 

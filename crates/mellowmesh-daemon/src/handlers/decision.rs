@@ -125,6 +125,17 @@ pub async fn respond_decision(
         }
     }
 
+    // Answering is a human act and is never anonymous — not even in open
+    // mode, where other endpoints trust localhost. Without this, any local
+    // process (including an agent with a shell) could approve a decision and
+    // be recorded as an unauthenticated human.
+    let Some(principal) = ctx.principal.as_ref() else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Answering a decision requires a human token (the hub owner's token works), even in open mode".to_string(),
+        ));
+    };
+
     // Load the decision so we can validate the option, resolve the
     // approve/reject outcome, and enforce answer-once + no-self-approval.
     let decision = match state.store.get_decision(&decision_id) {
@@ -149,11 +160,10 @@ pub async fn respond_decision(
     //   human's answer, but ONLY for an external id that maps to a real
     //   `human://` principal — the human identity is never taken at face value
     //   from the request body;
-    // - in open mode the response is recorded as unauthenticated and is never
-    //   attributed to a caller-supplied human, so an agent cannot forge one.
-    let responded_by = match &ctx.principal {
-        Some(p) if p.kind == "human" => p.id.clone(),
-        Some(p) if p.kind == "interface" => {
+    let p = principal;
+    let responded_by = match p.kind.as_str() {
+        "human" => p.id.clone(),
+        "interface" => {
             let ext = payload.responded_by.clone().unwrap_or_default();
             // The external id resolves through an identity mapping, or is a
             // `human://` id itself; either way the result must be a known
@@ -188,7 +198,7 @@ pub async fn respond_decision(
                 }
             }
         }
-        Some(p) => {
+        _ => {
             return Err((
                 StatusCode::FORBIDDEN,
                 format!(
@@ -197,7 +207,6 @@ pub async fn respond_decision(
                 ),
             ));
         }
-        None => "human://local-unauthenticated".to_string(),
     };
 
     // No principal may answer its own proposal, in any auth mode.
@@ -209,12 +218,8 @@ pub async fn respond_decision(
         ));
     }
 
-    // Under authentication, only the decision's required decider (or the
-    // hub owner) may answer it.
-    if ctx.principal.is_some()
-        && responder_core != decision.required_decider
-        && responder_core != state.owner
-    {
+    // Only the decision's required decider (or the hub owner) may answer it.
+    if responder_core != decision.required_decider && responder_core != state.owner {
         return Err((
             StatusCode::FORBIDDEN,
             format!(

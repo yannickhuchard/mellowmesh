@@ -152,8 +152,9 @@ Rules:
   client-supplied `id` and `timestamp` and set its own (a unique id and the
   hub's current time), and returns the stored message.
 - Clients MUST NOT be able to publish on the hub-reserved topics
-  `_decision.**`, `_system.**`, and `_task.<id>.reclaimed` (matched
-  case-insensitively); a hub MUST reject such a publish (the reference hub
+  `_decision.**`, `_system.**`, `_task.<id>.reclaimed` and, on a hub with task
+  boards, `_task.<id>.created|claimed|started|completed|updated|cancelled`
+  (matched case-insensitively); a hub MUST reject such a publish (the reference hub
   answers `403`). Only the hub itself emits these events (§6, §7).
 - Subscribers to a matching pattern (§4.1) receive the message as one WS frame.
 - Under authentication, the hub MUST bind provenance to the authenticated
@@ -216,6 +217,9 @@ is what makes coordination crash-safe.
 - **Complete:** `POST /tasks/<id>/complete`. An authenticated agent MUST only
   complete a task it currently holds; completing an already-terminal task MUST
   fail.
+- **Boards:** tasks MAY carry `depends_on`, `team` and hub-set lifecycle
+  timestamps, and MAY be moved with `PATCH /tasks/<id>`; a hub that offers
+  boards follows §12.
 
 ## 7. Decisions (human-in-the-loop governance)
 
@@ -262,11 +266,14 @@ Each option MAY declare an `outcome` of `approve`, `reject`, or `neutral`
   - An `interface` relay MUST resolve `responded_by` to a known `human://`
     identity (a registered `human` principal, directly or through an identity
     mapping); it MUST NOT attribute an approval to an arbitrary string.
-  - Under authentication, the responder (the human, or the human an
-    interface relays) MUST be the decision's `required_decider` or the hub
-    owner; any other responder MUST be rejected.
-  - In open mode the responder MUST be recorded as unauthenticated (never a
-    caller-supplied human), so provenance cannot be forged.
+  - **Answering MUST be authenticated, in every mode.** Even a hub that trusts
+    unauthenticated localhost clients for other operations ("open mode") MUST
+    reject an anonymous answer (401), so no local process can approve a
+    decision or appear in the audit trail as a human.
+  - The responder (the human, or the human an interface relays) MUST be the
+    decision's `required_decider` or the hub owner; any other responder MUST
+    be rejected. A caller-supplied `responded_by` is never trusted except
+    through an interface relay as described above.
   - A principal MUST NOT answer its own proposal (`responded_by` ≠ `created_by`).
   - A decision MUST be answerable **exactly once**; a second response MUST be
     rejected.
@@ -317,17 +324,78 @@ topic pattern (with a version) causes matching publishes to be validated, so
 agent outputs on a topic stay structurally governed. Publishers MAY select a
 version via a `schema_version` header.
 
-## 11. Conformance
+## 11. Network access control (spaces, teams, remote callers)
+
+A hub MAY partition its topics into **spaces** (see `docs/network.md` for the
+reference API). The network has a `default_access` (`closed` | `open`) and a
+`visitor_write` flag; a space has slug id, topic `patterns`, an `access`
+level (`private` | `closed` | `open`), `visitor_write`, `share_with_peers`,
+member principals and member teams. A **team** is a named group of principals
+with roles; creating one creates the closed space `team-<id>` over
+`_team.<id>.**`.
+
+For a topic `T` and a caller `C`, a hub implementing spaces MUST apply:
+
+1. Reserved topics (`_auth.**`, `_decision.**`, `_system.**`) keep the rules
+   of §3 and §4.2; spaces do not apply to them.
+2. The most specific space covering `T` (most literal segments; on a tie,
+   the most restrictive level; matching is case-insensitive) decides.
+3. `private` (owner only) and `closed` (owner, listed principals, members of
+   listed teams): `C` MUST be authenticated, a member, and its token scopes
+   MUST allow `T`. Anonymous callers are never members, including trusted
+   local callers of an open-mode hub.
+4. `open`: anyone may read. Writes follow rule 3, except that with
+   `visitor_write` a non-member MAY publish; the hub MUST then record `from`
+   as `visitor://anonymous` (or the caller's principal when authenticated),
+   and MUST NOT let such a write create tasks or decisions or reach reserved
+   topics.
+5. Uncovered topics follow `default_access`: `closed` keeps §3; `open` also
+   lets visitors read (and publish with `visitor_write`).
+
+Reads that return lists (history, search, topics, context, subscriptions)
+MUST be filtered per message. A hub MUST treat requests arriving through a
+relay, a configured public host name, or from another machine as **remote**:
+never trusted local callers, whatever the trust mode. A token-less remote
+caller MAY only read and publish under the rules above. A hub MUST refuse to
+listen on a non-loopback interface unless authentication is required. A hub
+MUST only send a peer (a `node://` subscriber) topics from `open` spaces,
+spaces shared with peers, and — when the network is `open` — uncovered
+topics. Managing the network, spaces and teams is owner-only.
+
+## 12. Task boards
+
+A hub MAY offer task boards (reference API: `docs/task-board.md`):
+
+- Tasks MAY carry `depends_on` (task ids), `team` (a team id) and the
+  lifecycle timestamps `created_at`, `claimed_at`, `started_at`,
+  `completed_at`, which the hub MUST set itself and MUST NOT take from
+  clients. Statuses: `open`, `claimed`, `in_progress`, `blocked`,
+  `completed`, `cancelled`.
+- `PATCH /tasks/<id>` MUST only be honored for the owner, the task's creator,
+  assignee or claimant, and MUST validate moves: `open → claimed` only by
+  claiming (§6.2); `claimed → in_progress` by the claimant; any unfinished
+  status → `blocked` or `cancelled`; `blocked →` its previous status;
+  `completed | cancelled → open` by the creator or owner. Unknown
+  dependencies and dependency cycles MUST be rejected.
+- The hub SHOULD announce `_task.<id>.created|claimed|started|completed|
+  updated|cancelled` with the task as payload; clients MUST NOT publish on
+  these topics. `_task.<id>.progress` remains the lease heartbeat.
+- `GET /tasks/graph` returns lanes, tasks with `blocked_by`,
+  `waiting_seconds`, `running_seconds` and `critical`, and dependency edges,
+  limited to tasks whose topics the caller may read (§11).
+
+## 13. Conformance
 
 - A **conformant client** implements §5 publish/subscribe over the transport of
   §2 with the identity model of §3.
 - A **conformant hub** additionally implements the task lease machine (§6), the
   decision governance rules (§7 — these are the security-critical MUSTs), and
-  reserved-topic semantics (§4.2).
+  reserved-topic semantics (§4.2), and — when it offers them — network access
+  control (§11) and task boards (§12).
 - A **bridge** (e.g. MCP, A2A, a chat connector) maps an external ecosystem onto
   §5–§7 and identifies itself as an `interface` principal (§3.1, §7.2).
 
-## 12. Versioning
+## 14. Versioning
 
 This protocol is versioned independently of any implementation. Backward-
 incompatible changes increment the major version. Until 1.0, the reference

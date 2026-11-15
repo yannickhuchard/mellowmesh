@@ -1,0 +1,62 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MellowMesh.Core", "MellowMesh.Core\MellowMesh.Core.csproj", "{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MellowMesh.Core.Tests", "MellowMesh.Core.Tests\MellowMesh.Core.Tests.csproj", "{3E035590-119C-4513-AFD5-B0E70D9E4897}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MellowMesh.App", "MellowMesh.App\MellowMesh.App.csproj", "{5086989D-B868-4577-80A0-F29A986BA326}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|ARM64 = Debug|ARM64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|ARM64 = Release|ARM64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|x64.Build.0 = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|x64.ActiveCfg = Release|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|x64.Build.0 = Release|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{515BB3D7-0EC5-4F1A-A467-A06918D86BA1}.Release|ARM64.Build.0 = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|x64.Build.0 = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|x64.ActiveCfg = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|x64.Build.0 = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{3E035590-119C-4513-AFD5-B0E70D9E4897}.Release|ARM64.Build.0 = Release|Any CPU
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|Any CPU.Build.0 = Debug|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|x64.ActiveCfg = Debug|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|x64.Build.0 = Debug|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Debug|ARM64.Build.0 = Debug|ARM64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|Any CPU.ActiveCfg = Release|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|Any CPU.Build.0 = Release|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|x64.ActiveCfg = Release|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|x64.Build.0 = Release|x64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|ARM64.ActiveCfg = Release|ARM64
+		{5086989D-B868-4577-80A0-F29A986BA326}.Release|ARM64.Build.0 = Release|ARM64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

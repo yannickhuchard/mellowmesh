@@ -8,7 +8,7 @@ Thank you for your interest in contributing to MellowMesh! We welcome contributi
 
 ### Prerequisites
 To build and test MellowMesh, you need the following tools:
-*   **Rust Toolchain**: Rust 1.80 or higher is recommended (install via [rustup.rs](https://rustup.rs/)).
+*   **Rust Toolchain**: Rust 1.89 or higher is required (install via [rustup.rs](https://rustup.rs/)); CI checks the workspace on 1.89.
 *   **C Compiler**: Required for compiling SQLite bindings (e.g., MSVC on Windows, `build-essential` on Debian/Ubuntu, or Xcode Command Line Tools on macOS).
 
 ### Repository Setup

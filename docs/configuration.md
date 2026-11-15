@@ -11,6 +11,10 @@ Usage: mellowmeshd [OPTIONS]
 
 Options:
   -p, --port <PORT>      The port to bind to [default: 40000]
+      --listen <ADDR>    Interface address to listen on [default: 127.0.0.1]
+      --public-host <H>  Extra Host name (host or host:port) the hub answers to;
+                         requests naming it are remote (repeatable)
+      --require-auth     Require a bearer token on every request
       --db <DB>          SQLite database path override
       --peer <PEER>      Peer daemon address (optionally addr=pattern)
       --node-id <ID>     Node identity override
@@ -21,8 +25,17 @@ Options:
 widen it. Set `MELLOWMESH_PEER_TOKEN` to authenticate to a peer: it is sent
 as an `Authorization: Bearer` header on the WebSocket handshake. Inbound peer
 traffic on `_decision.*`, `_task.*.reclaimed` and `_system.*` (except
-`_system.registry.*`) is dropped. The daemon writes `owner.token` (mode 0600)
+`_system.registry.*`) is dropped, as are `_task.<id>.created|claimed|started|
+completed|updated|cancelled`. A peer (a `node://` subscriber) is only sent
+topics from open spaces, spaces shared with peers, and — when the network is
+open — uncovered topics; with the default closed network, share the forum
+with `mellowmesh space add forum --pattern '_forum.**' --access closed --peers`
+(see [network](network.md)). The daemon writes `owner.token` (mode 0600)
 and `mellowmeshd.pid` next to its database.
+
+Listening on a non-loopback address (`--listen 0.0.0.0`) is refused unless
+`--require-auth` is on. See [network](network.md) for phones on the same
+Wi-Fi and tunnels.
 
 ### Client CLI (`mellowmesh`)
 
@@ -36,12 +49,14 @@ mellowmesh --port 45000 status
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `MELLOWMESH_PORT` | Port for the daemon to bind or for the client/MCP server to target. | `40000` |
+| `MELLOWMESH_PORT` | Port for the daemon to bind or for the CLI / MCP server to target. `--port` takes precedence. | `40000` |
 | `MELLOWMESH_DB` | Absolute path to the SQLite storage database. | OS AppData folder (below) |
 | `MELLOWMESH_WIKIS` | Wiki namespace-to-directory mappings (see [CLI guide](cli.md)). | `default:./wiki` |
 | `MELLOWMESH_RETENTION` | Global retention override for topics that match no per-topic policy rule (e.g. `30d`, `12h`, `forever`). | default policy (`7d`) |
 | `MELLOWMESH_SWEEP_INTERVAL_SECS` | Interval of the background sweep that releases expired task-claim leases. Retention purges run on the same loop, at most hourly. | `10` |
 | `MELLOWMESH_TOKEN` | Bearer token used by the CLI, Rust client, and MCP server to authenticate against the daemon. See [security](security.md). | unset (anonymous) |
+| `MELLOWMESH_LISTEN` | Interface address the daemon listens on (same as `--listen`). A non-loopback address requires `--require-auth`. | `127.0.0.1` |
+| `MELLOWMESH_PUBLIC_HOSTS` | Comma-separated extra `Host` names (`host` or `host:port`) the daemon answers to, e.g. a LAN address or a tunnel name (same as repeated `--public-host`). Requests naming one are **remote**: never trusted as local callers. See [network](network.md). | unset |
 | `MELLOWMESH_REQUIRE_AUTH` | Set to `1` to require a valid token on every request (same as `mellowmeshd --require-auth`). | unset (open mode) |
 | `MELLOWMESH_OWNER` | Owner identity created on first run (e.g. `human://yannick`). | `human://<os-username>` |
 | `MELLOWMESH_NOTIFICATIONS` | Set to `off` to disable desktop notifications for decisions and task reclaims. | enabled |

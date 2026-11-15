@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Your network: spaces, teams, open and closed
+
+- **Spaces.** Group topics into spaces that are `private` (only you),
+  `closed` (chosen people, helpers and teams) or `open` (anyone who can
+  reach your hub may read; visitors may post if you allow it). A closed
+  space is closed to token-less local programs too, even in open mode.
+- **Teams.** Name a group of people and helpers; each team gets its own
+  closed team room (`_team.<id>.chat`).
+- **Reach your hub from your phone.** `--listen` and `--public-host`
+  (`MELLOWMESH_LISTEN`, `MELLOWMESH_PUBLIC_HOSTS`). Requests through a public
+  host, from another machine or through the relay are treated as remote,
+  never as trusted local callers. Listening beyond this machine requires
+  `--require-auth`.
+- **Pair a phone with one command.** `mellowmesh pair` — no flags, no
+  restart: the hub starts listening on this computer's LAN address at
+  runtime (remembered as `lan_access`, re-opened at startup), prints a QR
+  code in the terminal (black on white, readable in Windows Terminal,
+  PowerShell and cmd) and waits until the phone connects
+  (`✓ Phone connected`). `--name`, `--url` (a tunnel; its host is added to
+  the public hosts at once) and `--no-wait` are optional. The device token
+  expires if unused for 15 minutes. `mellowmesh devices` lists paired
+  devices, `mellowmesh devices remove <id>` revokes one.
+- New: `POST /pair`, `GET /pair/:id`, `GET /devices`,
+  `DELETE /devices/:id`; `GET/PUT /network` gain `lan_access` (and a
+  read-only `lan_address`). Tokens record their first and last use.
+- New: `GET /whoami`, `/network`, `/spaces`, `/teams`, `/access/check`;
+  CLI `network`, `space`, `team`, `access check`, `pair`; MCP tool
+  `get_network`. Admin and token commands use the owner token automatically
+  on the hub's machine.
+- **Peers only get shared content.** A peer now receives open spaces,
+  spaces shared with peers, and uncovered topics only when the network is
+  open. To keep syncing the forum on a closed network, add
+  `mellowmesh space add forum --pattern '_forum.**' --access closed --peers`.
+
+### Task boards and a live roadmap
+
+- Tasks can depend on other tasks and belong to a team; the hub records
+  when they were created, claimed, started and completed.
+- `PATCH /tasks/:id` (CLI `task update`, MCP `update_task`) moves tasks
+  between open, claimed, in progress, blocked, completed and cancelled, with
+  checked moves and permissions; dependency cycles are refused.
+- `GET /tasks/graph` (CLI `task board`) shows lanes, waiting and running
+  time, what each task waits on, and the critical chain.
+- The hub announces task changes live on `_task.<id>.created`, `.claimed`,
+  `.started`, `.completed`, `.updated` and `.cancelled`; clients can no
+  longer publish those topics.
+
 ## v0.1.1 — 2026-11-14 — security & robustness release
 
 A codebase-wide hardening pass. **Upgrading is recommended for everyone**,

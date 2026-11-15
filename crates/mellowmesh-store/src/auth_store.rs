@@ -1,6 +1,58 @@
 use crate::Store;
+use chrono::{DateTime, TimeZone, Utc};
 use mellowmesh_core::auth::{Principal, TokenRecord};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
+
+/// A device token (minted by `POST /pair`) as the pairing endpoints see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceToken {
+    pub id: String,
+    pub principal: String,
+    /// Device name (the token label).
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    /// When the token first authenticated a request.
+    pub first_used_at: Option<DateTime<Utc>>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+    /// Expiry while pending; `None` once used.
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked: bool,
+}
+
+impl DeviceToken {
+    /// True once the device has used its token.
+    pub fn connected(&self) -> bool {
+        self.first_used_at.is_some()
+    }
+
+    /// True when the token is revoked, or still pending past its expiry.
+    pub fn expired(&self, now: DateTime<Utc>) -> bool {
+        self.revoked || self.expires_at.is_some_and(|e| e <= now)
+    }
+}
+
+fn unix(ts: Option<i64>) -> Option<DateTime<Utc>> {
+    ts.and_then(|t| Utc.timestamp_opt(t, 0).single())
+}
+
+const DEVICE_COLUMNS: &str =
+    "id, principal, COALESCE(label, ''), created_at, first_used_at, last_seen_at, expires_at, revoked";
+
+fn device_from_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceToken> {
+    let created: String = row.get(3)?;
+    Ok(DeviceToken {
+        id: row.get(0)?,
+        principal: row.get(1)?,
+        name: row.get(2)?,
+        created_at: DateTime::parse_from_rfc3339(&created)
+            .map(|d| d.with_timezone(&Utc))
+            .unwrap_or_default(),
+        first_used_at: unix(row.get(4)?),
+        last_seen_at: unix(row.get(5)?),
+        expires_at: unix(row.get(6)?),
+        revoked: row.get::<_, i64>(7)? != 0,
+    })
+}
 
 impl Store {
     pub fn upsert_principal(&self, principal: &Principal) -> anyhow::Result<()> {
@@ -58,14 +110,16 @@ impl Store {
         Ok(())
     }
 
-    /// Look up a non-revoked token by the SHA-256 hash of its plaintext.
+    /// Look up a non-revoked, unexpired token by the SHA-256 hash of its
+    /// plaintext. A pending device token past its expiry is not found.
     pub fn find_token_by_hash(&self, token_hash: &str) -> anyhow::Result<Option<TokenRecord>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, principal, token_hash, read_scopes, write_scopes, created_at, revoked
-             FROM tokens WHERE token_hash = ?1 AND revoked = 0",
+             FROM tokens WHERE token_hash = ?1 AND revoked = 0
+               AND (expires_at IS NULL OR expires_at > ?2)",
         )?;
-        let mut rows = stmt.query(params![token_hash])?;
+        let mut rows = stmt.query(params![token_hash, Utc::now().timestamp()])?;
         if let Some(row) = rows.next()? {
             Ok(Some(token_from_row(row)?))
         } else {
@@ -85,6 +139,111 @@ impl Store {
             tokens.push(r?);
         }
         Ok(tokens)
+    }
+
+    /// Attach a human-readable label to a token (e.g. the device it was
+    /// paired with).
+    pub fn set_token_label(&self, id: &str, label: &str) -> anyhow::Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE tokens SET label = ?2 WHERE id = ?1",
+            params![id, label],
+        )?;
+        Ok(())
+    }
+
+    /// Token labels by token id.
+    pub fn token_labels(&self) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT id, label FROM tokens WHERE label IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Insert a device token: labelled with the device name, and pending
+    /// until first used (it stops authenticating at `expires_at` otherwise).
+    pub fn insert_device_token(
+        &self,
+        token: &TokenRecord,
+        name: &str,
+        expires_at: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO tokens (id, principal, token_hash, read_scopes, write_scopes, created_at,
+                                 revoked, label, device, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)",
+            params![
+                token.id,
+                token.principal,
+                token.token_hash,
+                serde_json::to_string(&token.read_scopes)?,
+                serde_json::to_string(&token.write_scopes)?,
+                token.created_at.to_rfc3339(),
+                token.revoked as i64,
+                name,
+                expires_at.timestamp(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Record that a token authenticated a request at `now`: sets
+    /// `last_seen_at`, sets `first_used_at` on first use and clears a
+    /// pending expiry. A token already expired or revoked is left alone.
+    pub fn touch_token(&self, id: &str, now: DateTime<Utc>) -> anyhow::Result<bool> {
+        let conn = self.conn()?;
+        let now = now.timestamp();
+        let updated = conn.execute(
+            "UPDATE tokens SET last_seen_at = ?2, first_used_at = COALESCE(first_used_at, ?2),
+                               expires_at = NULL
+             WHERE id = ?1 AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?2)",
+            params![id, now],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// A device token by id (revoked or expired ones included); `None` when
+    /// unknown or not a device token.
+    pub fn get_device_token(&self, id: &str) -> anyhow::Result<Option<DeviceToken>> {
+        let conn = self.conn()?;
+        Ok(conn
+            .query_row(
+                &format!("SELECT {DEVICE_COLUMNS} FROM tokens WHERE id = ?1 AND device = 1"),
+                params![id],
+                device_from_row,
+            )
+            .optional()?)
+    }
+
+    /// Active device tokens (paired, or pending and unexpired), newest first.
+    pub fn list_device_tokens(&self, now: DateTime<Utc>) -> anyhow::Result<Vec<DeviceToken>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {DEVICE_COLUMNS} FROM tokens
+             WHERE device = 1 AND revoked = 0 AND (expires_at IS NULL OR expires_at > ?1)
+             ORDER BY created_at DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map(params![now.timestamp()], device_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Revoke device tokens that expired unused (deleting their e2e keys).
+    /// Returns how many were revoked.
+    pub fn revoke_expired_device_tokens(&self, now: DateTime<Utc>) -> anyhow::Result<usize> {
+        let ids: Vec<String> = {
+            let conn = self.conn()?;
+            let mut stmt = conn.prepare(
+                "SELECT id FROM tokens WHERE device = 1 AND revoked = 0
+                   AND expires_at IS NOT NULL AND expires_at <= ?1",
+            )?;
+            let rows = stmt.query_map(params![now.timestamp()], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for id in &ids {
+            self.revoke_token(id)?;
+        }
+        Ok(ids.len())
     }
 
     pub fn revoke_token(&self, id: &str) -> anyhow::Result<bool> {
@@ -188,7 +347,7 @@ fn token_from_row(row: &rusqlite::Row) -> anyhow::Result<TokenRecord> {
         token_hash: row.get(2)?,
         read_scopes: serde_json::from_str(&read_str).unwrap_or_default(),
         write_scopes: serde_json::from_str(&write_str).unwrap_or_default(),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_str)?.with_timezone(&chrono::Utc),
+        created_at: DateTime::parse_from_rfc3339(&created_str)?.with_timezone(&Utc),
         revoked: revoked != 0,
     })
 }
@@ -278,6 +437,74 @@ mod tests {
             store.find_e2e_key(&key_id).unwrap().is_none(),
             "revoked token's e2e key must be deleted"
         );
+    }
+
+    #[test]
+    fn test_device_token_lifecycle() {
+        let store = Store::new_in_memory().unwrap();
+        let now = Utc::now();
+        let mint = |id: &str, ttl: i64| {
+            let plaintext = generate_token();
+            let record = TokenRecord {
+                id: id.to_string(),
+                principal: "human://owner".to_string(),
+                token_hash: hash_token(&plaintext),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec!["**".to_string()],
+                created_at: now,
+                revoked: false,
+            };
+            store
+                .insert_device_token(&record, "Phone", now + chrono::Duration::seconds(ttl))
+                .unwrap();
+            plaintext
+        };
+        let fresh = mint("tok_fresh", 900);
+        let stale = mint("tok_stale", -1);
+        // A pending token authenticates until it expires.
+        assert!(store
+            .find_token_by_hash(&hash_token(&fresh))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .find_token_by_hash(&hash_token(&stale))
+            .unwrap()
+            .is_none());
+        let d = store.get_device_token("tok_fresh").unwrap().unwrap();
+        assert_eq!(d.name, "Phone");
+        assert!(!d.connected() && !d.expired(now) && d.expires_at.is_some());
+        assert!(store
+            .get_device_token("tok_stale")
+            .unwrap()
+            .unwrap()
+            .expired(now));
+        let listed: Vec<String> = store
+            .list_device_tokens(now)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(listed, vec!["tok_fresh"]);
+
+        // First use: connected, no expiry any more. An expired one stays
+        // expired.
+        assert!(store.touch_token("tok_fresh", now).unwrap());
+        assert!(!store.touch_token("tok_stale", now).unwrap());
+        let d = store.get_device_token("tok_fresh").unwrap().unwrap();
+        assert!(d.connected() && d.expires_at.is_none() && d.last_seen_at.is_some());
+        assert!(!d.expired(now + chrono::Duration::days(365)));
+
+        assert_eq!(store.revoke_expired_device_tokens(now).unwrap(), 1);
+        assert!(
+            store
+                .get_device_token("tok_stale")
+                .unwrap()
+                .unwrap()
+                .revoked
+        );
+        assert_eq!(store.revoke_expired_device_tokens(now).unwrap(), 0);
+        // Ordinary tokens are not device tokens.
+        assert!(store.get_device_token("tok_none").unwrap().is_none());
     }
 
     #[test]

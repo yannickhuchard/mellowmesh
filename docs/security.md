@@ -12,7 +12,40 @@ MellowMesh authenticates actors with **bearer tokens** bound to **principals**
 
 Configuring a relay link forces required-auth automatically — a remotely
 reachable daemon without auth is not a configuration MellowMesh will ever
-support.
+support. Likewise the daemon refuses to listen on a non-loopback address
+(`--listen 0.0.0.0`) without `--require-auth`.
+
+**Pairing and the LAN listener.** `mellowmesh pair` (`POST /pair`, owner
+only) may open an extra listener on the machine's LAN address at runtime,
+even in open mode. That is safe because every connection on it comes from
+another machine and is therefore **remote**: never a trusted local caller,
+so a token or an open space is required, exactly as with `--listen` plus
+`--require-auth`. It binds that one address, never the wildcard. The device
+token it mints (full access for the owner) **expires if it is not used
+within 15 minutes**, so a QR code photographed off a screen later is
+useless; once the phone has used it, it stays valid until removed
+(`mellowmesh devices remove <id>`, which takes effect at once). A pairing
+url's host becomes a public host (requests naming it are remote). Turn the
+LAN listener off with `PUT /network { "lan_access": false }`.
+
+## Remote callers and spaces
+
+A request is **remote** when it names a configured `--public-host`, arrives
+from another machine, or is replayed by the relay link (or unsealed from an
+E2E request that came in remotely). Remote callers are never trusted local
+callers, whatever the mode: without a token they are **visitors**, as is any
+token-less caller under `--require-auth`. Visitors may only use the read
+endpoints and `POST /publish`, and only see or post what the network rules
+allow — by default nothing; with spaces, `open` content (and visitor posts
+where `visitor_write` is on, recorded as `visitor://anonymous`). Admin
+endpoints are never available to them.
+
+**Closed spaces vs open mode.** Open mode trusts token-less local
+processes for topics that no space covers, as before. A `closed` or
+`private` space is closed to them too: membership needs an authenticated
+principal, so an agent with a shell on your machine cannot read your family
+chat just because the hub runs in open mode. The CLI uses the owner token
+automatically on the hub's machine. Rules: [network](network.md).
 
 ## Browser and network boundary
 
@@ -26,7 +59,8 @@ The daemon only answers requests that are addressed to it as a loopback host:
   `fetch`, form post and WebSocket handshake does), it must be the daemon's
   own loopback origin, e.g. `http://127.0.0.1:40000`. Requests from any other
   web page are refused, so a site you visit cannot publish, create tasks, or
-  answer decisions on your local hub — even in open mode.
+  answer decisions on your local hub — even in open mode. Requests naming a
+  configured public host may also come from `http(s)://<public-host>`.
 
 The built-in dashboard is served by the daemon itself, so it is same-origin
 and keeps working. Non-browser clients (CLI, SDKs, MCP, connectors) send no
@@ -74,9 +108,10 @@ mellowmesh token revoke tok_…  # immediate revocation
 
 * **Publish** (`POST /publish`): the topic must match a write scope, or 403.
 * **Reserved topics**: clients can never publish to `_decision.**`,
-  `_system.**` or `_task.<id>.reclaimed` — those events are emitted by the
-  hub only, so a forged "decision approved" or "task reclaimed" event cannot
-  be injected.
+  `_system.**`, `_task.<id>.reclaimed` or the task lifecycle events
+  (`_task.<id>.created|claimed|started|completed|updated|cancelled`) — those
+  events are emitted by the hub only, so a forged "decision approved" or
+  "task completed" event cannot be injected.
 * **Server-assigned envelope**: message ids and timestamps are assigned by
   the hub; client-supplied values are ignored. `created_by` on tasks and
   decisions is taken from the authenticated principal, not from the request
@@ -95,15 +130,25 @@ mellowmesh token revoke tok_…  # immediate revocation
   answer, but only when the chat identity resolves (through an identity
   mapping) to a known human principal who is allowed to decide; the answer
   is recorded as `human://x (via interface://y)`. Every response records
-  `responded_by` for audit (unauthenticated responses in open mode are
-  recorded as `human://local-unauthenticated`).
+  `responded_by` for audit.
+* **Answering always needs a token — even in open mode.** Open mode trusts
+  localhost for reading, publishing and coordinating, but an anonymous
+  `POST /decisions/<id>/respond` is refused (401): otherwise any local process,
+  including an agent with a shell, could approve a decision. `mellowmesh
+  respond` uses `MELLOWMESH_TOKEN` or, on the hub's own machine, the owner
+  token in `owner.token` (readable only by the OS user who runs the daemon);
+  the dashboard asks for a token the first time you answer; chat connectors
+  always run with their own interface token.
 * **Decision outcomes**: only options marked `"outcome": "approve"` /
   `"reject"` move a decision to `approved` / `rejected`; any other answer is
   recorded as `answered`. A "Reject" button can therefore never be recorded
   as an approval by accident.
+* **Spaces**: on top of scopes, `private` / `closed` spaces admit only their
+  members (authenticated); see [network](network.md).
 * **Owner/admin only**: token administration, identity mappings
   (`POST /identity-mappings`), schema registration and status changes
-  (`/schemas`), and trace enable/disable (`/traces`).
+  (`/schemas`), trace enable/disable (`/traces`), and the network, spaces
+  and teams (`/network`, `/spaces`, `/teams`, `/access/check`).
 
 Scopes use the same wildcard grammar as subscriptions: `*` (one token),
 `>` (one or more suffix tokens), `**` (zero or more tokens anywhere).

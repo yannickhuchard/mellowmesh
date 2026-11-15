@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-* **Rust Toolchain**: Cargo 1.80 or higher (recommended installation via [rustup.rs](https://rustup.rs/)).
+* **Rust Toolchain**: Rust 1.89 or higher (install or update via [rustup.rs](https://rustup.rs/): `rustup update stable`).
 * **C Compiler**: Required for SQLite bindings (MSVC build tools on Windows, `build-essential` on Linux/Debian, or Xcode command line tools on macOS).
 * **Perl** (Linux/macOS only): required to build the vendored OpenSSL used for self-contained Unix packages. Windows builds use SChannel and do not need OpenSSL or Perl.
 

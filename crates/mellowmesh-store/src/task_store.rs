@@ -30,7 +30,7 @@ fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-const TASK_COLUMNS: &str = "id, title, description, created_from, created_by, status, priority, topics, required_capabilities, assigned_to, claimed_by, deadline, artifacts, decisions, parent_id, lease_seconds, claim_expires_at";
+const TASK_COLUMNS: &str = "id, title, description, created_from, created_by, status, priority, topics, required_capabilities, assigned_to, claimed_by, deadline, artifacts, decisions, parent_id, lease_seconds, claim_expires_at, depends_on, team, created_at, claimed_at, started_at, completed_at, blocked_from";
 
 fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
     let topics_str: String = row.get(7)?;
@@ -38,6 +38,7 @@ fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
     let artifacts_str: String = row.get(12)?;
     let decisions_str: String = row.get(13)?;
     let lease_seconds: Option<i64> = row.get(15)?;
+    let depends_on: Option<String> = row.get(17)?;
 
     Ok(Task {
         id: row.get(0)?,
@@ -57,6 +58,15 @@ fn task_from_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         parent_id: row.get(14)?,
         lease_seconds: lease_seconds.map(|v| v as u64),
         claim_expires_at: row.get(16)?,
+        depends_on: depends_on
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default(),
+        team: row.get(18)?,
+        created_at: row.get(19)?,
+        claimed_at: row.get(20)?,
+        started_at: row.get(21)?,
+        completed_at: row.get(22)?,
+        blocked_from: row.get(23)?,
     })
 }
 
@@ -69,8 +79,10 @@ impl Store {
         let decisions_json = serde_json::to_string(&task.decisions)?;
 
         conn.execute(
-            "INSERT INTO tasks (id, title, description, created_from, created_by, status, priority, topics, required_capabilities, assigned_to, claimed_by, deadline, artifacts, decisions, parent_id, lease_seconds, claim_expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            &format!(
+                "INSERT INTO tasks ({TASK_COLUMNS})
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)"
+            ),
             params![
                 task.id,
                 task.title,
@@ -88,10 +100,54 @@ impl Store {
                 decisions_json,
                 task.parent_id,
                 task.lease_seconds.map(cap_lease),
-                task.claim_expires_at
+                task.claim_expires_at,
+                serde_json::to_string(&task.depends_on)?,
+                task.team,
+                task.created_at,
+                task.claimed_at,
+                task.started_at,
+                task.completed_at,
+                task.blocked_from
             ],
         )?;
         Ok(())
+    }
+
+    /// Write every mutable field of `task` (status, assignment, priority,
+    /// dependencies, team, text, lifecycle timestamps, claim), but only if
+    /// its stored status is still `expected_status`. Returns `false` when
+    /// the task changed concurrently (or does not exist).
+    pub fn update_task_if_status(
+        &self,
+        task: &Task,
+        expected_status: &str,
+    ) -> anyhow::Result<bool> {
+        let conn = self.conn()?;
+        let n = conn.execute(
+            "UPDATE tasks SET title = ?2, description = ?3, status = ?4, priority = ?5,
+                assigned_to = ?6, claimed_by = ?7, claim_expires_at = ?8, depends_on = ?9,
+                team = ?10, claimed_at = ?11, started_at = ?12, completed_at = ?13,
+                blocked_from = ?14
+             WHERE id = ?1 AND status = ?15",
+            params![
+                task.id,
+                task.title,
+                task.description,
+                task.status,
+                task.priority,
+                task.assigned_to,
+                task.claimed_by,
+                task.claim_expires_at,
+                serde_json::to_string(&task.depends_on)?,
+                task.team,
+                task.claimed_at,
+                task.started_at,
+                task.completed_at,
+                task.blocked_from,
+                expected_status
+            ],
+        )?;
+        Ok(n > 0)
     }
 
     pub fn get_task(&self, id: &str) -> anyhow::Result<Option<Task>> {
@@ -138,12 +194,19 @@ impl Store {
             .to_rfc3339_opts(SecondsFormat::Secs, true);
 
         let updated = conn.execute(
-            "UPDATE tasks SET claimed_by = ?2, status = 'claimed', lease_seconds = ?3, claim_expires_at = ?4
+            // A re-claim by the current holder renews the lease and keeps
+            // its claim time and `in_progress` state; a new holder starts
+            // fresh. (SET expressions see the row's previous values.)
+            "UPDATE tasks SET
+                 status = CASE WHEN claimed_by = ?2 AND status = 'in_progress' THEN 'in_progress' ELSE 'claimed' END,
+                 claimed_at = CASE WHEN claimed_by = ?2 AND claimed_at IS NOT NULL THEN claimed_at ELSE ?5 END,
+                 started_at = CASE WHEN claimed_by = ?2 THEN started_at ELSE NULL END,
+                 claimed_by = ?2, lease_seconds = ?3, claim_expires_at = ?4
              WHERE id = ?1 AND (
                  status = 'open'
                  OR claimed_by = ?2
                  OR (status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?5)
-             ) AND status NOT IN ('completed', 'cancelled', 'failed')",
+             ) AND status NOT IN ('completed', 'cancelled', 'failed', 'blocked')",
             params![id, claimed_by, lease, expires_at, now],
         )?;
 
@@ -211,7 +274,8 @@ impl Store {
         let mut released = Vec::with_capacity(expired.len());
         for task in expired {
             let n = conn.execute(
-                "UPDATE tasks SET status = 'open', claimed_by = NULL, claim_expires_at = NULL
+                "UPDATE tasks SET status = 'open', claimed_by = NULL, claim_expires_at = NULL,
+                     claimed_at = NULL, started_at = NULL
                  WHERE id = ?1 AND status IN ('claimed', 'in_progress') AND claim_expires_at IS NOT NULL AND claim_expires_at < ?2",
                 params![task.id, now],
             )?;
@@ -227,9 +291,9 @@ impl Store {
     pub fn complete_task(&self, id: &str) -> anyhow::Result<bool> {
         let conn = self.conn()?;
         let updated = conn.execute(
-            "UPDATE tasks SET status = 'completed', claim_expires_at = NULL
+            "UPDATE tasks SET status = 'completed', claim_expires_at = NULL, completed_at = ?2
              WHERE id = ?1 AND status NOT IN ('completed', 'cancelled', 'failed')",
-            params![id],
+            params![id, now_rfc3339()],
         )?;
         Ok(updated > 0)
     }
@@ -258,6 +322,7 @@ mod tests {
             parent_id: None,
             lease_seconds,
             claim_expires_at: None,
+            ..Default::default()
         }
     }
 
@@ -299,5 +364,66 @@ mod tests {
                 .unwrap(),
             ClaimOutcome::Claimed { .. }
         ));
+    }
+
+    #[test]
+    fn test_board_fields_round_trip_and_lifecycle_timestamps() {
+        let store = Store::new_in_memory().unwrap();
+        let mut task = open_task("task_board", None);
+        task.depends_on = vec!["task_a".into(), "task_b".into()];
+        task.team = Some("home".into());
+        task.created_at = Some("2026-01-01T10:00:00Z".into());
+        store.insert_task(&task).unwrap();
+        let got = store.get_task("task_board").unwrap().unwrap();
+        assert_eq!(got.depends_on, task.depends_on);
+        assert_eq!(got.team.as_deref(), Some("home"));
+        assert_eq!(got.created_at, task.created_at);
+        assert!(got.claimed_at.is_none());
+
+        // Claim stamps claimed_at; a re-claim by the holder keeps it and
+        // keeps in_progress.
+        store.claim_task("task_board", "agent://x/y", None).unwrap();
+        let claimed = store.get_task("task_board").unwrap().unwrap();
+        assert!(claimed.claimed_at.is_some());
+        let mut started = claimed.clone();
+        started.status = "in_progress".into();
+        started.started_at = Some("2026-01-01T10:05:00Z".into());
+        assert!(store.update_task_if_status(&started, "claimed").unwrap());
+        // A stale expected status is refused.
+        assert!(!store.update_task_if_status(&started, "claimed").unwrap());
+        store.claim_task("task_board", "agent://x/y", None).unwrap();
+        let again = store.get_task("task_board").unwrap().unwrap();
+        assert_eq!(again.status, "in_progress");
+        assert_eq!(again.claimed_at, claimed.claimed_at);
+        assert_eq!(again.started_at.as_deref(), Some("2026-01-01T10:05:00Z"));
+
+        // Blocked tasks cannot be claimed; blocked_from is persisted.
+        let mut blocked = again.clone();
+        blocked.status = "blocked".into();
+        blocked.blocked_from = Some("in_progress".into());
+        assert!(store
+            .update_task_if_status(&blocked, "in_progress")
+            .unwrap());
+        assert_eq!(
+            store
+                .get_task("task_board")
+                .unwrap()
+                .unwrap()
+                .blocked_from
+                .as_deref(),
+            Some("in_progress")
+        );
+        assert!(matches!(
+            store.claim_task("task_board", "agent://x/y", None).unwrap(),
+            ClaimOutcome::NotClaimable { .. }
+        ));
+
+        assert!(store.complete_task("task_board").unwrap());
+        assert!(store
+            .get_task("task_board")
+            .unwrap()
+            .unwrap()
+            .completed_at
+            .is_some());
     }
 }

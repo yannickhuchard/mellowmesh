@@ -16,8 +16,24 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
     about = "MellowMesh Intelligent Coordination Daemon"
 )]
 struct Args {
-    #[arg(short, long, default_value_t = 40000)]
+    /// Port to listen on (also read from MELLOWMESH_PORT)
+    #[arg(short, long, env = "MELLOWMESH_PORT", default_value_t = 40000)]
     port: u16,
+
+    /// Interface address to listen on. A non-loopback address requires
+    /// --require-auth.
+    #[arg(long, env = "MELLOWMESH_LISTEN", default_value = "127.0.0.1")]
+    listen: std::net::IpAddr,
+
+    /// Extra Host name (host or host:port) the hub answers to, e.g. a LAN
+    /// address or a tunnel name. Requests naming one are remote. Repeatable;
+    /// also MELLOWMESH_PUBLIC_HOSTS (comma-separated).
+    #[arg(
+        long = "public-host",
+        env = "MELLOWMESH_PUBLIC_HOSTS",
+        value_delimiter = ','
+    )]
+    public_host: Vec<String>,
 
     #[arg(short, long)]
     db: Option<PathBuf>,
@@ -46,20 +62,33 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let db_path = args.db.unwrap_or_else(default_db_path);
-    tracing::info!("Initializing SQLite storage at: {:?}", db_path);
-    let store = Store::new(&db_path)?;
-
-    // First-run identity bootstrap: owner principal + full-access token.
-    let owner = mellowmesh_daemon::auth::bootstrap_owner(&store, &db_path);
-    let relay_config = mellowmesh_daemon::relay_link::load_config(&store);
-    let mut require_auth = args.require_auth
+    let require_auth_flag = args.require_auth
         || matches!(
             std::env::var("MELLOWMESH_REQUIRE_AUTH")
                 .unwrap_or_default()
                 .as_str(),
             "1" | "true" | "yes"
         );
+    if let Err(e) = mellowmesh_daemon::access::check_listen(args.listen, require_auth_flag) {
+        tracing::error!("{}", e);
+        anyhow::bail!(e);
+    }
+    let mut public_hosts = mellowmesh_daemon::access::parse_public_hosts(&args.public_host);
+
+    let db_path = args.db.unwrap_or_else(default_db_path);
+    tracing::info!("Initializing SQLite storage at: {:?}", db_path);
+    let store = Store::new(&db_path)?;
+    // Public hosts added by `mellowmesh pair --url` (e.g. a tunnel).
+    for host in mellowmesh_daemon::pairing::persisted_public_hosts(&store) {
+        if !public_hosts.contains(&host) {
+            public_hosts.push(host);
+        }
+    }
+
+    // First-run identity bootstrap: owner principal + full-access token.
+    let owner = mellowmesh_daemon::auth::bootstrap_owner(&store, &db_path);
+    let relay_config = mellowmesh_daemon::relay_link::load_config(&store);
+    let mut require_auth = require_auth_flag;
     // A relayed hub is reachable from outside this machine: token auth is
     // not optional in that configuration, so it is forced on.
     if relay_config.is_some() && !require_auth {
@@ -263,7 +292,27 @@ async fn main() -> anyhow::Result<()> {
         port: args.port,
         http: mellowmesh_daemon::state::loopback_http_client(),
         caches: Arc::new(mellowmesh_daemon::cache::Caches::default()),
+        access: Arc::new(mellowmesh_daemon::access::AccessState::new(
+            public_hosts.clone(),
+        )),
     };
+    if !public_hosts.is_empty() {
+        tracing::info!("Public hosts (remote callers): {}", public_hosts.join(", "));
+    }
+    if !args.listen.is_loopback() && public_hosts.is_empty() {
+        tracing::warn!(
+            "Listening on {} without --public-host: other machines must name this hub with \
+             a configured public host (e.g. --public-host 192.168.1.20:{}), or they are refused",
+            args.listen,
+            args.port
+        );
+    }
+    if !require_auth && !public_hosts.is_empty() {
+        tracing::warn!(
+            "Public hosts are configured without --require-auth: remote callers can only \
+             read open content until you enable tokens"
+        );
+    }
 
     // Background maintenance: lease reclaim + retention purge
     mellowmesh_daemon::sweeper::start(state.clone());
@@ -282,10 +331,31 @@ async fn main() -> anyhow::Result<()> {
 
     let app = create_router(state.clone());
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
+    let addr = SocketAddr::new(args.listen, args.port);
     tracing::info!("MellowMesh daemon listening on: {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    state.access.pairing.set_primary_listen(args.listen);
+
+    // The daemon talks to itself over 127.0.0.1 (relay link, sealed
+    // requests, MCP, connectors). When it listens on one specific
+    // non-loopback address, also serve loopback for that.
+    if !args.listen.is_loopback() && !args.listen.is_unspecified() {
+        let loopback = SocketAddr::from(([127, 0, 0, 1], args.port));
+        let local_listener = tokio::net::TcpListener::bind(loopback).await?;
+        let local_app = app
+            .clone()
+            .into_make_service_with_connect_info::<SocketAddr>();
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(local_listener, local_app).await {
+                tracing::error!("Loopback listener failed: {}", e);
+            }
+        });
+    }
+
+    // LAN access turned on by an earlier `mellowmesh pair`: listen on the
+    // current LAN address again (a failure is logged, not fatal).
+    mellowmesh_daemon::pairing::restore_lan(&state).await;
 
     // PID file next to the database (and owner.token), written once the
     // port is ours and removed on graceful shutdown.
@@ -294,13 +364,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("Could not write PID file {:?}: {}", pid_file, e);
     }
 
-    // Initialize and start connectors. Under required auth they get their
-    // own interface token (rotated each boot) so they can publish, subscribe,
-    // and relay human decision responses.
+    // Initialize and start connectors. They always get their own interface
+    // token (rotated each boot) so they can publish, subscribe, and relay
+    // human decision responses — answering a decision needs an authenticated
+    // principal even in open mode.
     // Loopback client: the daemon talks to itself, never through the relay,
     // regardless of any MELLOWMESH_URL/MELLOWMESH_E2E set in its environment.
     let mut client = mellowmesh_client::MellowMeshClient::loopback(args.port);
-    if require_auth {
+    {
         use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
         let principal_id = "interface://local/connectors".to_string();
         if let Ok(Some(old_id)) = state.store.get_config("connectors_token_id") {
@@ -345,22 +416,25 @@ async fn main() -> anyhow::Result<()> {
 
     let shutdown_trigger_clone = shutdown_trigger.clone();
     let pid_file_on_timeout = pid_file.clone();
-    let served = axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            tokio::select! {
-                _ = shutdown_trigger_clone.notified() => {}
-                _ = shutdown_signal() => {}
-            }
-            tracing::info!("Received shutdown signal. Stopping daemon...");
-            // Do not let a lingering connection hold shutdown open forever.
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                tracing::warn!("Graceful shutdown timed out; exiting");
-                mellowmesh_daemon::pidfile::remove_pid_file(&pid_file_on_timeout);
-                std::process::exit(0);
-            });
-        })
-        .await;
+    let served = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        tokio::select! {
+            _ = shutdown_trigger_clone.notified() => {}
+            _ = shutdown_signal() => {}
+        }
+        tracing::info!("Received shutdown signal. Stopping daemon...");
+        // Do not let a lingering connection hold shutdown open forever.
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            tracing::warn!("Graceful shutdown timed out; exiting");
+            mellowmesh_daemon::pidfile::remove_pid_file(&pid_file_on_timeout);
+            std::process::exit(0);
+        });
+    })
+    .await;
 
     mellowmesh_daemon::pidfile::remove_pid_file(&pid_file);
     served?;

@@ -7,7 +7,7 @@ use axum::{
     },
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -47,6 +47,8 @@ pub fn create_router(state: AppState) -> Router {
             "/tasks",
             post(handlers::task::create_task).get(handlers::task::list_tasks),
         )
+        .route("/tasks/graph", get(handlers::task::task_graph))
+        .route("/tasks/:id", patch(handlers::task::update_task))
         .route("/tasks/:id/claim", post(handlers::task::claim_task))
         .route("/tasks/:id/complete", post(handlers::task::complete_task))
         .route(
@@ -100,6 +102,43 @@ pub fn create_router(state: AppState) -> Router {
             post(crate::auth::create_token).get(crate::auth::list_tokens),
         )
         .route("/auth/tokens/:id", delete(crate::auth::revoke_token))
+        .route("/whoami", get(handlers::network::whoami))
+        .route(
+            "/network",
+            get(handlers::network::get_network).put(handlers::network::put_network),
+        )
+        .route(
+            "/spaces",
+            get(handlers::network::list_spaces).post(handlers::network::create_space),
+        )
+        .route(
+            "/spaces/:id",
+            put(handlers::network::replace_space).delete(handlers::network::delete_space),
+        )
+        .route(
+            "/teams",
+            get(handlers::network::list_teams).post(handlers::network::create_team),
+        )
+        .route(
+            "/teams/:id",
+            put(handlers::network::replace_team).delete(handlers::network::delete_team),
+        )
+        .route(
+            "/teams/:id/members",
+            post(handlers::network::add_team_member),
+        )
+        .route(
+            "/teams/:id/members/:principal",
+            delete(handlers::network::remove_team_member),
+        )
+        .route("/access/check", get(handlers::network::access_check))
+        .route("/pair", post(handlers::pairing::pair))
+        .route("/pair/:token_id", get(handlers::pairing::pair_status))
+        .route("/devices", get(handlers::pairing::list_devices))
+        .route(
+            "/devices/:token_id",
+            delete(handlers::pairing::remove_device),
+        )
         .route("/", get(ui_handler))
         .route("/ui", get(ui_handler))
         .layer(axum::middleware::from_fn_with_state(
@@ -184,17 +223,17 @@ async fn ws_handler(
         return (StatusCode::BAD_REQUEST, format!("Invalid pattern: {e}")).into_response();
     }
     let case_insensitive = params.case_insensitive.unwrap_or(false);
-    // Read scopes of the authenticated principal, if any: deliveries are
-    // filtered message-by-message against these patterns.
+    // Deliveries are filtered message-by-message against the network rules
+    // for this caller (token scopes, spaces), using the live snapshot so an
+    // admin change applies to open subscriptions too.
     let token_hash = ctx.principal.as_ref().map(|p| p.token_hash.clone());
-    let read_scopes = ctx.principal.map(|p| p.read_scopes);
     ws.on_upgrade(move |socket| {
         handle_socket(
             socket,
             SocketParams {
                 pattern,
                 case_insensitive,
-                read_scopes,
+                ctx,
                 token_hash,
                 stream_e2e: stream_e2e.0,
             },
@@ -207,7 +246,8 @@ async fn ws_handler(
 struct SocketParams {
     pattern: String,
     case_insensitive: bool,
-    read_scopes: Option<Vec<String>>,
+    /// The subscriber, for per-message access checks.
+    ctx: crate::auth::AuthContext,
     /// Hash of the token the subscription authenticated with, re-validated
     /// periodically so revocation ends the stream.
     token_hash: Option<String>,
@@ -225,7 +265,7 @@ async fn handle_socket(socket: WebSocket, params: SocketParams, state: AppState)
     let SocketParams {
         pattern,
         case_insensitive,
-        read_scopes,
+        ctx,
         token_hash,
         stream_e2e,
     } = params;
@@ -285,10 +325,9 @@ async fn handle_socket(socket: WebSocket, params: SocketParams, state: AppState)
                 continue;
             };
             {
-                if let Some(ref scopes) = read_scopes {
-                    if !mellowmesh_core::auth::scopes_allow(scopes, &msg.topic) {
-                        continue;
-                    }
+                let snap = crate::access::snapshot(&send_state);
+                if !crate::access::can_read_message(&snap, &ctx.caller(), &msg) {
+                    continue;
                 }
                 if let Ok(text) = serde_json::to_string(&*msg) {
                     // Encrypted subscription: seal every delivered message so
@@ -381,6 +420,7 @@ mod tests {
             port: 0,
             http: crate::state::loopback_http_client(),
             caches: Arc::new(crate::cache::Caches::default()),
+            access: Default::default(),
         }
     }
 
@@ -1082,10 +1122,47 @@ mod tests {
         });
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Reject the decision, and try to forge a human in the body.
+        // Open mode trusts localhost for most things, but never for answering
+        // a decision: an anonymous answer is refused and changes nothing.
         let http = reqwest::Client::new();
+        let anon = http
+            .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .json(&serde_json::json!({ "option_id": "yes", "responded_by": "human://you" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(anon.status(), 401);
+        assert_eq!(
+            store.get_decision("dec_gov").unwrap().unwrap().status,
+            "requested"
+        );
+
+        // A human token for the required decider; the body still cannot
+        // forge a different human.
+        use mellowmesh_core::auth::{generate_token, hash_token, Principal, TokenRecord};
+        store
+            .upsert_principal(&Principal {
+                id: "human://you".to_string(),
+                kind: "human".to_string(),
+                display_name: None,
+                created_at: chrono::Utc::now(),
+            })
+            .unwrap();
+        let human_token = generate_token();
+        store
+            .insert_token(&TokenRecord {
+                id: "tok_you".to_string(),
+                principal: "human://you".to_string(),
+                token_hash: hash_token(&human_token),
+                read_scopes: vec!["**".to_string()],
+                write_scopes: vec![],
+                created_at: chrono::Utc::now(),
+                revoked: false,
+            })
+            .unwrap();
         let resp = http
             .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .bearer_auth(&human_token)
             .json(&serde_json::json!({
                 "option_id": "no",
                 "responded_by": "human://yannick"
@@ -1098,20 +1175,32 @@ mod tests {
         let d = store.get_decision("dec_gov").unwrap().unwrap();
         // A rejection is recorded as rejected, never approved.
         assert_eq!(d.status, "rejected");
-        // Open mode never trusts a caller-supplied human — no forgery.
-        assert_eq!(
-            d.responded_by,
-            Some("human://local-unauthenticated".to_string())
-        );
+        // The answer is attributed to the authenticated human, never to a
+        // caller-supplied one.
+        assert_eq!(d.responded_by, Some("human://you".to_string()));
 
         // A decision is answered exactly once.
         let again = http
             .post(format!("http://127.0.0.1:{port}/decisions/dec_gov/respond"))
+            .bearer_auth(&human_token)
             .json(&serde_json::json!({ "option_id": "yes" }))
             .send()
             .await
             .unwrap();
         assert_eq!(again.status(), 409);
+    }
+
+    /// Id of the first task on the hub.
+    async fn text_task_id(http: &reqwest::Client, base: &str) -> String {
+        let tasks: serde_json::Value = http
+            .get(format!("{base}/tasks"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        tasks[0]["id"].as_str().unwrap().to_string()
     }
 
     #[tokio::test]
@@ -1162,7 +1251,7 @@ mod tests {
         // and the code can never silently drift apart again.
         assert_eq!(
             tools.len(),
-            27,
+            29,
             "MCP tool count changed — update README.md and docs/mcp.md to match"
         );
 
@@ -1202,6 +1291,43 @@ mod tests {
             .unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("MCP-created task"));
+
+        // get_network (read-only) and update_task round-trip too.
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": { "name": "get_network", "arguments": {} }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let view: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(view["network"]["default_access"], "closed");
+        let task_id = text_task_id(&http, &base).await;
+        let resp: serde_json::Value = http
+            .post(format!("{base}/mcp"))
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                "params": { "name": "update_task",
+                            "arguments": { "task_id": task_id, "status": "blocked" } }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], false, "{resp}");
+        assert!(resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("\"blocked\""));
 
         // notifications are acknowledged without a body
         let resp = http
@@ -1713,6 +1839,7 @@ mod tests {
             port: 0,
             http: crate::state::loopback_http_client(),
             caches: Arc::new(crate::cache::Caches::default()),
+            access: Default::default(),
         };
 
         let app = create_router(state);
@@ -1782,6 +1909,7 @@ mod tests {
             port: 0,
             http: crate::state::loopback_http_client(),
             caches: Arc::new(crate::cache::Caches::default()),
+            access: Default::default(),
         };
 
         let app = create_router(state);

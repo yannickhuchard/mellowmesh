@@ -1,6 +1,6 @@
 # Governance & Integration Best Practices
 
-> **Status:** identity, scoped bearer tokens, and decision integrity are now **enforced** when the daemon runs with `--require-auth` (see the [security guide](security.md)). In the default open mode, localhost clients are trusted and these rules remain the contract well-behaved agents must follow; scopes are still enforced whenever a token is presented.
+> **Status:** identity, scoped bearer tokens, and decision integrity are now **enforced** when the daemon runs with `--require-auth` (see the [security guide](security.md)). In the default open mode, localhost clients are trusted for coordination and these rules remain the contract well-behaved agents must follow; scopes are still enforced whenever a token is presented, and **answering a decision always requires a human token**, in every mode.
 
 ## Identity URI Standard
 

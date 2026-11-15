@@ -31,6 +31,9 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// Hot-path caches (tokens, agents, named topics, compiled schemas).
     pub caches: Arc<Caches>,
+    /// Network access control: cached network/spaces/teams snapshot,
+    /// public hosts and the remote-request marker.
+    pub access: Arc<crate::access::AccessState>,
 }
 
 /// The HTTP client used for the daemon's loopback dispatch: never follows

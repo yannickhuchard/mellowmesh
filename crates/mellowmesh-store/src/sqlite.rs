@@ -213,6 +213,22 @@ impl Store {
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN lease_seconds INTEGER", []);
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN claim_expires_at TEXT", []);
 
+        // Task boards: dependencies, team, hub-set lifecycle timestamps.
+        for column in [
+            "depends_on TEXT NOT NULL DEFAULT '[]'",
+            "team TEXT",
+            "created_at TEXT",
+            "claimed_at TEXT",
+            "started_at TEXT",
+            "completed_at TEXT",
+            "blocked_from TEXT",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE tasks ADD COLUMN {column}"), []);
+        }
+
+        // Network access control: network setting, spaces, teams.
+        crate::network_store::migrate(&conn)?;
+
         // Auth: principals, bearer tokens, and decision audit trail
         conn.execute(
             "CREATE TABLE IF NOT EXISTS principals (
@@ -246,6 +262,19 @@ impl Store {
         // Link a token to its derived e2e key id so revocation can delete the
         // key too, instead of leaving orphaned key material behind.
         let _ = conn.execute("ALTER TABLE tokens ADD COLUMN e2e_key_id TEXT", []);
+        // Optional token label (e.g. the name of a paired device).
+        let _ = conn.execute("ALTER TABLE tokens ADD COLUMN label TEXT", []);
+        // Device tokens (minted by `POST /pair`): a pending one expires at
+        // `expires_at` (unix seconds) unless used first; first use and last
+        // use are recorded (unix seconds).
+        for column in [
+            "device INTEGER NOT NULL DEFAULT 0",
+            "expires_at INTEGER",
+            "first_used_at INTEGER",
+            "last_seen_at INTEGER",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE tokens ADD COLUMN {column}"), []);
+        }
 
         // End-to-end encryption keys, keyed by the token's derived key id.
         // Stored so the daemon can decrypt relayed envelopes without ever
@@ -563,6 +592,7 @@ mod tests {
             parent_id: None,
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         };
 
         store.insert_task(&task).unwrap();
@@ -606,6 +636,7 @@ mod tests {
             parent_id: None,
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         }
     }
 
@@ -983,6 +1014,7 @@ mod tests {
             parent_id: Some("task_1".to_string()),
             lease_seconds: None,
             claim_expires_at: None,
+            ..Default::default()
         };
         store.insert_task(&task).unwrap();
 

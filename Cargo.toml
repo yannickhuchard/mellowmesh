@@ -9,12 +9,16 @@ members = [
     "crates/mellowmesh-bench",
     "crates/mellowmesh-connectors",
     "crates/mellowmesh-relay",
-    "crates/mellowmesh-wasm"
+    "crates/mellowmesh-wasm",
+    "crates/mellowmesh-app-core"
 ]
 
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
+# Minimum supported Rust version (checked in CI). Raise it only together with
+# the docs (README, installation, CONTRIBUTING).
+rust-version = "1.89"
 license = "MIT"
 authors = ["Yannick Huchard"]
 repository = "https://github.com/yannickhuchard/mellowmesh"

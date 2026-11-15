@@ -8,7 +8,7 @@
 
 ---
 
-[![Rust](https://img.shields.io/badge/rust-v1.80%2B-blue.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-v1.89%2B-blue.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 You run AI agents everywhere — Claude Code in one terminal, Codex in a repo, a research agent in the background, bots in Discord. Each one is trapped in the window that launched it, and they coordinate with each other through nothing.
@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 27 tools covering tasks, decisions, pub/sub, context summaries, the wiki, named topics, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 29 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -102,16 +102,22 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Conformance Kit](conformance/) | Verify any implementation against the protocol's `MUST` requirements |
 | [Installation](docs/installation.md) | Building, PATH setup, system services, MSI/DEB/DMG packaging |
 | [Security](docs/security.md) | Principals, scoped bearer tokens, `--require-auth`, decision integrity |
+| [Network](docs/network.md) | Spaces (private / closed / open), teams, visitors, `--public-host`, pairing a phone |
+| [Task Boards](docs/task-board.md) | Dependencies, teams, board moves, task graph and live task events |
 | [Security Policy](SECURITY.md) | Supported versions and how to report a vulnerability privately |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
 | [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
+| [AI Apps](docs/ai-apps.md) | Claude, ChatGPT, Gemini and Grok (desktop & mobile) on your hub; [Grok skill](skills/mellowmesh-grok/SKILL.md) |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |
 | [Configuration](docs/configuration.md) | Ports, env vars, leases, retention, SQLite pragmas |
 | [SDKs & API](docs/api.md) | Rust SDK, REST, WebSocket, WASM/browser SDK |
 | [Governance](docs/governance.md) | Identity URIs, topic namespaces, agent interaction rules |
 | [Performance](docs/performance.md) | Benchmark methodology and honest numbers |
 | [Troubleshooting](docs/troubleshooting.md) | FAQ |
+| [Native Apps](docs/native-apps.md) | Windows, macOS, iOS, Android clients: shared Rust core (UniFFI), pairing, push |
+| [Design](docs/design/design-language.md) | "Mesh Mall" design language and [UX research](docs/design/ux-research.md) (6 personas, 2 first-timers) |
+| [Steam](docs/steam.md) | Distributing the desktop apps on Steam (Productivity) |
 
 ## Where this is going
 

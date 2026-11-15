@@ -1,0 +1,45 @@
+[package]
+name = "mellowmesh-app-core"
+description = "Shared Rust core for the native MellowMesh apps (SwiftUI, Jetpack Compose, WinUI), exposed through UniFFI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+name = "mellowmesh_app_core"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+# Builds the `uniffi-bindgen` CLI used to generate Swift/Kotlin bindings from
+# the compiled library (`--library` mode).
+cli = ["uniffi/cli"]
+
+[dependencies]
+mellowmesh-core = { path = "../mellowmesh-core" }
+mellowmesh-client = { path = "../mellowmesh-client" }
+# 0.29 is the line supported by NordSecurity's uniffi-bindgen-cs (C# / WinUI).
+uniffi = "0.29.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", features = ["json"] }
+futures-util = "0.3"
+url = "2.5"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+mellowmesh-daemon = { path = "../mellowmesh-daemon" }
+mellowmesh-store = { path = "../mellowmesh-store" }
+axum = "0.7"
+tokio = { version = "1.38", features = ["full"] }

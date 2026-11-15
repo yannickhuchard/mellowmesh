@@ -1435,6 +1435,14 @@
             });
         }
 
+        // When the dashboard is opened through a relay it lives under
+        // /hub/<id>/; every API and WebSocket path must keep that prefix,
+        // otherwise requests escape to the relay's own root and 404.
+        const API_BASE = (() => {
+            const m = window.location.pathname.match(/^\/hub\/[^/]+/);
+            return m ? m[0] : '';
+        })();
+
         // ------------------------------------------------------------------
         // Mobile pairing (QR)
         // ------------------------------------------------------------------
@@ -1445,6 +1453,11 @@
                 qrLibPromise = new Promise((resolve, reject) => {
                     const s = document.createElement('script');
                     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+                    // The QR payload carries the bearer token: pin the
+                    // encoder so a compromised CDN can't swap it.
+                    s.integrity = 'sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU';
+                    s.crossOrigin = 'anonymous';
+                    s.referrerPolicy = 'no-referrer';
                     s.onload = resolve;
                     s.onerror = () => { qrLibPromise = null; reject(new Error('QR library failed to load')); };
                     document.head.appendChild(s);
@@ -1472,7 +1485,7 @@
 
             let info = {};
             try { info = await apiJson('/pairing'); } catch (e) { /* no relay info: fall back to this origin */ }
-            const mcpUrl = info.mcp_url || (window.location.origin + '/mcp');
+            const mcpUrl = info.mcp_url || (window.location.origin + API_BASE + '/mcp');
             const token = currentToken();
             const payload = 'mellowmesh://pair?url=' + encodeURIComponent(mcpUrl)
                 + (token ? '&token=' + encodeURIComponent(token) : '');
@@ -1512,11 +1525,13 @@
             const headers = new Headers(opts.headers || {});
             const token = currentToken();
             if (token) headers.set('Authorization', 'Bearer ' + token);
-            const res = await fetch(path, { ...opts, headers, credentials: 'same-origin' });
+            const res = await fetch(API_BASE + path, { ...opts, headers, credentials: 'same-origin' });
             if (res.status === 401 && attempt < 2) {
                 const entered = await requestToken(token
                     ? 'The stored access token was rejected. Paste a valid token:'
-                    : 'This daemon requires an access token. Paste one to continue:');
+                    : path.endsWith('/respond')
+                        ? 'Answering a decision needs a human token, even in open mode. Paste the owner token (the owner.token file next to the hub database) or your own human token:'
+                        : 'This daemon requires an access token. Paste one to continue:');
                 if (entered) return apiFetch(path, opts, attempt + 1);
             }
             return res;
@@ -2845,7 +2860,7 @@
             const statusText = document.getElementById('status-text');
 
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            let wsUrl = `${proto}//${window.location.host}/ws?pattern=${encodeURIComponent('**')}`;
+            let wsUrl = `${proto}//${window.location.host}${API_BASE}/ws?pattern=${encodeURIComponent('**')}`;
             // Browsers can't set headers on the upgrade request, so the token
             // travels as a query parameter (same origin only).
             const token = currentToken();

@@ -27,7 +27,7 @@ fn print_message(m: &Message) {
 
 /// Render a table. Every cell is sanitized (escape sequences and control
 /// characters removed, newlines flattened) since most cells are untrusted.
-fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+pub(crate) fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     if rows.is_empty() {
         println!("No data available.");
         return;
@@ -101,6 +101,19 @@ fn read_owner_token(dir: &Path) -> Option<String> {
         .ok()
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
+}
+
+/// Answering a decision is a human act: the daemon refuses token-less
+/// answers even in open mode. When no `MELLOWMESH_TOKEN` is set and the CLI
+/// talks to the local daemon, act as the hub owner with the `owner.token` the
+/// daemon wrote next to its database (readable only by this OS user).
+pub(crate) fn as_local_human(client: &MellowMeshClient) -> MellowMeshClient {
+    if !client.has_token() && client.targets_local() {
+        if let Some(token) = read_owner_token(&daemon_data_dir()) {
+            return client.clone().with_token(token);
+        }
+    }
+    client.clone()
 }
 
 /// Parse the contents of `mellowmeshd.pid`. Rejects anything that is not a
@@ -434,6 +447,7 @@ pub async fn run_named_topic_remove(client: &MellowMeshClient, name: &str) -> an
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_task_create(
     client: &MellowMeshClient,
     title: String,
@@ -442,6 +456,8 @@ pub async fn run_task_create(
     capabilities: Vec<String>,
     priority: String,
     created_by: Option<String>,
+    depends_on: Vec<String>,
+    team: Option<String>,
 ) -> anyhow::Result<()> {
     let creator = created_by.unwrap_or_else(|| "human://cli".to_string());
     let task = Task {
@@ -462,6 +478,9 @@ pub async fn run_task_create(
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        depends_on,
+        team,
+        ..Default::default()
     };
     client.create_task(&task).await?;
     println!("Task created successfully.");
@@ -614,7 +633,14 @@ pub async fn run_respond(
     decision_id: &str,
     option_id: &str,
 ) -> anyhow::Result<()> {
-    client.respond_decision(decision_id, option_id).await?;
+    as_local_human(client)
+        .respond_decision(decision_id, option_id)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "{e}\nAnswering a decision needs a human token: set MELLOWMESH_TOKEN, or run this on the hub's machine as the user who owns it (the CLI then uses owner.token)."
+            )
+        })?;
     println!("Decision {decision_id} answered with option {option_id}.");
     Ok(())
 }
@@ -999,6 +1025,10 @@ pub async fn run_token_list(client: &MellowMeshClient) -> anyhow::Result<()> {
                 .map(|b| if b { "revoked" } else { "active" })
                 .unwrap_or("?")
                 .to_string(),
+            t.get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         ]);
     }
     print_table(
@@ -1008,6 +1038,7 @@ pub async fn run_token_list(client: &MellowMeshClient) -> anyhow::Result<()> {
             "Read Scopes",
             "Write Scopes",
             "Status",
+            "Label",
         ],
         &rows,
     );
@@ -1056,6 +1087,7 @@ fn demo_task(id: &str, title: &str, topic: &str) -> Task {
         parent_id: None,
         lease_seconds: None,
         claim_expires_at: None,
+        ..Default::default()
     }
 }
 
@@ -1237,7 +1269,9 @@ pub async fn run_demo(client: &MellowMeshClient) -> anyhow::Result<()> {
     } else {
         "option_keep"
     };
-    client.respond_decision(&decision_id, option).await?;
+    as_local_human(client)
+        .respond_decision(&decision_id, option)
+        .await?;
     println!(
         "      Decision recorded: {option} (status: {})",
         if approved { "approved" } else { "rejected" }

@@ -42,14 +42,14 @@ pub async fn register_named_topic(
     crate::handlers::message::check_pattern(&named_topic.topic)?;
     // Mapping a name onto a topic routes messages there, so it requires
     // write access to the mapped topic — and to the topic it replaces.
-    if !ctx.can_write(&named_topic.topic) {
+    if !ctx.can_write(&state, &named_topic.topic) {
         return Err((
             StatusCode::FORBIDDEN,
             format!("Not authorized to write topic '{}'", named_topic.topic),
         ));
     }
     if let Some(existing) = find_named_topic(&state, &named_topic.name)? {
-        if !ctx.can_write(&existing.topic) {
+        if !ctx.can_write(&state, &existing.topic) {
             return Err((
                 StatusCode::FORBIDDEN,
                 format!("Not authorized to write topic '{}'", existing.topic),
@@ -121,7 +121,7 @@ pub async fn remove_named_topic(
         return Err((StatusCode::BAD_REQUEST, "Name cannot be empty".to_string()));
     }
     if let Some(existing) = find_named_topic(&state, &name)? {
-        if !ctx.can_write(&existing.topic) {
+        if !ctx.can_write(&state, &existing.topic) {
             return Err((
                 StatusCode::FORBIDDEN,
                 format!("Not authorized to write topic '{}'", existing.topic),

@@ -100,6 +100,59 @@ Claims are **leases**, not permanent ownership (default 600s). Publishing progre
 mellowmesh complete task_01kteewmcv9xch2tzjnw4gg4tc
 ```
 
+### Board, dependencies and updates
+
+```bash
+mellowmesh task create --title "Ship" --depends-on task_a --team home
+mellowmesh task update task_b --status in_progress      # or blocked, completed, cancelled, open
+mellowmesh task update task_b --assign agent://yannick/coder --priority high
+mellowmesh task update task_b --depends-on task_a        # replaces the list; --no-deps clears it
+mellowmesh task board [--mine | --agent agent://yannick/coder | --team home]
+```
+
+`task board` prints To do / Claimed / Doing / Waiting / Done columns; `!`
+marks the critical chain. See [task boards](task-board.md) for the allowed
+moves.
+
+## Your Network: Spaces, Teams, Pairing
+
+```bash
+mellowmesh network show
+mellowmesh network set --name "Yannick's mesh" --default closed|open [--visitor-write true|false]
+
+mellowmesh space add family --pattern '_chat.group.family.**' --access closed \
+    --member human://alice --team home [--peers] [--visitor-write]
+mellowmesh space list
+mellowmesh space set family --access open
+mellowmesh space remove family
+
+mellowmesh team add home --name Home [--color '#10B981']
+mellowmesh team member add home human://alice [--role member]
+mellowmesh team member remove home human://alice
+mellowmesh team list
+mellowmesh team remove home
+
+mellowmesh access check _chat.group.family.chat [--as human://alice]
+
+mellowmesh pair                      # pair a phone on the same Wi-Fi: QR code, then waits
+mellowmesh pair --name Pixel         # name the device (default: Phone)
+mellowmesh pair --url https://<name>.trycloudflare.com   # through a tunnel instead
+mellowmesh pair --no-wait            # print the code and exit
+mellowmesh devices                   # paired and pending devices
+mellowmesh devices remove tok_...    # its token stops working at once
+```
+
+On the hub's machine these commands, like `mellowmesh token …`, use the
+owner token from `owner.token` unless `MELLOWMESH_TOKEN` is set.
+
+`mellowmesh pair` needs no flags and no daemon restart: it starts the hub if
+needed, has it listen on this computer's local network address (without
+`--url`), prints a QR code to scan with the MellowMesh app plus the
+`mellowmesh-pair:` link (it contains a secret), and waits until the phone
+connects (`✓ Phone connected`). Ctrl+C stops waiting. The code expires
+after 15 minutes if unused. On Windows, click **Allow access** if Windows
+Firewall asks. Rules and API: [docs/network.md](network.md#pairing-a-device).
+
 ## Decisions (Human-in-the-Loop)
 
 ```bash
@@ -119,7 +172,10 @@ Prefix an option with `approve:` or `reject:` to give it an outcome; only those
 outcomes let the decision resolve to `approved` / `rejected`. An option
 without a prefix records the answer as `answered`.
 `mellowmesh respond` must be run by the decision's `required_decider` (or the
-hub owner) — agent tokens are refused.
+hub owner) — agent tokens are refused. Answering always needs a human token,
+even when the daemon runs in open mode: the CLI uses `MELLOWMESH_TOKEN`, or —
+on the hub's machine, as the user who runs the daemon — the owner token from
+`owner.token`.
 
 ## Security: Tokens, E2E, and MCP
 

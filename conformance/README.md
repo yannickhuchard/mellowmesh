@@ -42,6 +42,12 @@ security-critical guarantees:
 | D4 | An unknown option id is refused (400), not silently recorded. |
 | D5 | An authenticated **agent** principal can never answer a decision (403). |
 | D6 | A client cannot publish a forged `_decision.<id>.responded` event — the topic is hub-reserved (403). |
+| D7 | An **anonymous** answer is refused (401/403) and changes nothing — even on a hub running in open mode. |
+
+Answering a decision is always an authenticated human act. D2–D4 therefore
+need `--human-token`: a token of the decider `human://conformance`, or the hub
+owner's token (the reference daemon writes it to `owner.token` next to its
+database). Without it, those checks report ERROR with a hint.
 
 D2 is the one that matters most: a hub that records an approval when the human
 chose "reject" silently inverts the human's decision. If a hub fails only D2,
@@ -62,6 +68,7 @@ treat it as unsafe, not merely non-conformant.
 | `--url` | Base URL of the hub (for a relayed hub, include `/hub/<id>`). |
 | `--token` | Bearer token for setup calls, if the hub requires auth. |
 | `--agent-token` | A real `agent://` bearer token the hub issued; enables D5. |
+| `--human-token` | A human token allowed to answer for `human://conformance` (e.g. the owner token); used by D2–D4. |
 | `--reclaim-timeout` | Seconds to wait for T6 lease reclaim (default 25; raise it if the hub's sweep interval is long). |
 | `--self-test` | Run the kit's internal self-check (no server needed). |
 
@@ -69,8 +76,10 @@ treat it as unsafe, not merely non-conformant.
 
 ```bash
 # start a hub with a fast sweep so the reclaim check is quick
-MELLOWMESH_SWEEP_INTERVAL_SECS=2 mellowmeshd --port 40100 &
-python3 conformance/mellowmesh_conformance.py --url http://127.0.0.1:40100 --reclaim-timeout 20
+mkdir -p /tmp/mm-conformance
+MELLOWMESH_SWEEP_INTERVAL_SECS=2 mellowmeshd --port 40100 --db /tmp/mm-conformance/hub.db &
+python3 conformance/mellowmesh_conformance.py --url http://127.0.0.1:40100 --reclaim-timeout 20 \
+  --human-token "$(cat /tmp/mm-conformance/owner.token)"
 kill %1
 ```
 
