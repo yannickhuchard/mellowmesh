@@ -3,6 +3,7 @@ package io.mellowmesh.app.ui.welcome
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -277,13 +278,25 @@ private fun ConnectPanel(state: PairingState, vm: PairingViewModel) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Mello(size = 96.dp, mood = if (state.busy) Mood.WORKING else Mood.IDLE)
-        Gap(16.dp)
-        Text(stringResource(R.string.connect_title), style = MaterialTheme.typography.headlineLarge, color = Mesh.Ink)
+        Gap(12.dp)
+        Mello(size = 116.dp, mood = if (state.busy) Mood.WORKING else Mood.IDLE)
+        Gap(18.dp)
+        Text(
+            stringResource(R.string.connect_title),
+            style = MaterialTheme.typography.headlineLarge,
+            color = Mesh.Ink,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
         Gap(8.dp)
-        Text(stringResource(R.string.connect_body), style = MaterialTheme.typography.bodyLarge, color = Mesh.Ink2)
-        Gap(24.dp)
+        Text(
+            stringResource(R.string.connect_body),
+            style = MaterialTheme.typography.bodyLarge,
+            color = Mesh.Ink2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Gap(28.dp)
 
         InkButton(
             text = stringResource(R.string.scan_qr),
@@ -299,17 +312,18 @@ private fun ConnectPanel(state: PairingState, vm: PairingViewModel) {
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        Gap(10.dp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { vm.setMode(ConnectMode.CODE) }, modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.enter_code), color = Mesh.Ink)
-            }
-            OutlinedButton(onClick = { vm.setMode(ConnectMode.PASTE) }, modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.paste_link), color = Mesh.Ink)
-            }
-            OutlinedButton(onClick = { vm.setMode(ConnectMode.MANUAL) }, modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.enter_manually), color = Mesh.Ink)
-            }
+        Gap(24.dp)
+        Text(
+            stringResource(R.string.other_ways),
+            style = MaterialTheme.typography.labelLarge,
+            color = Mesh.Ink2,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Gap(8.dp)
+        MeshCard(Modifier.fillMaxWidth()) {
+            ConnectChoiceRow(stringResource(R.string.enter_code), selected = state.mode == ConnectMode.CODE) { vm.setMode(ConnectMode.CODE) }
+            ConnectChoiceRow(stringResource(R.string.paste_link), selected = state.mode == ConnectMode.PASTE) { vm.setMode(ConnectMode.PASTE) }
+            ConnectChoiceRow(stringResource(R.string.enter_manually), selected = state.mode == ConnectMode.MANUAL, last = true) { vm.setMode(ConnectMode.MANUAL) }
         }
         Gap(16.dp)
 
@@ -420,6 +434,28 @@ private fun ConnectPanel(state: PairingState, vm: PairingViewModel) {
             ErrorNote(it)
         }
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+/** One tappable "other way in" row: label, chevron, a thin divider between rows. */
+@Composable
+private fun ConnectChoiceRow(label: String, selected: Boolean, last: Boolean = false, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp, horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) Mesh.Indigo else Mesh.Ink,
+        )
+        Text("›", style = MaterialTheme.typography.bodyLarge, color = Mesh.Ink2)
+    }
+    if (!last) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Mesh.Ink2.copy(alpha = 0.15f)))
     }
 }
 

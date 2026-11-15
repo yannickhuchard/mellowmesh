@@ -131,6 +131,7 @@ pub fn create_router(state: AppState) -> Router {
             delete(handlers::network::remove_team_member),
         )
         .route("/access/check", get(handlers::network::access_check))
+        .route("/platforms", get(platforms_handler))
         .route("/pair", post(handlers::pairing::pair))
         .route("/pair/claim", post(handlers::pairing::claim_pairing_code))
         .route("/pair/:token_id", get(handlers::pairing::pair_status))
@@ -162,6 +163,33 @@ const WS_QUEUE_CAPACITY: usize = 1000;
 
 async fn health_handler() -> &'static str {
     "OK"
+}
+
+/// `GET /platforms`: AI platforms spotted on this machine (owner only —
+/// it is an inventory of the hub's own computer).
+async fn platforms_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+) -> impl IntoResponse {
+    if !crate::auth::is_admin(&state, &ctx) {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::response::Json(serde_json::json!({
+                "error": "Only the owner may see this machine's platforms"
+            })),
+        )
+            .into_response();
+    }
+    let mut snap = crate::platforms::snapshot();
+    if snap.looked_at.is_none() {
+        snap = crate::platforms::scan_now().await;
+    }
+    axum::response::Json(serde_json::json!({
+        "machine": state.node_id,
+        "looked_at": snap.looked_at,
+        "platforms": snap.platforms,
+    }))
+    .into_response()
 }
 
 async fn ui_handler() -> impl IntoResponse {

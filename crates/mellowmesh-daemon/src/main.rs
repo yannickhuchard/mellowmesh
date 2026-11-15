@@ -338,6 +338,9 @@ async fn main() -> anyhow::Result<()> {
         args.port
     );
 
+    // Notice the AI platforms running on this machine (names only, local).
+    mellowmesh_daemon::platforms::start();
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     state.access.pairing.set_primary_listen(args.listen);
 

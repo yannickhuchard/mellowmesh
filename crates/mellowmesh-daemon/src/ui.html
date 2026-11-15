@@ -754,6 +754,186 @@
             color: var(--text-muted);
         }
 
+        /* Spotted on this machine */
+        .platforms-hint {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin: 0 0 0.75rem 0;
+            line-height: 1.45;
+        }
+
+        .platforms-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .platform-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.55rem 0.7rem;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .platform-row.off {
+            opacity: 0.45;
+        }
+
+        .platform-glyph {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 0.85rem;
+            background: rgba(139, 92, 246, 0.2);
+            flex-shrink: 0;
+        }
+
+        .platform-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .platform-state {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .platform-state .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 4px;
+            background: #5b5b66;
+        }
+
+        .platform-state.on {
+            color: var(--accent-emerald, #10b981);
+        }
+
+        .platform-state.on .dot {
+            background: #10b981;
+            animation: pf-pulse 1.6s ease-in-out infinite;
+        }
+
+        @keyframes pf-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        .platform-main { flex-grow: 1; min-width: 0; }
+
+        .invite-code {
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.45);
+            font-size: 0.8rem;
+            word-break: break-all;
+            user-select: all;
+            margin-bottom: 0.75rem;
+        }
+
+        .invite-prompt {
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 0.75rem;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 0.75rem;
+        }
+
+        /* A loud, happy arrival: confetti + a check that pops. */
+        .celebrate {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .celebrate[hidden] { display: none; }
+
+        .celebrate-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 1.6rem 2.4rem;
+            border-radius: 18px;
+            background: rgba(10, 12, 20, 0.88);
+            border: 1px solid rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 80px rgba(16, 185, 129, 0.35);
+            animation: cel-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+        }
+
+        .celebrate-check {
+            width: 84px;
+            height: 84px;
+        }
+
+        .celebrate-check circle {
+            fill: rgba(16, 185, 129, 0.15);
+            stroke: #10b981;
+            stroke-width: 3;
+        }
+
+        .celebrate-check path {
+            fill: none;
+            stroke: #10b981;
+            stroke-width: 8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 60;
+            stroke-dashoffset: 60;
+            animation: pair-draw 0.5s ease-out 0.3s forwards;
+        }
+
+        .celebrate-title {
+            font-size: 1.3rem;
+            font-weight: 800;
+        }
+
+        .celebrate-sub {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        @keyframes cel-pop {
+            from { transform: scale(0.5); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .celebrate-confetti { position: absolute; inset: 0; }
+
+        .celebrate-confetti i {
+            position: absolute;
+            top: -4vh;
+            width: 10px;
+            height: 16px;
+            border-radius: 2px;
+            animation: cel-fall 2.8s cubic-bezier(0.2, 0.6, 0.6, 1) forwards;
+        }
+
+        @keyframes cel-fall {
+            0% { transform: translateY(0) rotate(0) scale(1); opacity: 1; }
+            100% { transform: translateY(108vh) rotate(720deg) scale(0.8); opacity: 0.7; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .celebrate-confetti i { animation: none; display: none; }
+            .celebrate-card { animation: none; }
+        }
+
         /* The moment the phone joins: a mint check that pops in. */
         .pair-success {
             width: 220px;
@@ -1297,7 +1477,50 @@
                     <button type="submit" class="btn btn-secondary btn-sm">Add Mapping</button>
                 </form>
             </div>
+
+            <!-- AI platforms spotted on this machine -->
+            <div class="glass-card">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 5a7 7 0 0 1 7 7M12 1a11 11 0 0 1 11 11M12 19a7 7 0 0 1-7-7M12 23A11 11 0 0 1 1 12"/></svg>
+                    Spotted on this machine
+                </h2>
+                <p class="platforms-hint">AI platforms MellowMesh noticed here. Nothing leaves this computer — it only reads the names of running programs.</p>
+                <div id="platforms-list" class="platforms-list">
+                    <div class="empty-state">Looking around…</div>
+                </div>
+            </div>
         </aside>
+
+        <!-- Invite a platform: one command, or one message to paste -->
+        <div id="invite-overlay" class="pair-overlay" hidden>
+            <div class="glass-card pair-modal">
+                <div class="pair-caption">Invite to your network</div>
+                <h2 id="invite-title" class="pair-headline">Invite</h2>
+                <div id="invite-command-wrap" hidden>
+                    <p class="platforms-hint">Type this one line where it runs:</p>
+                    <div class="invite-code"><code id="invite-command"></code></div>
+                </div>
+                <div id="invite-paste-wrap" hidden>
+                    <p class="platforms-hint">Paste this message into its chat. It carries a one-time code that works for 15 minutes.</p>
+                    <textarea id="invite-prompt" class="invite-prompt" readonly rows="9"></textarea>
+                </div>
+                <p class="platforms-hint"><b>What happens:</b> it gains a door to your network — read topics, take tasks, post results — and still asks you before anything important.</p>
+                <div class="pair-actions">
+                    <button type="button" id="invite-copy-btn" class="btn btn-sm">Copy</button>
+                    <button type="button" id="invite-close-btn" class="btn btn-sm btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Someone new: a loud, happy arrival -->
+        <div id="celebrate" class="celebrate" hidden>
+            <div class="celebrate-confetti" aria-hidden="true"></div>
+            <div class="celebrate-card">
+                <svg viewBox="0 0 100 100" class="celebrate-check" aria-hidden="true"><circle cx="50" cy="50" r="45"></circle><path d="M30 52 L45 66 L71 38"></path></svg>
+                <div id="celebrate-title" class="celebrate-title"></div>
+                <div id="celebrate-sub" class="celebrate-sub"></div>
+            </div>
+        </div>
 
         <!-- Right Column: Navigation Tabs & Grid Contents -->
         <section class="dashboard-grid">
@@ -1810,6 +2033,176 @@
             });
         }
 
+        // ------------------------------------------------------------------
+        // AI platforms spotted on this machine + arrival celebrations
+        // ------------------------------------------------------------------
+        let platformsSeen = null;  // Set of running platform ids (null until first load)
+        let agentsSeen = null;     // Set of agent ids
+        let inviteContext = null;  // { name, text } for the copy button
+
+        function celebrate(title, sub) {
+            const el = document.getElementById('celebrate');
+            const confetti = el.querySelector('.celebrate-confetti');
+            const colors = ['#10b981', '#8b5cf6', '#f59e0b', '#38bdf8', '#f472b6'];
+            confetti.innerHTML = '';
+            for (let i = 0; i < 36; i++) {
+                const piece = document.createElement('i');
+                piece.style.left = (Math.random() * 100) + 'vw';
+                piece.style.background = colors[i % colors.length];
+                piece.style.animationDelay = (Math.random() * 0.7) + 's';
+                piece.style.animationDuration = (2.2 + Math.random() * 1.4) + 's';
+                confetti.appendChild(piece);
+            }
+            document.getElementById('celebrate-title').textContent = title;
+            document.getElementById('celebrate-sub').textContent = sub;
+            el.hidden = false;
+            clearTimeout(celebrate._t);
+            celebrate._t = setTimeout(() => { el.hidden = true; confetti.innerHTML = ''; }, 4200);
+        }
+
+        function platformGlyph(name) {
+            return name.trim().charAt(0).toUpperCase();
+        }
+
+        async function loadPlatforms() {
+            let data;
+            try { data = await apiJson('/platforms'); } catch (e) { return; }
+            const running = data.platforms.filter(p => p.running);
+            const off = data.platforms.filter(p => !p.running);
+
+            // A platform that starts running after the first look = spotted now.
+            const ids = new Set(running.map(p => p.id));
+            if (platformsSeen) {
+                for (const p of running) {
+                    if (!platformsSeen.has(p.id)) {
+                        celebrate(`${p.name} spotted!`, 'It is working on this machine right now. Invite it from the Plaza.');
+                    }
+                }
+            }
+            platformsSeen = ids;
+
+            // Rebuild only when something changed: a list that re-renders
+            // every poll steals clicks from under the pointer.
+            const fingerprint = JSON.stringify(data.platforms);
+            if (loadPlatforms._fp === fingerprint) return;
+            loadPlatforms._fp = fingerprint;
+
+            const list = document.getElementById('platforms-list');
+            list.innerHTML = '';
+            if (!running.length && !off.length) {
+                list.innerHTML = '<div class="empty-state">Nothing spotted yet.</div>';
+                return;
+            }
+            for (const p of running) {
+                const row = document.createElement('div');
+                row.className = 'platform-row';
+                row.innerHTML = `
+                    <span class="platform-glyph">${platformGlyph(p.name)}</span>
+                    <div class="platform-main">
+                        <div class="platform-name"></div>
+                        <div class="platform-state on"><span class="dot"></span>Working right now · ${p.sessions} session${p.sessions > 1 ? 's' : ''}</div>
+                    </div>`;
+                row.querySelector('.platform-name').textContent = p.name;
+                if (p.invite !== 'none') {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm';
+                    btn.textContent = 'Invite';
+                    btn.addEventListener('click', () => openInvite(p));
+                    row.appendChild(btn);
+                }
+                list.appendChild(row);
+            }
+            // The quiet ones, folded into one line each.
+            for (const p of off) {
+                const row = document.createElement('div');
+                row.className = 'platform-row off';
+                row.innerHTML = `
+                    <span class="platform-glyph">${platformGlyph(p.name)}</span>
+                    <div class="platform-main">
+                        <div class="platform-name"></div>
+                        <div class="platform-state"><span class="dot"></span>Not seen right now</div>
+                    </div>`;
+                row.querySelector('.platform-name').textContent = p.name;
+                list.appendChild(row);
+            }
+        }
+
+        // New agents joining the fabric get the same celebration.
+        async function watchAgents() {
+            let agents;
+            try { agents = await apiJson('/agents'); } catch (e) { return; }
+            const ids = new Set(agents.map(a => a.id));
+            if (agentsSeen) {
+                for (const a of agents) {
+                    if (!agentsSeen.has(a.id)) {
+                        celebrate(`${a.name || a.id} joined your network!`, `A new helper is here (${a.id}).`);
+                    }
+                }
+            }
+            agentsSeen = ids;
+        }
+
+        async function openInvite(p) {
+            const overlay = document.getElementById('invite-overlay');
+            document.getElementById('invite-title').textContent = 'Invite ' + p.name;
+            const cmdWrap = document.getElementById('invite-command-wrap');
+            const pasteWrap = document.getElementById('invite-paste-wrap');
+            cmdWrap.hidden = true;
+            pasteWrap.hidden = true;
+            overlay.hidden = false;
+
+            if (p.invite === 'command') {
+                document.getElementById('invite-command').textContent = p.command;
+                inviteContext = { text: p.command };
+                cmdWrap.hidden = false;
+                return;
+            }
+            // Paste invite: mint a one-time pairing and write the message.
+            const area = document.getElementById('invite-prompt');
+            area.value = 'Making a one-time code…';
+            pasteWrap.hidden = false;
+            try {
+                const res = await apiFetch('/pair', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: p.name }),
+                });
+                if (!res.ok) throw new Error(String(res.status));
+                const pair = await res.json();
+                const prompt =
+`You are invited to join my MellowMesh network ("${pair.network}") as one of my helpers.
+
+1. Exchange this one-time code for your key (it works once, for 15 minutes):
+   POST ${pair.url}/pair/claim
+   Body: {"code": "${pair.code}"}
+   The answer's "link" holds url and token parameters.
+2. Connect to the MCP server at ${pair.url}/mcp (Streamable HTTP) with the header:
+   Authorization: Bearer <token from the link>
+3. Say hello: call the "publish" tool with topic "_forum.general" and a short message.
+
+Rules of the house: you act as my helper, and anything important needs my explicit OK. If you cannot make HTTP calls or add MCP servers, say so instead of guessing.`;
+                area.value = prompt;
+                inviteContext = { text: prompt };
+            } catch (e) {
+                area.value = 'Could not make a code. Try again.';
+                inviteContext = null;
+            }
+        }
+
+        function initPlatformsUi() {
+            document.getElementById('invite-close-btn').addEventListener('click', () => {
+                document.getElementById('invite-overlay').hidden = true;
+            });
+            document.getElementById('invite-overlay').addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) e.currentTarget.hidden = true;
+            });
+            document.getElementById('invite-copy-btn').addEventListener('click', async () => {
+                if (!inviteContext) return;
+                try { await navigator.clipboard.writeText(inviteContext.text); } catch (e) { /* unavailable */ }
+            });
+        }
+
         // Single wrapper for every HTTP call the dashboard makes: adds the
         // bearer token and, on 401, asks for a token once and retries.
         async function apiFetch(path, opts = {}, attempt = 0) {
@@ -1842,6 +2235,7 @@
         window.addEventListener('DOMContentLoaded', () => {
             initTokenUi();
             initPairUi();
+            initPlatformsUi();
             initWebSocket();
             loadAllData();
             // Poll for updates periodically as fallback
@@ -1899,7 +2293,7 @@
         async function loadAllData() {
             // While the token field is open, don't queue more requests behind it.
             if (tokenPrompt) return;
-            const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries];
+            const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries, loadPlatforms, watchAgents];
             if (document.getElementById('tab-wiki').classList.contains('active')) {
                 loaders.push(loadWikiPages);
             }

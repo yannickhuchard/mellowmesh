@@ -7,6 +7,7 @@ pub mod metrics;
 pub mod notify;
 pub mod pairing;
 pub mod peer;
+pub mod platforms;
 pub mod pidfile;
 pub mod pipeline;
 pub mod relay_link;

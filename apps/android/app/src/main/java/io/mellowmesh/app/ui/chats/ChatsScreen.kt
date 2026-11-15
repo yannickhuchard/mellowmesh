@@ -61,7 +61,7 @@ fun kindLabel(kind: ConversationKind): String = stringResource(
 )
 
 @Composable
-fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit) {
+fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () -> Unit = {}) {
     val app = LocalContext.current.meshApp
     val home by app.repo.home.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { app.repo.refreshHome() }
@@ -76,6 +76,12 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit) {
                 Mello(size = 110.dp)
                 Gap()
                 Text(stringResource(R.string.no_chats), color = Mesh.Ink2, style = MaterialTheme.typography.bodyLarge)
+                Gap(20.dp)
+                io.mellowmesh.app.ui.components.InkButton(
+                    text = stringResource(R.string.meet_helpers),
+                    onClick = onFindHelpers,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         } else {
             LazyColumn(

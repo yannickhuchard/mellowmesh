@@ -100,6 +100,59 @@ finance).*
 developer mode (traces, raw payloads, MeshUI previews on all four renderers)
 that stays out of everyone else's way.
 
+## Feature research — the network notices your AI platforms
+
+*Problem.* A machine often already runs AI coding assistants — Claude Code,
+Codex, Gemini CLI, Antigravity, Cursor, Windsurf, Copilot, a local Ollama —
+and MellowMesh cannot see any of them. Each one must be connected by hand
+(find the right MCP command, open a terminal, paste it). The mall has
+helpers inside, but nobody watches the street.
+
+*Opportunity.* The hub can notice, **on its own machine and with no data
+leaving it**, which platforms are installed and which are running right now
+— per session: "Claude Code, 2 sessions, working right now". One glance
+answers "what AI is active on my machines?", and one action invites a
+platform into the network.
+
+*Who needs it first.*
+
+* **Karim (indie dev, primary)** — runs several coding assistants at once.
+  Key moment: opens the dashboard, sees "Spotted on this machine: Claude
+  Code (2 sessions), Codex (asleep)", taps *Invite* on Claude Code and
+  reads the one-line command already filled in.
+* **Sofia (eng lead)** — wants to know which assistants her team's hub
+  machines actually run before a review. The list is an inventory, not a
+  surveillance tool: processes only, never window contents or prompts.
+* **Aïcha (admin)** — hygiene: an assistant running on a hub machine that
+  is *not* connected (and so not governed) is worth noticing.
+* **Marc / Nadia** — never see this card unless something was spotted, and
+  then only in plain words ("Claude Code is an AI coding assistant that is
+  working on this computer right now").
+
+*Plain-words rule.* "Spotted / working right now / asleep / invite" — never
+"process scan", "PID", "detection heuristic". The technical description
+(process names matched, exact counts) lives behind the usual ⓘ.
+
+*Privacy rule (sovereignty).* Discovery looks at local process names only,
+on the hub's machine, locally; nothing is sent anywhere, and the list is
+served only to the owner. No window titles, no file paths, no prompts.
+
+*New job to be done* (slots between 4 and 5 below): **Know which AI
+platforms are on my machines — and invite one in one action.**
+
+*Flow F6 — Spot and invite a platform (Karim).* Dashboard (or Windows app
+Plaza) → card "Spotted on this machine" → rows with name, state (working
+right now · N sessions / asleep / not seen today) → *Invite* → the exact
+connect command for that platform, copy button, and "what happens if you
+run it" in one sentence → once the platform joins, the row turns mint:
+"connected to your network".
+
+*First-use test addition.*
+
+| # | Task | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T6 | Find out which AI assistants are running on this computer, and connect one. | 4 min | Finds the card without the search box; can say afterwards what was shared (nothing left the machine). |
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

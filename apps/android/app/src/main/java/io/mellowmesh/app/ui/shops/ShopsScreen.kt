@@ -108,6 +108,23 @@ private fun ShopWindowCard(shop: ShopWindow, mood: Mood, onOpen: () -> Unit, onH
         }
         Gap(8.dp)
         NameWithTag(shop.name, isHelper = true)
+        // Where this helper comes from: its owner, and whether it is only
+        // a demo example — so no helper is ever a mystery.
+        if (shop.agent.capabilities.contains("demo")) {
+            Text(
+                stringResource(R.string.demo_badge),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Amber,
+                maxLines = 2,
+            )
+        } else if (shop.agent.owner.isNotEmpty()) {
+            Text(
+                stringResource(R.string.from_owner, shop.agent.owner),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Ink2,
+                maxLines = 1,
+            )
+        }
         if (shop.agent.capabilities.isNotEmpty()) {
             Text(
                 shop.agent.capabilities.take(3).joinToString(" · "),

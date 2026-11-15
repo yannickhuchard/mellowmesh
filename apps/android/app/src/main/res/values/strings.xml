@@ -53,6 +53,7 @@
     <string name="paste_link">Paste a pairing link</string>
     <string name="pairing_link_label">Pairing link</string>
     <string name="enter_code">Enter a code</string>
+    <string name="other_ways">Not in front of the computer?</string>
     <string name="pairing_code_label">Code on the screen</string>
     <string name="pairing_code_hint">7KM-P4Q</string>
     <string name="pairing_code_where">Where the code is shown, it also says where: type that address here.</string>
@@ -91,6 +92,9 @@
 
     <!-- Chats -->
     <string name="no_chats">No conversations yet. Say hello to one of your helpers.</string>
+    <string name="meet_helpers">Meet your helpers</string>
+    <string name="from_owner">Brought by %1$s</string>
+    <string name="demo_badge">Demo example — from “mellowmesh demo”</string>
     <string name="kind_agent">Helper</string>
     <string name="kind_squad">Meeting room</string>
     <string name="kind_group">Group</string>

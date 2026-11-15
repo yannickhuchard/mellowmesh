@@ -230,7 +230,11 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                     )
                 }
                 composable(Routes.CHATS) {
-                    ChatsScreen(onHelp = help, onOpen = { nav.navigate(Routes.conversation(it)) })
+                    ChatsScreen(
+                        onHelp = help,
+                        onOpen = { nav.navigate(Routes.conversation(it)) },
+                        onFindHelpers = { nav.goTab(Routes.SHOPS) },
+                    )
                 }
                 composable(Routes.TODO) {
                     TodoScreen(
