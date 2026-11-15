@@ -49,8 +49,12 @@ public partial class App : Application
         {
             NotificationService.Instance.QueueActivation(toast.Arguments);
         }
-        await Shell.StartAsync();
+        await Shell.StartAsync(WantsPairing(Environment.GetCommandLineArgs()));
     }
+
+    /// <summary><c>MellowMesh.exe --pair</c> opens "Connect a phone" straight away.</summary>
+    internal static bool WantsPairing(IEnumerable<string>? args) =>
+        args is not null && args.Any(a => string.Equals(a?.Trim(), "--pair", StringComparison.OrdinalIgnoreCase));
 
     private void OnRedirectedActivation(object? sender, AppActivationArguments e)
     {
@@ -65,6 +69,12 @@ public partial class App : Application
             if (e.Kind == ExtendedActivationKind.AppNotification && e.Data is AppNotificationActivatedEventArgs toast)
             {
                 NotificationService.Instance.HandleActivation(toast.Arguments);
+            }
+            else if (e.Kind == ExtendedActivationKind.Launch
+                && e.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch
+                && WantsPairing((launch.Arguments ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries)))
+            {
+                _ = window.OpenPairingAsync();
             }
         });
     }

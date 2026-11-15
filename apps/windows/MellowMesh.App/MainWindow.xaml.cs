@@ -45,21 +45,60 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    /// <summary>Resume the saved connection, or show the welcome tour.</summary>
-    public async Task StartAsync()
+    /// <summary>
+    /// Resume the saved connection, or show the welcome tour. With
+    /// <paramref name="openPairing"/> (<c>MellowMesh.exe --pair</c>) the app
+    /// connects to the hub on this PC if needed and opens "Connect a phone".
+    /// </summary>
+    public async Task StartAsync(bool openPairing = false)
     {
         _state.AttachDispatcher(DispatcherQueue);
         NotificationService.Instance.StartDigestTimer(DispatcherQueue);
         UpdateLive();
-        if (await _state.TryResumeAsync())
+        var connected = await _state.TryResumeAsync();
+        if (!connected && openPairing)
+        {
+            connected = await TryConnectThisPcAsync();
+        }
+        if (connected)
         {
             ShowShell();
-            Navigate("plaza");
+            Navigate(openPairing ? "phone" : "plaza");
             NotificationService.Instance.FlushPending();
         }
         else
         {
             ShowWelcome();
+            if (openPairing)
+            {
+                ShowWhisper("MellowMesh can't reach the hub on this PC. Start it with \"mellowmesh daemon start\", then try again.", isError: true);
+            }
+        }
+    }
+
+    /// <summary>Open "Connect a phone" (a second <c>MellowMesh.exe --pair</c> while the app runs).</summary>
+    public async Task OpenPairingAsync()
+    {
+        BringToFront();
+        if (!_state.IsConnected && !await TryConnectThisPcAsync())
+        {
+            ShowWhisper("MellowMesh can't reach the hub on this PC. Start it with \"mellowmesh daemon start\", then try again.", isError: true);
+            return;
+        }
+        ShowShell();
+        Navigate("phone");
+    }
+
+    private async Task<bool> TryConnectThisPcAsync()
+    {
+        try
+        {
+            await _state.ConnectAsync(MellowMesh.Core.Pairing.LocalHub.DefaultBaseUrl, MellowMesh.Core.Pairing.LocalHub.TryReadOwnerToken(), thisPc: true);
+            return _state.IsConnected;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 

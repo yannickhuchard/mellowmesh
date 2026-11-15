@@ -147,6 +147,16 @@ the key on this PC; revoke it on the hub with `mellowmesh token revoke <id>`.
 Pairing a phone is one action: the PC shows a QR code, you scan it with the
 MellowMesh app on your phone, done.
 
+From a fresh checkout, one command builds the app, starts (or updates) the
+hub on this PC and opens the app straight on **Connect a phone**:
+
+```powershell
+.\apps\windows\build.ps1 -Pair
+```
+
+`MellowMesh.exe --pair` does the same with an installed app (it connects to
+the hub on this PC if no connection is saved).
+
 1. Open **Connect a phone** — from the *Connect your phone* card on the
    Plaza (shown until a phone is paired), **Settings → Devices**, or
    **Your network → Phones on your Wi-Fi**.
