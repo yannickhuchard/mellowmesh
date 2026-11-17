@@ -134,6 +134,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/platforms", get(platforms_handler))
         .route("/platforms/:id/mellows", post(create_mellow_handler))
         .route("/platforms/:id/connect", post(connect_platform_handler))
+        .route("/platforms/:id/invite", post(invite_platform_handler))
         .route("/mellows", get(list_mellows_handler))
         .route("/mellows/next", get(mellow_next_handler))
         .route("/mellows/reply", post(mellow_reply_handler))
@@ -178,9 +179,9 @@ async fn platforms_handler(
 ) -> impl IntoResponse {
     if !crate::auth::is_admin(&state, &ctx) {
         return (
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(&ctx),
             axum::response::Json(serde_json::json!({
-                "error": "Only the owner may see this machine's platforms"
+                "error": "Only the owner may see this machine's platforms (use the owner token)"
             })),
         )
             .into_response();
@@ -207,9 +208,6 @@ async fn platforms_handler(
             v["connect"] = serde_json::json!(kind);
             v["connected"] = serde_json::json!(connected);
             v["web"] = serde_json::json!(kind == "message");
-            if kind == "snippet" {
-                v["snippet"] = serde_json::json!(crate::connect::snippet());
-            }
             v["can_chat"] = serde_json::json!(can_host && (p.installed || p.running));
             v["hosted"] = serde_json::json!(crate::mellows::is_hosted(p.id));
             v["headless"] = serde_json::json!(headless && p.can_chat);
@@ -258,13 +256,24 @@ fn owner_only(state: &AppState, ctx: &crate::auth::AuthContext) -> Option<axum::
     }
     Some(
         (
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(ctx),
             axum::response::Json(serde_json::json!({
-                "error": "Only the owner may do this on their own computer"
+                "error": "Only the owner may do this (use the owner token)"
             })),
         )
             .into_response(),
     )
+}
+
+/// Refusal for a caller that may not host Mellows of a platform.
+fn host_refused(ctx: &crate::auth::AuthContext) -> axum::response::Response {
+    (
+        crate::auth::admin_refusal(ctx),
+        axum::response::Json(serde_json::json!({
+            "error": "Only the owner, or the platform's own MellowMesh token, may host its Mellows"
+        })),
+    )
+        .into_response()
 }
 
 /// `POST /platforms/:id/mellows`: make a Mellow from an installed platform
@@ -324,14 +333,21 @@ async fn connect_platform_handler(
     if let Some(no) = owner_only(&state, &ctx) {
         return no;
     }
-    let outcome = tokio::task::spawn_blocking(move || crate::connect::connect(&id))
+    let store = state.store.clone();
+    let owner = state.owner.clone();
+    let outcome = tokio::task::spawn_blocking(move || crate::connect::connect(&store, &owner, &id))
         .await
         .unwrap_or_else(|e| Err(format!("Something went wrong while connecting: {e}")));
+    state.caches.clear_tokens();
     match outcome {
-        Ok(what_changed) => {
-            tracing::info!("One-click connect: {}", what_changed);
-            axum::response::Json(serde_json::json!({ "connected": true, "message": what_changed }))
-                .into_response()
+        Ok(done) => {
+            tracing::info!("One-click connect: {}", done.message);
+            axum::response::Json(serde_json::json!({
+                "connected": done.snippet.is_none(),
+                "message": done.message,
+                "snippet": done.snippet,
+            }))
+            .into_response()
         }
         Err(why) => (
             StatusCode::BAD_REQUEST,
@@ -339,6 +355,84 @@ async fn connect_platform_handler(
         )
             .into_response(),
     }
+}
+
+/// Where a web assistant reaches this hub: the relay hub URL, else a public
+/// (tunnel) host, else the LAN listener, else loopback.
+fn invite_base_url(state: &AppState) -> String {
+    if let (Ok(relay), Ok(Some(hub))) = (
+        std::env::var("MELLOWMESH_RELAY_URL"),
+        state.store.get_config("relay_hub_id"),
+    ) {
+        let relay = relay.trim().trim_end_matches('/');
+        if !relay.is_empty() {
+            return format!("{relay}/hub/{hub}");
+        }
+    }
+    let public = state.access.public_hosts();
+    if let Some(host) = public.iter().find(|h| {
+        let name = h.split(':').next().unwrap_or("");
+        name.contains('.')
+            && name.chars().any(|c| c.is_ascii_alphabetic())
+            && !name.ends_with(".local")
+            && name != "localhost"
+    }) {
+        return format!("https://{host}");
+    }
+    if let Some(addr) = state.access.pairing.lan_address() {
+        return format!("http://{addr}");
+    }
+    format!("http://127.0.0.1:{}", state.port)
+}
+
+/// `POST /platforms/:id/invite`: a pasteable invitation for an AI app that
+/// lives on the web. It carries a one-time claim code for a token scoped to
+/// that app's own principal — never the owner's powers (owner only).
+async fn invite_platform_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    let Some(spec) = crate::platforms::spec(&id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::response::Json(serde_json::json!({ "error": "That AI app is not one MellowMesh knows." })),
+        )
+            .into_response();
+    };
+    let store = state.store.clone();
+    let owner = state.owner.clone();
+    let issued = tokio::task::spawn_blocking(move || crate::connect::issue_platform_token(&store, &owner, spec))
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+    state.caches.clear_tokens();
+    let (principal, token) = match issued {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::response::Json(serde_json::json!({ "error": format!("No invitation could be made: {e}") })),
+            )
+                .into_response()
+        }
+    };
+    let url = invite_base_url(&state);
+    let network = state.store.get_network().map(|n| n.name).unwrap_or_default();
+    let link = mellowmesh_core::pairing::pairing_link(&url, &token, &network, &principal);
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
+    let code = state.access.pairing.register_claim_code(&link, expires_at);
+    axum::response::Json(serde_json::json!({
+        "code": code,
+        "url": url,
+        "network": network,
+        "principal": principal,
+        "expires_at": expires_at,
+    }))
+    .into_response()
 }
 
 /// `GET /mellows`: the Mellows bound to platforms on this machine.
@@ -369,8 +463,10 @@ async fn mellow_next_handler(
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     Query(params): Query<MellowNextParams>,
 ) -> axum::response::Response {
-    if let Some(no) = owner_only(&state, &ctx) {
-        return no;
+    match crate::mellows::host_right(&state, &ctx) {
+        crate::mellows::HostRight::Any => {}
+        crate::mellows::HostRight::Platform(p) if p == params.platform => {}
+        _ => return host_refused(&ctx),
     }
     if crate::platforms::spec(&params.platform).is_none() {
         return (
@@ -393,10 +489,12 @@ async fn mellow_reply_handler(
     axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
     axum::Json(body): axum::Json<MellowReply>,
 ) -> axum::response::Response {
-    if let Some(no) = owner_only(&state, &ctx) {
-        return no;
-    }
-    match crate::mellows::reply(&state, &body.agent_id, body.message_id.as_deref(), &body.body).await {
+    let only = match crate::mellows::host_right(&state, &ctx) {
+        crate::mellows::HostRight::Any => None,
+        crate::mellows::HostRight::Platform(p) => Some(p),
+        crate::mellows::HostRight::None => return host_refused(&ctx),
+    };
+    match crate::mellows::reply(&state, &body.agent_id, body.message_id.as_deref(), &body.body, only).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
@@ -418,7 +516,7 @@ async fn shutdown_handler(
     // interface token must not be able to take the whole fabric down.
     if !crate::auth::is_admin(&state, &ctx) {
         return (
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(&ctx),
             axum::response::Json(
                 serde_json::json!({ "error": "Only the owner may shut down the daemon" }),
             ),
@@ -1245,14 +1343,126 @@ mod tests {
         assert_eq!(r["result"]["protocolVersion"], "2025-06-18");
     }
 
+    /// Review finding: a token-less local program could mint a human token
+    /// and answer decisions as anyone. Local alone is no longer the owner.
+    #[tokio::test]
+    async fn a_token_less_local_caller_cannot_act_as_the_owner() {
+        let store = Store::new_in_memory().unwrap();
+        let base = serve(test_state(store, false), 41071).await;
+        let http = reqwest::Client::new();
+        let mint = http
+            .post(format!("{base}/auth/tokens"))
+            .json(&serde_json::json!({ "principal": "human://test" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(mint.status(), 401, "no token, no new tokens");
+        for (method, path) in [
+            ("POST", "/pair"),
+            ("POST", "/platforms/cursor/connect"),
+            ("POST", "/platforms/chatgpt/invite"),
+            ("GET", "/platforms"),
+            ("GET", "/mellows/next?platform=claude-code&wait=0"),
+            ("POST", "/shutdown"),
+        ] {
+            let req = match method {
+                "GET" => http.get(format!("{base}{path}")),
+                _ => http.post(format!("{base}{path}")).json(&serde_json::json!({})),
+            };
+            assert_eq!(req.send().await.unwrap().status(), 401, "{method} {path}");
+        }
+    }
+
+    /// Review finding: a connected app or invited assistant got the owner's
+    /// powers. Its own token reaches shared rooms and its own corner, may
+    /// host its own platform's Mellows, and nothing more.
+    #[tokio::test]
+    async fn a_platform_token_is_scoped_and_hosts_only_its_platform() {
+        let store = Store::new_in_memory().unwrap();
+        let state = test_state(store.clone(), false);
+        let spec = crate::platforms::spec("cursor").unwrap();
+        let (principal, token) =
+            crate::connect::issue_platform_token(&store, &state.owner, spec).unwrap();
+        assert_eq!(principal, "agent://test/cursor");
+        let base = serve(state, 41072).await;
+        let http = reqwest::Client::new();
+        let publish = |topic: &str| {
+            http.post(format!("{base}/publish"))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({
+                    "id": "", "topic": topic, "from": "agent://test/cursor",
+                    "timestamp": "2026-11-17T00:00:00Z", "content_type": "text/plain", "body": "hi"
+                }))
+                .send()
+        };
+        assert_eq!(publish("_forum.general").await.unwrap().status(), 200);
+        assert_eq!(publish("_agent.test.cursor.notes").await.unwrap().status(), 200);
+        assert_eq!(publish("_agent.test.reviewer.inbox").await.unwrap().status(), 403);
+        let mint = http
+            .post(format!("{base}/auth/tokens"))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({ "principal": "human://test" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(mint.status(), 403, "an app never mints tokens");
+        let connect = http
+            .post(format!("{base}/platforms/codex/connect"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(connect.status(), 403, "an app never connects other apps");
+        let own = http
+            .get(format!("{base}/mellows/next?platform=cursor&wait=0"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(own.status(), 204, "it may host its own platform's Mellows");
+        let other = http
+            .get(format!("{base}/mellows/next?platform=claude-code&wait=0"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(other.status(), 403, "not another platform's");
+    }
+
+    /// The Grok skill's connector URL: an agent token may ride in the URL of
+    /// `/mcp` (web connectors without headers); a person's token never.
+    #[tokio::test]
+    async fn only_an_agent_token_is_accepted_in_the_mcp_url() {
+        let store = Store::new_in_memory().unwrap();
+        let state = test_state(store.clone(), false);
+        let (_, agent) = crate::auth::issue_token(
+            &store, "agent://test/grok", None, vec!["_forum.**".into()], vec!["_forum.**".into()], None,
+        )
+        .unwrap();
+        let (_, human) =
+            crate::auth::issue_token(&store, "human://test", None, vec!["**".into()], vec!["**".into()], None).unwrap();
+        let base = serve(state, 41073).await;
+        let http = reqwest::Client::new();
+        let init = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" });
+        let ok = http.post(format!("{base}/mcp?token={agent}")).json(&init).send().await.unwrap();
+        assert_eq!(ok.status(), 200);
+        let refused = http.post(format!("{base}/mcp?token={human}")).json(&init).send().await.unwrap();
+        assert_eq!(refused.status(), 401);
+    }
+
     #[tokio::test]
     async fn test_trace_duration_cap_and_disable_accounting() {
         let store = Store::new_in_memory().unwrap();
+        let state = test_state(store.clone(), false);
+        // Tracing is owner-only: a token-less local caller is not the owner.
+        let (_, owner_token) =
+            crate::auth::issue_token(&store, &state.owner, None, vec!["**".into()], vec!["**".into()], None).unwrap();
         let port = 41068;
-        let base = serve(test_state(store, false), port).await;
+        let base = serve(state, port).await;
         let http = reqwest::Client::new();
         let enable = |duration: &str| {
             http.post(format!("{base}/traces"))
+                .bearer_auth(&owner_token)
                 .json(&serde_json::json!({
                     "target": "agent://test/coder", "target_type": "agent",
                     "level": "verbose", "duration": duration, "enabled_by": "human://test"
@@ -1285,6 +1495,7 @@ mod tests {
         for _ in 0..2 {
             let r = http
                 .delete(format!("{base}/traces/{}", ts.id))
+                .bearer_auth(&owner_token)
                 .send()
                 .await
                 .unwrap();
@@ -2028,6 +2239,9 @@ mod tests {
     #[tokio::test]
     async fn test_identity_mapping_rest_api() {
         let store = Store::new_in_memory().unwrap();
+        // Identity mappings are owner-only: the test speaks as the owner.
+        let (_, owner_token) =
+            crate::auth::issue_token(&store, "human://test", None, vec!["**".into()], vec!["**".into()], None).unwrap();
         let metrics = Arc::new(DaemonMetrics::default());
         let pipeline = Arc::new(PersistencePipeline::new(store.clone(), metrics.clone()));
         pipeline.start();
@@ -2074,7 +2288,7 @@ mod tests {
         // Give a short time for server to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let client = MellowMeshClient::new(port);
+        let client = MellowMeshClient::new(port).with_token(owner_token);
 
         // Verify initially empty
         let initial_mappings = client.list_identity_mappings().await.unwrap();

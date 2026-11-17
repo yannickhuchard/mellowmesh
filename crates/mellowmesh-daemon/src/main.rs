@@ -345,7 +345,7 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::new(args.listen, args.port);
     tracing::info!("MellowMesh daemon listening on: {}", addr);
     tracing::info!(
-        "Dashboard: http://127.0.0.1:{}/ui — pair a phone there (Connect a Phone) or with: mellowmesh pair",
+        "Developer console: run `mellowmesh dashboard` (signs you in as the owner), or open http://127.0.0.1:{}/ui and paste owner.token. Pair a phone with: mellowmesh pair",
         args.port
     );
 

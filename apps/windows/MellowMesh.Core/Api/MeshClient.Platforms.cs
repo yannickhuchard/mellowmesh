@@ -30,6 +30,21 @@ public sealed partial class MeshClient
     }
 
     /// <summary>
+    /// <c>POST /platforms/:id/invite</c>: a one-time code for a web assistant's
+    /// own limited key (owner only). The assistant never gets the owner's powers.
+    /// </summary>
+    public async Task<InviteResponse> InvitePlatformAsync(string platformId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(platformId) || !platformId.All(c => char.IsLetterOrDigit(c) || c is '-' or '_'))
+        {
+            throw new ArgumentException("invalid platform id", nameof(platformId));
+        }
+        var path = $"/platforms/{platformId}/invite";
+        var text = await SendAsync(HttpMethod.Post, path, new { }, ct).ConfigureAwait(false);
+        return Decode<InviteResponse>(text, path);
+    }
+
+    /// <summary>
     /// <c>POST /platforms/:id/mellows</c>: make a Mellow from an AI app
     /// installed on the hub's computer, with a name and a purpose (owner
     /// only). It is registered on the network and answers in its

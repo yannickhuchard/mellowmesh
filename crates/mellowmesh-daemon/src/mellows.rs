@@ -63,6 +63,46 @@ fn default_mode() -> String {
     MODE_SESSION.to_string()
 }
 
+/// The principal a platform's own token authenticates as:
+/// `agent://<owner>/<platform>` (e.g. `agent://yannick/claude_code`).
+pub fn platform_agent_id(owner: &str, platform: &str) -> String {
+    format!(
+        "agent://{}/{}",
+        owner_handle(owner),
+        slug(platform).unwrap_or_else(|| "platform".to_string())
+    )
+}
+
+/// The platform a caller may host Mellows for: any, for the owner; its own,
+/// for a platform's agent token; none otherwise.
+pub enum HostRight {
+    Any,
+    Platform(&'static str),
+    None,
+}
+
+pub fn host_right(state: &AppState, ctx: &crate::auth::AuthContext) -> HostRight {
+    if crate::auth::is_admin(state, ctx) {
+        return HostRight::Any;
+    }
+    let Some(p) = ctx.principal.as_ref() else {
+        return HostRight::None;
+    };
+    platforms::CATALOG
+        .iter()
+        .find(|spec| platform_agent_id(&state.owner, spec.id) == p.id)
+        .map_or(HostRight::None, |spec| HostRight::Platform(spec.id))
+}
+
+/// Whether a topic is the outbox of a bound Mellow (its voice).
+pub fn is_bound_outbox(topic: &str) -> bool {
+    registry()
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .values()
+        .any(|l| l.binding.outbox == topic)
+}
+
 /// Whether the owner opted in to headless command-line turns.
 pub fn headless_allowed() -> bool {
     std::env::var("MELLOWMESH_ALLOW_HEADLESS")
@@ -203,6 +243,7 @@ pub async fn reply(
     agent_id: &str,
     message_id: Option<&str>,
     body: &str,
+    only_platform: Option<&str>,
 ) -> Result<(), String> {
     let body = body.trim();
     if body.is_empty() {
@@ -215,6 +256,9 @@ pub async fn reply(
         .find(|l| l.binding.agent_id == agent_id)
         .cloned()
         .ok_or_else(|| format!("No Mellow named {agent_id} is bound on this hub."))?;
+    if only_platform.is_some_and(|p| p != live.binding.platform) {
+        return Err(format!("{agent_id} is hosted by another platform."));
+    }
     let text: String = body.chars().take(MAX_REPLY_CHARS).collect();
     {
         let mut memory = live.memory.lock().await;

@@ -18,8 +18,9 @@ Call `get_network` (or `list_agents` if `get_network` is missing).
 * It works → greet with the network name in one line and continue.
 * No MellowMesh tools available → tell the user, in plain words, to add the
   connector: grok.com → **Connectors** → **New connector** → **Custom** →
-  URL `https://<their hub address>/mcp?token=<their token>` (see
-  `references/connect.md`). Do not invent results.
+  URL `https://<their hub address>/mcp?token=<Grok's own agent token>` (see
+  `references/connect.md`; the hub accepts a token in that URL only if it is
+  an agent's, never the user's own). Do not invent results.
 * `401` / `403` → the token is wrong, revoked, or not allowed there; say so.
 
 ## 1. Words to use with the user
@@ -37,10 +38,10 @@ answers short — the user is often on a phone.
 | "Board for team X" / "for helper Y" | `list_tasks`, filter by `team` / `claimed_by` / `assigned_to`. |
 | "Roadmap" / "what's blocking?" | `list_tasks`; for each unfinished task use `depends_on`, `created_at`, `claimed_at`, `started_at`, `completed_at` to report waiting time, working time and what it waits for; name the chain that ends last (critical path). |
 | "Ask Coder to …" | `publish_message` to `_agent.<owner>.<helper>.inbox` (find the exact helper id with `list_agents`). Confirm in one line. |
-| "Create a task …" (optionally "after …", "for team …") | `create_task` with `title`, `description`, `priority`, `team`, `depends_on` (task ids from `list_tasks`). |
+| "Create a task …" (optionally "after …", "for team …") | `create_task` with `title`, `topics` (e.g. `["_project.<name>.tasks"]`), `capabilities` (what a helper needs, e.g. `["writing"]` — both are required), and optionally `description`, `priority`, `team`, `depends_on` (task ids from `list_tasks`). |
 | "Move X to Doing / Done" | `update_task` with the new `status` (only if the user owns it or created it; otherwise explain). |
 | "Post in the team room" | `publish_message` to `_team.<team>.chat`. |
-| "What's in project Z?" | `get_context` for `_project.<z>.**` (summaries first), then `read_history` if needed. |
+| "What's in project Z?" | `get_context` with a topic of that project (e.g. `_project.<z>.updates`; summaries first), then `read_history` on the same topic if needed. |
 | "What needs me?" | `list_decisions` with pending status; for each: who asks, what happens if yes / if not, deadline. |
 | "Which parts of my network are open?" | `get_network`: list spaces with **Open / Closed / Private**, members and teams; network default. |
 
@@ -51,8 +52,9 @@ answers short — the user is often on a phone.
    dashboard, or with `mellowmesh respond`. You *may* explain the options.
 2. **Anything risky → create a request instead of doing it**: spending
    money, deleting, publishing, deploying, contacting outsiders. Use
-   `create_decision` with clear options and what each one does, set
-   `required_decider` to the user, then tell them where to answer.
+   `create_decision` with a `title`, the `question`, clear `options` (each a
+   `label` and what it does) and `decider` set to the user (e.g.
+   `human://<owner>`), then tell them where to answer.
 3. **Respect closed and private spaces.** If a read fails or `get_network`
    marks a space closed to you, say "that space is closed to me" — don't
    look for workarounds.

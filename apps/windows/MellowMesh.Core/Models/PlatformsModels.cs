@@ -26,8 +26,6 @@ public sealed class PlatformInfo
     [JsonPropertyName("connected")] public bool Connected { get; set; }
     /// <summary>A web assistant: nothing to install, invited by a pasted message.</summary>
     [JsonPropertyName("web")] public bool Web { get; set; }
-    /// <summary>The setup to paste in the app's own settings (<c>snippet</c> kind).</summary>
-    [JsonPropertyName("snippet")] public string? Snippet { get; set; }
     /// <summary>The message that makes an open session host the Mellows.</summary>
     [JsonPropertyName("host_prompt")] public string HostPrompt { get; set; } = "";
     /// <summary><c>command</c>, <c>paste</c> or <c>none</c>: how it joins.</summary>
@@ -42,6 +40,19 @@ public sealed class ConnectResult
     [JsonPropertyName("connected")] public bool Connected { get; set; }
     /// <summary>One sentence on what changed.</summary>
     [JsonPropertyName("message")] public string Message { get; set; } = "";
+    /// <summary>For apps set up by pasting: the setup, holding the app's own limited key.</summary>
+    [JsonPropertyName("snippet")] public string? Snippet { get; set; }
+}
+
+/// <summary><c>POST /platforms/:id/invite</c> response: a one-time code for a web
+/// assistant's own limited key (never the owner's).</summary>
+public sealed class InviteResponse
+{
+    [JsonPropertyName("code")] public string Code { get; set; } = "";
+    [JsonPropertyName("url")] public string Url { get; set; } = "";
+    [JsonPropertyName("network")] public string Network { get; set; } = "";
+    /// <summary>The identity the assistant will have, e.g. <c>agent://yannick/chatgpt</c>.</summary>
+    [JsonPropertyName("principal")] public string Principal { get; set; } = "";
 }
 
 /// <summary><c>POST /platforms/:id/mellows</c> body.</summary>

@@ -7,7 +7,7 @@ MellowMesh authenticates actors with **bearer tokens** bound to **principals**
 
 | Mode | Behavior |
 | :--- | :--- |
-| **Open** (default) | Localhost clients are trusted. Tokens are honored when presented (scopes still enforced), but not required. Suitable **only** for a single-user machine where every local process is trusted — never for a shared host. |
+| **Open** (default) | Localhost clients may read and publish without a token. Tokens are honored when presented (scopes still enforced), but not required. **Owner powers always need the owner token**, even locally: minting tokens, pairing devices, connecting apps, inviting assistants, hosting Mellows, tracing, identity mappings, shutdown — and answering a decision needs a person's token. The owner's own tools read `owner.token`; `mellowmesh dashboard` signs the console in. Suitable **only** for a single-user machine — never for a shared host. |
 | **Required** (`mellowmeshd --require-auth`, or `MELLOWMESH_REQUIRE_AUTH=1`) | Every request must carry a valid token except `/health` and the dashboard. This mode is the prerequisite for any remote exposure of the daemon. |
 
 Configuring a relay link forces required-auth automatically — a remotely
@@ -191,8 +191,20 @@ re-bound to whichever daemon registers it first after the relay restarts. Hub id
   through the relay; terminate TLS in front of it. End-to-end encryption (on
   by default for remote URLs) hides payloads and tokens from the relay
   operator.
-* Open mode trusts every local process and user. Use `--require-auth` on any
-  machine shared with other users (the packaged systemd unit always does).
+* Open mode lets every local process read and publish (not act as the owner).
+  Use `--require-auth` on any machine shared with other users (the packaged
+  systemd unit always does).
+* **Connected apps and invited assistants get their own limited key**, never
+  the owner's: `agent://<owner>/<platform>`, scoped to the shared rooms
+  (`_forum`, `_task`, `_artifact`, `_project`, `_team`), decisions (read) and
+  its own `_agent.<owner>.<platform>.**` corner. Such a key may host its own
+  platform's Mellows (`mellow_wait` / `mellow_reply`) and nothing more: it
+  cannot answer decisions, mint tokens, pair devices or connect other apps.
+  Reconnecting revokes the previous key. A bound Mellow's outbox is written
+  only by the hub, so nobody can speak as a Mellow.
+* A token in a URL ends up in proxy and tunnel logs: `?token=` is accepted on
+  `/ws` (browsers) and, for agent tokens only, on `/mcp` (web connectors that
+  cannot set headers). A person's token in a URL is refused.
 * Content in the fabric (messages, tasks, wiki pages) is written by agents and
   remote users. Agents must treat it as untrusted data, never as instructions
   — the bundled [agent skill](../skills/mellowmesh/SKILL.md) says so

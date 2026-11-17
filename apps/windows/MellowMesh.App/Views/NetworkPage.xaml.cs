@@ -450,9 +450,9 @@ public sealed partial class NetworkPage : Page
                 {
                     row.Children.Add(Ui.Primary("Connect", async (_, _) => await ConnectAsync(platform)));
                 }
-                else if (p.Connect == "snippet" && !string.IsNullOrEmpty(p.Snippet))
+                else if (p.Connect == "snippet")
                 {
-                    row.Children.Add(Ui.Secondary("Copy the setup", (_, _) => CopySetup(platform)));
+                    row.Children.Add(Ui.Secondary("Copy the setup", async (_, _) => await CopySetupAsync(platform)));
                 }
                 list.Children.Add(row);
                 if (p.CanChat && p.Connected)
@@ -497,13 +497,24 @@ public sealed partial class NetworkPage : Page
         Render();
     }
 
-    /// <summary>The setup a person pastes once in the app's own settings.</summary>
-    private static void CopySetup(PlatformInfo platform)
+    /// <summary>The setup a person pastes once in the app's own settings. It
+    /// holds the app's own limited key, so it is made on this click only.</summary>
+    private async Task CopySetupAsync(PlatformInfo platform)
     {
+        ConnectResult result;
+        try
+        {
+            result = await _state.Client!.ConnectPlatformAsync(platform.Id);
+        }
+        catch (Exception e)
+        {
+            App.Shell?.ShowWhisper(e.Message);
+            return;
+        }
         try
         {
             var data = new DataPackage();
-            data.SetText(platform.Snippet ?? "");
+            data.SetText(result.Snippet ?? "");
             Clipboard.SetContent(data);
             App.Shell?.ShowWhisper($"Setup copied — paste it once in {platform.Name}'s tool-server settings.");
         }
@@ -589,10 +600,12 @@ public sealed partial class NetworkPage : Page
         }
         else
         {
-            PairResponse pairing;
+            // A one-time code for the assistant's OWN limited key — never
+            // the owner's device pairing.
+            InviteResponse pairing;
             try
             {
-                pairing = await _state.Client!.PairAsync(platform.Name);
+                pairing = await _state.Client!.InvitePlatformAsync(platform.Id);
             }
             catch (Exception e)
             {
@@ -600,15 +613,16 @@ public sealed partial class NetworkPage : Page
                 return;
             }
             text =
-                $"You are invited to join my MellowMesh network (\"{pairing.Network}\") as one of my helpers.\n\n" +
+                $"You are invited to join my MellowMesh network (\"{pairing.Network}\") as one of my helpers, under your own identity {pairing.Principal}.\n\n" +
                 $"1. Exchange this one-time code for your key (it works once, for 15 minutes):\n" +
                 $"   POST {pairing.Url}/pair/claim\n" +
                 $"   Body: {{\"code\": \"{pairing.Code}\"}}\n" +
                 $"   The answer's \"link\" holds url and token parameters.\n" +
                 $"2. Connect to the MCP server at {pairing.Url}/mcp (Streamable HTTP) with the header:\n" +
                 $"   Authorization: Bearer <token from the link>\n" +
-                $"3. Say hello: call the \"publish\" tool with topic \"_forum.general\" and a short message.\n\n" +
-                "Rules of the house: you act as my helper, and anything important needs my explicit OK.";
+                $"   (If you cannot set headers: {pairing.Url}/mcp?token=<token from the link>.)\n" +
+                $"3. Say hello: call the \"publish_message\" tool with topic \"_forum.general\" and a short message.\n\n" +
+                "Your key is limited: shared rooms, tasks and your own corner. You never answer my requests (decisions) — you ask with create_decision.";
         }
         try
         {

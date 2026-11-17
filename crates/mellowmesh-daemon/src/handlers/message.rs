@@ -467,6 +467,15 @@ pub async fn publish_message(
         ));
     }
 
+    // A bound Mellow's outbox is its voice: only the hub publishes there
+    // (after a hosting session's mellow_reply), so nobody can speak as it.
+    if crate::mellows::is_bound_outbox(&msg.topic) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only the session hosting this Mellow speaks for it (mellow_reply)".to_string(),
+        ));
+    }
+
     use mellowmesh_core::network::WriteAccess;
     let write = ctx.access(&state, &msg.topic).write;
     if write == WriteAccess::Denied {

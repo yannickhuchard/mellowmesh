@@ -156,6 +156,9 @@ enum Commands {
 
     /// Start Model Context Protocol (MCP) server
     Mcp,
+
+    /// Open the developer console in your browser, signed in as the owner
+    Dashboard,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -987,6 +990,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Mcp => {
             mcp::run_mcp_server(cli.port).await?;
+        }
+        Commands::Dashboard => {
+            commands::run_dashboard(cli.port)?;
         }
         _ => unreachable!(),
     }

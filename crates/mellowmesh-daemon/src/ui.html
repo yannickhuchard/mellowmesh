@@ -2270,15 +2270,20 @@
                     go.title = 'Add MellowMesh to this app\'s own tool servers (its previous setting is kept)';
                     go.addEventListener('click', () => connectPlatform(p, go));
                     row.appendChild(go);
-                } else if (p.connect === 'snippet' && p.snippet) {
+                } else if (p.connect === 'snippet') {
                     const copy = document.createElement('button');
                     copy.type = 'button';
                     copy.className = 'btn btn-sm btn-secondary';
                     copy.textContent = 'Copy the setup';
-                    copy.title = 'Paste it once in this app\'s own tool-server settings';
+                    copy.title = 'Paste it once in this app\'s own tool-server settings (it holds the app\'s own limited key)';
                     copy.addEventListener('click', async () => {
-                        try { await navigator.clipboard.writeText(p.snippet); copy.textContent = 'Copied'; }
-                        catch (e) { copy.textContent = 'Copy failed'; }
+                        try {
+                            const res = await apiFetch('/platforms/' + encodeURIComponent(p.id) + '/connect', { method: 'POST' });
+                            const data = await res.json();
+                            if (!res.ok || !data.snippet) throw new Error(data.error || 'no setup');
+                            await navigator.clipboard.writeText(data.snippet);
+                            copy.textContent = 'Copied';
+                        } catch (e) { copy.textContent = 'Copy failed'; }
                         setTimeout(() => { copy.textContent = 'Copy the setup'; }, 1800);
                     });
                     row.appendChild(copy);
@@ -2460,20 +2465,17 @@
                 cmdWrap.hidden = false;
                 return;
             }
-            // Paste invite: mint a one-time pairing and write the message.
+            // Paste invite: a one-time code for this app's own LIMITED key
+            // (never the owner's), and the message that uses it.
             const area = document.getElementById('invite-prompt');
             area.value = 'Making a one-time code…';
             pasteWrap.hidden = false;
             try {
-                const res = await apiFetch('/pair', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: p.name }),
-                });
+                const res = await apiFetch('/platforms/' + encodeURIComponent(p.id) + '/invite', { method: 'POST' });
                 if (!res.ok) throw new Error(String(res.status));
                 const pair = await res.json();
                 const prompt =
-`You are invited to join my MellowMesh network ("${pair.network}") as one of my helpers.
+`You are invited to join my MellowMesh network ("${pair.network}") as one of my helpers, under your own identity ${pair.principal}.
 
 1. Exchange this one-time code for your key (it works once, for 15 minutes):
    POST ${pair.url}/pair/claim
@@ -2481,9 +2483,10 @@
    The answer's "link" holds url and token parameters.
 2. Connect to the MCP server at ${pair.url}/mcp (Streamable HTTP) with the header:
    Authorization: Bearer <token from the link>
-3. Say hello: call the "publish" tool with topic "_forum.general" and a short message.
+   (If you cannot set headers: ${pair.url}/mcp?token=<token from the link>.)
+3. Say hello: call the "publish_message" tool with topic "_forum.general" and a short message.
 
-Rules of the house: you act as my helper, and anything important needs my explicit OK. If you cannot make HTTP calls or add MCP servers, say so instead of guessing.`;
+Your key is limited: shared rooms, tasks and your own corner. You never answer my requests (decisions) — you ask with create_decision. If you cannot make HTTP calls or add MCP servers, say so instead of guessing.`;
                 area.value = prompt;
                 inviteContext = { text: prompt };
             } catch (e) {
@@ -2539,6 +2542,13 @@ Rules of the house: you act as my helper, and anything important needs my explic
 
         // Initial setup on window load
         window.addEventListener('DOMContentLoaded', () => {
+            // `mellowmesh dashboard` signs in through the URL fragment, which
+            // browsers never send to a server; keep it, then erase it.
+            const signIn = new URLSearchParams(window.location.hash.slice(1)).get('token');
+            if (signIn) {
+                setToken(signIn);
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
             initTokenUi();
             initPairUi();
             initPlatformsUi();

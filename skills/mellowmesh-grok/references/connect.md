@@ -5,12 +5,23 @@ running on your computer, and a **token** that limits what Grok can do.
 
 ## 1. Give Grok its own token (on the hub's computer)
 
+Easiest: in the developer console (`mellowmesh dashboard`) → *Agents &
+platforms* → **Grok** → *Invite*. It makes a one-time code for Grok's own
+limited key and the message to paste in Grok.
+
+Or by hand:
+
 ```powershell
 mellowmesh token create --for agent://you/grok `
   --read "**" `
-  --write "_agent.**" --write "_team.**" --write "_forum.**" --write "_project.**" `
+  --write "_agent.**.inbox" --write "_agent.you.grok.**" `
+  --write "_team.**" --write "_forum.**" --write "_project.**" `
   --name grok
 ```
+
+Grok may write to helpers' inboxes (to ask them things) and to its own
+corner — never to another helper's outbox: the hub keeps a Mellow's voice
+for the session that hosts it.
 
 Copy the `mm_…` token (shown once). Revoke any time:
 `mellowmesh token list`, then `mellowmesh token revoke <id>`.
@@ -45,9 +56,11 @@ mellowmeshd --public-host <words>.trycloudflare.com
 grok.com → **Connectors** → **New connector** → **Custom**:
 
 * Name: `MellowMesh`
-* URL: `https://<words>.trycloudflare.com/mcp?token=mm_…`
-  (or the URL without `?token=` plus an `Authorization: Bearer mm_…` header
-  if your Grok plan offers custom headers)
+* URL: `https://<words>.trycloudflare.com/mcp?token=mm_…` — **Grok's own
+  token from step 1 only**. The hub refuses your owner token (or any
+  person's token) in a URL, because URLs end up in tunnel and proxy logs.
+  If your Grok plan offers custom headers, prefer the URL without `?token=`
+  plus an `Authorization: Bearer mm_…` header.
 
 The connector syncs to the Grok mobile app. Then upload this skill
 (Skills → upload the `.zip` or `SKILL.md`) so Grok knows how to use it.

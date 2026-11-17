@@ -35,8 +35,8 @@ fn require_owner(state: &AppState, ctx: &AuthContext) -> Result<(), ApiError> {
         Ok(())
     } else {
         Err(error(
-            StatusCode::FORBIDDEN,
-            "Only the owner may pair and manage devices",
+            crate::auth::admin_refusal(ctx),
+            "Only the owner may pair and manage devices (use the owner token)",
         ))
     }
 }

@@ -53,15 +53,20 @@ pub fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
         .unwrap_or(SUPPORTED_PROTOCOL_VERSIONS[0])
 }
 
-/// The caller's bearer token, from the Authorization header only. A token
-/// in the URL would end up in proxy and access logs; Streamable HTTP MCP
-/// clients POST and can always set headers.
-fn caller_token(headers: &HeaderMap, _uri: &Uri) -> Option<String> {
-    headers
+/// The caller's bearer token: the Authorization header, else `?token=`. The
+/// auth middleware already refused a person's token in the URL, so a query
+/// token reaching here is an agent's (web connectors without headers).
+fn caller_token(headers: &HeaderMap, uri: &Uri) -> Option<String> {
+    if let Some(t) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|t| t.trim().to_string())
+    {
+        return Some(t.trim().to_string());
+    }
+    // The same parse as the auth middleware, so the token checked there is
+    // exactly the one used here.
+    crate::auth::query_token(uri.query())
 }
 
 pub async fn handle_mcp(

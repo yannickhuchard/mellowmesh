@@ -1,9 +1,9 @@
 //! Bearer-token authentication middleware and token administration endpoints.
 //!
 //! Every request passes through [`auth_middleware`], which resolves an
-//! optional `Authorization: Bearer <token>` header (or, on `/ws` only, a
-//! `?token=` query parameter, for browser WebSocket clients that cannot
-//! set headers) into an
+//! optional `Authorization: Bearer <token>` header (or a `?token=` query
+//! parameter on `/ws` for browser WebSockets, and on `/mcp` — agent tokens
+//! only — for web connectors that cannot set headers) into an
 //! [`AuthContext`] request extension. When the daemon runs with
 //! `--require-auth`, requests without a valid token are rejected with 401
 //! except for a small set of open endpoints (health, dashboard).
@@ -156,20 +156,24 @@ fn extract_bearer(req: &Request<Body>) -> Option<String> {
             }
         }
     }
-    // Browser WebSocket clients cannot set headers on the upgrade request,
-    // so `/ws` — and only `/ws` — may carry the token as a query parameter.
-    // Everywhere else the URL is the one place a token must never be, since
-    // proxies and access logs keep URLs.
-    if req.uri().path() == "/ws" {
-        if let Some(query) = req.uri().query() {
-            for pair in query.split('&') {
-                if let Some(value) = pair.strip_prefix("token=") {
-                    return Some(value.to_string());
-                }
-            }
-        }
+    // Browser WebSockets (`/ws`) and header-less web connectors (`/mcp`, agent
+    // tokens only — checked after resolving) may carry the token as a query
+    // parameter. Everywhere else the URL is the one place a token must never
+    // be, since proxies and access logs keep URLs.
+    if matches!(req.uri().path(), "/ws" | "/mcp") {
+        return query_token(req.uri().query());
     }
     None
+}
+
+/// The single `token` query parameter, URL-decoded — the same parse the
+/// MCP handler uses. Two or more `token` parameters count as none.
+pub(crate) fn query_token(query: Option<&str>) -> Option<String> {
+    let mut found = url::form_urlencoded::parse(query?.as_bytes())
+        .filter(|(k, _)| k == "token")
+        .map(|(_, v)| v.into_owned());
+    let first = found.next().filter(|v| !v.is_empty())?;
+    found.next().is_none().then_some(first)
 }
 
 /// End-to-end encryption context for a live subscription: when a WebSocket
@@ -269,8 +273,21 @@ pub async fn auth_middleware(
         }
     }
 
+    // A token in a URL ends up in proxy and tunnel logs. `/mcp` accepts one
+    // for web connectors that cannot set headers — but only an agent's
+    // (allowlist): a person's, the owner's or an interface's token travels
+    // in the Authorization header only.
+    let token_in_url = req.uri().path() == "/mcp"
+        && req.headers().get(axum::http::header::AUTHORIZATION).is_none();
     if let Some(token) = bearer {
         match resolve_token(&state, &token).await {
+            Ok(Some(principal)) if token_in_url && principal.kind != "agent" => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "Only an agent's token is accepted in a URL: send this one in an Authorization header, or give the connector its own agent token",
+                )
+                    .into_response();
+            }
             Ok(Some(principal)) => ctx.principal = Some(principal),
             Ok(None) => {
                 return (StatusCode::UNAUTHORIZED, "Invalid or revoked token").into_response();
@@ -385,11 +402,71 @@ pub(crate) async fn token_still_valid(state: &AppState, token_hash: &str) -> boo
 /// True when the request may administer the hub (tokens, network, spaces,
 /// teams): the owner principal, or an unauthenticated local request in open
 /// mode. Remote token-less callers are never admins.
+/// Whether the caller is the hub owner. Only an authenticated owner token
+/// counts — never a token-less local caller, even in open mode: anything
+/// running on the machine can reach 127.0.0.1, so "local" alone must not
+/// mint tokens, pair devices, connect apps or answer decisions. The owner's
+/// own tools (CLI, apps) read `owner.token` for that.
 pub(crate) fn is_admin(state: &AppState, ctx: &AuthContext) -> bool {
-    match &ctx.principal {
-        Some(p) => p.id == state.owner,
-        None => ctx.trusted_local && !ctx.remote && !state.require_auth,
+    ctx.principal.as_ref().is_some_and(|p| p.id == state.owner)
+}
+
+/// The status for a refused owner-only call: `401` when no token was given
+/// (clients then ask for one), `403` when a non-owner token was.
+pub(crate) fn admin_refusal(ctx: &AuthContext) -> StatusCode {
+    if ctx.principal.is_none() {
+        StatusCode::UNAUTHORIZED
+    } else {
+        StatusCode::FORBIDDEN
     }
+}
+
+/// Issue a scoped token for a principal (created if unknown). Returns
+/// `(token id, plaintext)`; the plaintext is never stored.
+pub fn issue_token(
+    store: &mellowmesh_store::Store,
+    principal: &str,
+    display_name: Option<String>,
+    read_scopes: Vec<String>,
+    write_scopes: Vec<String>,
+    label: Option<&str>,
+) -> anyhow::Result<(String, String)> {
+    if store.get_principal(principal)?.is_none() {
+        store.upsert_principal(&Principal {
+            id: principal.to_string(),
+            kind: kind_of_uri(principal).to_string(),
+            display_name,
+            created_at: Utc::now(),
+        })?;
+    }
+    let plaintext = generate_token();
+    let record = TokenRecord {
+        id: format!("tok_{}", Ulid::new().to_string().to_lowercase()),
+        principal: principal.to_string(),
+        token_hash: hash_token(&plaintext),
+        read_scopes,
+        write_scopes,
+        created_at: Utc::now(),
+        revoked: false,
+    };
+    store.insert_token(&record)?;
+    if let Some(l) = label {
+        store.set_token_label(&record.id, l)?;
+    }
+    let _ = store.register_e2e_key_for_token(&record.id, &plaintext);
+    Ok((record.id, plaintext))
+}
+
+/// Revoke every live token of a principal (used before re-issuing one, so a
+/// reconnect never leaves an old key behind).
+pub fn revoke_tokens_of(store: &mellowmesh_store::Store, principal: &str) -> anyhow::Result<usize> {
+    let mut n = 0;
+    for t in store.list_tokens()? {
+        if t.principal == principal && !t.revoked && store.revoke_token(&t.id)? {
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 // ---------------------------------------------------------------------------
@@ -420,8 +497,8 @@ pub async fn create_token(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !is_admin(&state, &ctx) {
         return Err((
-            StatusCode::FORBIDDEN,
-            "Only the owner may manage tokens".to_string(),
+            admin_refusal(&ctx),
+            "Only the owner may manage tokens (use the owner token)".to_string(),
         ));
     }
 
@@ -481,8 +558,8 @@ pub async fn list_tokens(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !is_admin(&state, &ctx) {
         return Err((
-            StatusCode::FORBIDDEN,
-            "Only the owner may manage tokens".to_string(),
+            admin_refusal(&ctx),
+            "Only the owner may manage tokens (use the owner token)".to_string(),
         ));
     }
     let tokens = state.store.list_tokens().map_err(internal)?;
@@ -512,8 +589,8 @@ pub async fn revoke_token(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !is_admin(&state, &ctx) {
         return Err((
-            StatusCode::FORBIDDEN,
-            "Only the owner may manage tokens".to_string(),
+            admin_refusal(&ctx),
+            "Only the owner may manage tokens (use the owner token)".to_string(),
         ));
     }
     let revoked = state.store.revoke_token(&id).map_err(internal)?;
@@ -534,8 +611,46 @@ fn internal(e: anyhow::Error) -> (StatusCode, String) {
 /// full-access owner token. The plaintext is written (mode 0600 on unix) to
 /// `owner.token` next to the database so the local user can pick it up; it
 /// is never logged.
+/// Whether `owner.token` still opens the owner's door: it exists, and its
+/// token is live and belongs to the owner.
+fn owner_token_file_is_valid(store: &mellowmesh_store::Store, owner: &str, file: &std::path::Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return false;
+    };
+    let token = text.trim();
+    !token.is_empty()
+        && store
+            .find_token_by_hash(&hash_token(token))
+            .ok()
+            .flatten()
+            .is_some_and(|t| !t.revoked && t.principal == owner)
+}
+
+/// The owner's own tools (CLI, apps, `mellowmesh dashboard`) act as the
+/// owner through `owner.token`. A missing, revoked or foreign one (a
+/// restored or swapped database) would silently lock the owner out, so a
+/// fresh owner token is written next to the database when needed.
+fn ensure_owner_token_file(store: &mellowmesh_store::Store, owner: &str, db_path: &std::path::Path) {
+    let file = owner_token_path(db_path);
+    if owner_token_file_is_valid(store, owner, &file) {
+        return;
+    }
+    let issued = issue_token(store, owner, None, vec!["**".into()], vec!["**".into()], Some("owner (renewed)"));
+    match issued.map_err(|e| e.to_string()).and_then(|(_, plaintext)| {
+        write_secret_file(&file, plaintext.as_bytes()).map_err(|e| e.to_string())
+    }) {
+        // Never log the plaintext token.
+        Ok(()) => tracing::warn!(
+            "owner.token at {:?} was missing or no longer valid: a new owner token was written there.",
+            file
+        ),
+        Err(e) => tracing::error!("owner.token at {:?} could not be renewed: {}", file, e),
+    }
+}
+
 pub fn bootstrap_owner(store: &mellowmesh_store::Store, db_path: &std::path::Path) -> String {
     if let Ok(Some(owner)) = store.get_config("owner_principal") {
+        ensure_owner_token_file(store, &owner, db_path);
         return owner;
     }
 

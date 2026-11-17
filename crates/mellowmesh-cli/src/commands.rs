@@ -116,6 +116,33 @@ pub(crate) fn as_local_human(client: &MellowMeshClient) -> MellowMeshClient {
     client.clone()
 }
 
+/// `mellowmesh dashboard`: open the developer console signed in as the
+/// owner. A token-less local caller is not the owner, so the console needs
+/// the owner token; it travels in the URL *fragment* (`#token=`), which the
+/// browser never sends to any server, and the page removes it at once.
+pub fn run_dashboard(port: u16) -> anyhow::Result<()> {
+    let base = format!("http://127.0.0.1:{port}/ui");
+    let url = match read_owner_token(&daemon_data_dir()) {
+        Some(token) => format!("{base}#token={token}"),
+        None => {
+            println!("No owner token found on this machine: the console will ask for one.");
+            base.clone()
+        }
+    };
+    let opened = if cfg!(windows) {
+        std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&url).status()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).status()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).status()
+    };
+    match opened {
+        Ok(s) if s.success() => println!("Opened the developer console ({base})."),
+        _ => println!("Open {base} in your browser and paste the owner token when it asks."),
+    }
+    Ok(())
+}
+
 /// Parse the contents of `mellowmeshd.pid`. Rejects anything that is not a
 /// plain process id greater than 1.
 fn parse_pid(contents: &str) -> Option<u32> {

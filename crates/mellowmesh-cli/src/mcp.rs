@@ -312,7 +312,7 @@ mod tests {
     fn tools_list_has_no_respond_decision() {
         let res = reply(r#"{"jsonrpc":"2.0","id":"a","method":"tools/list"}"#);
         let tools = res["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 29);
+        assert_eq!(tools.len(), 31);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 
