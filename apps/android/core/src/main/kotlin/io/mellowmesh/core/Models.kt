@@ -334,6 +334,18 @@ data class PlatformInfo(
     val command: String = "",
 )
 
+/**
+ * A message written while the network was out of reach. It waits on the
+ * phone and leaves by itself, in order, as soon as the hub answers again.
+ */
+@Serializable
+data class PendingMessage(
+    val id: String,
+    val conversationId: String,
+    val text: String,
+    val createdAtMs: Long,
+)
+
 /** `POST /platforms/:id/connect` response: one sentence on what changed. */
 @Serializable
 data class ConnectResult(

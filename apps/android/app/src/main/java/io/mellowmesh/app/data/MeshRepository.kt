@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalTime
 
 /** Turn any failure into one plain sentence for the screen. */
@@ -80,6 +81,15 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+    /** Whether the hub answered the last time we asked: null = not asked yet. */
+    private val _reachable = MutableStateFlow<Boolean?>(null)
+    val reachable: StateFlow<Boolean?> = _reachable.asStateFlow()
+
+    /** Messages written while the network was out of reach, oldest first. */
+    private val _outbox = MutableStateFlow<List<io.mellowmesh.core.PendingMessage>>(emptyList())
+    val outbox: StateFlow<List<io.mellowmesh.core.PendingMessage>> = _outbox.asStateFlow()
+    private val flushing = kotlinx.coroutines.sync.Mutex()
+
     private val _live = MutableSharedFlow<Message>(extraBufferCapacity = 256)
     /** Every live message (pattern `**`, filtered by the hub to what this phone may read). */
     val live: SharedFlow<Message> = _live.asSharedFlow()
@@ -89,6 +99,9 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     init {
         store.loadConfig()?.let { use(it) }
+        // The Mellows met before stay on screen (and callable) offline.
+        _agents.value = store.loadAgentsCache()
+        _outbox.value = store.loadOutbox()
     }
 
     val isPaired: Boolean get() = client != null
@@ -151,6 +164,8 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         _home.value = null
         _network.value = null
         _agents.value = emptyList()
+        _outbox.value = emptyList()
+        _reachable.value = null
     }
 
     // ---- home --------------------------------------------------------------------
@@ -175,6 +190,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                         if (n != null) _network.value = n
                         _agents.value = a
                     }
+                    store.saveAgentsCache(a)
                     HomeModelBuilder.build(
                         HomeInputs(
                             me = w?.principal ?: me,
@@ -192,8 +208,66 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             }
             _home.value = model
             _homeError.value = null
+            _reachable.value = true
+            flushOutbox()
         } catch (e: Exception) {
             _homeError.value = e.friendly()
+            if (e is MeshException && e.kind == MeshException.Kind.NETWORK) _reachable.value = false
+        }
+    }
+
+    // ---- deferred messages -------------------------------------------------------
+
+    /**
+     * Send now, or — when the network is out of reach — keep the message on
+     * the phone and send it later. Returns true when it left now. Errors
+     * other than "cannot reach the hub" are thrown as usual.
+     * Returns the sent message, or null when it waits on the phone.
+     */
+    suspend fun sendOrQueue(conversationId: String, text: String): ChatMessage? {
+        val body = text.trim()
+        require(body.isNotEmpty())
+        if (_reachable.value != false && _outbox.value.isEmpty()) {
+            try {
+                val sent = send(conversationId, body)
+                _reachable.value = true
+                return sent
+            } catch (e: MeshException) {
+                if (e.kind != MeshException.Kind.NETWORK) throw e
+                _reachable.value = false
+            }
+        }
+        val pending = io.mellowmesh.core.PendingMessage(
+            id = "pending_" + java.util.UUID.randomUUID().toString(),
+            conversationId = conversationId,
+            text = body,
+            createdAtMs = System.currentTimeMillis(),
+        )
+        val next = _outbox.value + pending
+        _outbox.value = next
+        store.saveOutbox(next)
+        return null
+    }
+
+    /** Send what waited, in order; stop at the first "still out of reach". */
+    suspend fun flushOutbox() {
+        if (client == null || _outbox.value.isEmpty()) return
+        flushing.withLock {
+            while (true) {
+                val first = _outbox.value.firstOrNull() ?: break
+                try {
+                    send(first.conversationId, first.text)
+                } catch (e: MeshException) {
+                    if (e.kind == MeshException.Kind.NETWORK) {
+                        _reachable.value = false
+                        break
+                    }
+                    // Refused for good (e.g. not allowed): do not retry forever.
+                }
+                val rest = _outbox.value.drop(1)
+                _outbox.value = rest
+                store.saveOutbox(rest)
+            }
         }
     }
 
@@ -230,6 +304,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     suspend fun loadAgents(): List<AgentRegistration> {
         val a = io { it.agents() }
         _agents.value = a
+        store.saveAgentsCache(a)
         return a
     }
 
@@ -294,6 +369,8 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                         override fun onOpen() {
                             backoff.reset()
                             _connected.value = true
+                            _reachable.value = true
+                            scope.launch { flushOutbox() }
                         }
 
                         override fun onMessage(message: Message) {

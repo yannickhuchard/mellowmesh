@@ -57,6 +57,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.mellowmesh.app.R
 import io.mellowmesh.app.meshApp
+import io.mellowmesh.app.ui.calls.CallScreen
+import io.mellowmesh.app.ui.calls.CallsScreen
 import io.mellowmesh.app.notify.InAppNotice
 import io.mellowmesh.app.ui.board.BoardScreen
 import io.mellowmesh.app.ui.chats.ChatsScreen
@@ -90,6 +92,8 @@ object Routes {
     const val NETWORK = "network"
     const val SETTINGS = "settings"
     const val HELP = "help"
+    const val CALLS = "calls"
+    fun call(id: String) = "call/" + Uri.encode(id)
     fun conversation(id: String) = "conversation/" + Uri.encode(id)
     fun helper(id: String) = "helper/" + Uri.encode(id)
     fun board(scope: String) = "board/" + Uri.encode(scope)
@@ -227,6 +231,21 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                         onRoadmap = { nav.navigate(Routes.roadmap("all")) },
                         onNetwork = { nav.navigate(Routes.NETWORK) },
                         onSettings = { nav.navigate(Routes.SETTINGS) },
+                        onCalls = { nav.navigate(Routes.CALLS) },
+                        onCall = { nav.navigate(Routes.call(it)) },
+                    )
+                }
+                composable(Routes.CALLS) {
+                    CallsScreen(onBack = { nav.popBackStack() }, onCall = { nav.navigate(Routes.call(it)) })
+                }
+                composable("call/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                    CallScreen(
+                        agentId = entry.arguments?.getString("id").orEmpty(),
+                        onHangUp = { nav.popBackStack() },
+                        onOpenChat = { id ->
+                            nav.popBackStack()
+                            nav.navigate(Routes.conversation(id))
+                        },
                     )
                 }
                 composable(Routes.CHATS) {

@@ -210,7 +210,9 @@ class MeshClientTest {
         assertEquals("m1", got.poll(5, TimeUnit.SECONDS)!!.id)
         assertEquals("m2", got.poll(5, TimeUnit.SECONDS)!!.id)
         val req = server.takeRequest()
-        assertEquals("/ws?pattern=**&token=mm_secret", req.path)
+        // The key travels in a header, never in the URL (logs, proxies).
+        assertEquals("/ws?pattern=**", req.path)
+        assertEquals("Bearer mm_secret", req.getHeader("Authorization"))
         assertEquals("Bearer mm_secret", req.getHeader("Authorization"))
         serverSide.poll(5, TimeUnit.SECONDS)!!.close(1000, "bye")
         assertTrue(closed.await(5, TimeUnit.SECONDS))

@@ -254,4 +254,37 @@
     <string name="channel_digest">Daily digest</string>
     <string name="digest_title">Your daily digest</string>
     <string name="digest_body">%1$d small things happened today. Open MellowMesh to catch up.</string>
+    <!-- Out of reach, and calls -->
+    <string name="offline_title">Your network is resting</string>
+    <string name="offline_intro">Your phone cannot reach your MellowMesh computer right now. Nothing is lost: you can keep talking to your Mellows, and what you write leaves as soon as the network is back.</string>
+    <string name="offline_checks_title">To wake it up, check three things</string>
+    <string name="offline_check_on">Your computer is on and awake.</string>
+    <string name="offline_check_running">MellowMesh is running on it. If not, open the MellowMesh app, or type:</string>
+    <string name="offline_check_wifi">Your phone is on the same Wi-Fi, or the remote address still works.</string>
+    <string name="offline_check_address">This phone looks for: %1$s</string>
+    <string name="offline_retry">Try again</string>
+    <string name="offline_auto">I also try again by myself every 20 seconds.</string>
+    <string name="offline_meanwhile">Meanwhile, call a Mellow</string>
+    <string name="pending_count">%1$d messages will leave when you are back</string>
+    <string name="pending_bubble">Waiting to send. Leaves when you are back</string>
+    <string name="calls_caption">CALLS</string>
+    <string name="calls_title">Call a Mellow</string>
+    <string name="calls_intro">Glowing ones can pick up now. Sleeping ones are away: leave them a message.</string>
+    <string name="calls_resting">Your network is resting: every Mellow is away for now, but they will get your messages.</string>
+    <string name="calls_empty">No Mellow met yet. Once your phone reaches your network, they appear here, even offline afterwards.</string>
+    <string name="calls_strip_title">Quick calls</string>
+    <string name="calls_strip_all">All calls</string>
+    <string name="call_free">Free now</string>
+    <string name="call_away">Away. Leave a message</string>
+    <string name="call_orb_free">Can pick up now</string>
+    <string name="call_orb_away">Away, sleeping</string>
+    <string name="calling">Calling %1$s…</string>
+    <string name="call_connected">%1$s picked up</string>
+    <string name="call_is_away">%1$s is away</string>
+    <string name="call_away_resting">Your network is resting. Leave a message: it leaves when you are back.</string>
+    <string name="call_away_asleep">This Mellow is asleep. Leave a message: it will find it when it wakes.</string>
+    <string name="leave_message">Leave a message…</string>
+    <string name="say_something">Say something…</string>
+    <string name="open_conversation">Open conversation</string>
+    <string name="message_left">Message kept for %1$s. It leaves when you are back.</string>
 </resources>

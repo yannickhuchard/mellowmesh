@@ -234,6 +234,41 @@ it installed; connect it."**
 | :--- | :--- | :--- | :--- |
 | T8 | Connect an AI app you have installed to your network. | 1 min | One tap; can say what changed and how to undo it. |
 
+*When the network is out of reach — and calling a Mellow.* Observed on a
+real phone: the Plaza turned into one pink sentence ("Cannot reach your
+hub… Try again") and nothing else. The app went dark exactly when people
+most need to know *what to do*, and it forgot every Mellow it had met.
+
+* **Name the situation, then the fix, in places not protocols.** "Your
+  network is resting" + three checks, each a sentence: *Is your computer
+  on?* · *Is MellowMesh running on it?* (`mellowmesh daemon start`) · *Same
+  Wi-Fi, or your tunnel address?* — and one *Try again*.
+* **The app keeps working, deferred.** The Mellows the phone has met stay
+  on screen. You can still call one and *leave a message*; it waits on the
+  phone (encrypted with the rest of its secrets) and leaves by itself the
+  moment the network answers — "2 messages will leave when you're back".
+  Requests (decisions) never wait: they need the live network and a
+  fingerprint, and the app says so.
+* **Calls: a second door, beside the Plaza.** A quick-access strip of
+  Mellows on the Plaza opens *Calls*: a night-sky dial where each Mellow is
+  a glowing orb in its own color. Tapping one *calls* it: rings ripple out,
+  "Calling Reviewer…", then it picks up and you speak. Motion is the
+  message, so every state has its own movement:
+  * **Reachable** — the orb breathes, rings pulse outward, two sparks
+    orbit it.
+  * **Away** (asleep, no session hosting it, or the network resting) — the
+    orb drains to grey, eyes closed, sinks a little, a dashed ring stands
+    still and "z z" float up. Its call card says *Away — leave a message*.
+  * **Picked up** — a burst of light, the orb rises, the line becomes a
+    conversation.
+  Reduce Motion keeps the states (color, ring style, label) without the
+  movement.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T9 | Your computer is off. Leave a message for a Mellow; then turn it on. | 3 min | Can say why it could not answer right away, and sees the message leave by itself. |
+| T10 | Call the Mellow that is free right now. | 30 s | Picks the reachable one at a glance, without reading labels. |
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

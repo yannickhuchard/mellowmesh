@@ -1,5 +1,6 @@
 package io.mellowmesh.app.ui.plaza
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,12 +31,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.mellowmesh.app.R
 import io.mellowmesh.app.meshApp
+import io.mellowmesh.app.ui.calls.CallStrip
 import io.mellowmesh.app.ui.components.AccessIcon
 import io.mellowmesh.app.ui.components.ErrorNote
 import io.mellowmesh.app.ui.components.Gap
@@ -77,8 +80,11 @@ fun PlazaScreen(
     onRoadmap: () -> Unit,
     onNetwork: () -> Unit,
     onSettings: () -> Unit,
+    onCalls: () -> Unit,
+    onCall: (String) -> Unit,
 ) {
     val app = LocalContext.current.meshApp
+    val reachable by app.repo.reachable.collectAsStateWithLifecycle()
     val home by app.repo.home.collectAsStateWithLifecycle()
     val error by app.repo.homeError.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -99,7 +105,9 @@ fun PlazaScreen(
             },
         )
         val model = home
-        if (model == null) {
+        if (reachable == false && (model == null || error != null)) {
+            OfflinePanel(onRetry = { scope.launch { app.repo.refreshHome() } }, onCalls = onCalls, onCall = onCall)
+        } else if (model == null) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Gap(40.dp)
                 Mello(size = 120.dp, mood = if (error == null) Mood.THINKING else Mood.IDLE)
@@ -109,7 +117,7 @@ fun PlazaScreen(
                 else Text(stringResource(R.string.loading), color = Mesh.Ink2)
             }
         } else {
-            PlazaContent(model, places, labels, error, onPlace, onHelper, onBoard, onRoadmap, onNetwork)
+            PlazaContent(model, places, labels, error, onPlace, onHelper, onBoard, onRoadmap, onNetwork, onCalls, onCall)
         }
     }
 }
@@ -125,6 +133,8 @@ private fun PlazaContent(
     onBoard: () -> Unit,
     onRoadmap: () -> Unit,
     onNetwork: () -> Unit,
+    onCalls: () -> Unit,
+    onCall: (String) -> Unit,
 ) {
     val mine = model.helpers.filter { it.isMine }
     val others = model.helpers.filter { !it.isMine }
@@ -135,6 +145,7 @@ private fun PlazaContent(
         modifier = Modifier.fillMaxSize(),
     ) {
         if (error != null) item { ErrorNote(error) }
+        item { CallStrip(onOpenCalls = onCalls, onCall = onCall) }
 
         model.network?.let { net ->
             item {
@@ -269,6 +280,118 @@ fun HelperRow(h: HelperCard, onClick: () -> Unit) {
             }
             h.progress?.let {
                 Text("${(it * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, color = Mesh.Indigo)
+            }
+        }
+    }
+}
+
+/**
+ * The hub does not answer. Say plainly what to check, keep trying on
+ * its own, and let the person keep talking to their Mellows meanwhile:
+ * what they write waits on the phone and leaves when the network is back.
+ */
+@Composable
+private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (String) -> Unit) {
+    val app = LocalContext.current.meshApp
+    val outbox by app.repo.outbox.collectAsStateWithLifecycle()
+    val config by app.repo.config.collectAsStateWithLifecycle()
+    val still = io.mellowmesh.app.ui.theme.rememberReduceMotion()
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "resting")
+    val bob by t.animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "bob",
+    )
+    // Quietly try again every 20 seconds while this panel is shown.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(20_000)
+            app.repo.refreshHome()
+        }
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Gap(12.dp)
+                Mello(
+                    size = 110.dp,
+                    mood = Mood.ASLEEP,
+                    modifier = Modifier.graphicsLayer(translationY = if (still) 0f else bob * 10f),
+                )
+                Gap(8.dp)
+                Text(
+                    stringResource(R.string.offline_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Mesh.Ink,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Text(
+                    stringResource(R.string.offline_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Mesh.Ink2,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+        item {
+            MeshCard(Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.offline_checks_title), style = MaterialTheme.typography.titleMedium, color = Mesh.Ink)
+                Gap(8.dp)
+                OfflineCheck(1, stringResource(R.string.offline_check_on), null)
+                OfflineCheck(2, stringResource(R.string.offline_check_running), "mellowmesh daemon start")
+                OfflineCheck(
+                    3,
+                    stringResource(R.string.offline_check_wifi),
+                    config?.baseUrl?.let { stringResource(R.string.offline_check_address, it) },
+                )
+                Gap(8.dp)
+                InkButton(stringResource(R.string.offline_retry), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+                Text(
+                    stringResource(R.string.offline_auto),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mesh.Ink3,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+        if (outbox.isNotEmpty()) {
+            item {
+                MeshCard(Modifier.fillMaxWidth(), color = Mesh.IndigoTint) {
+                    Text(stringResource(R.string.pending_count, outbox.size), style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                }
+            }
+        }
+        item {
+            Text(stringResource(R.string.offline_meanwhile), style = MaterialTheme.typography.titleMedium, color = Mesh.Ink)
+        }
+        item { CallStrip(onOpenCalls = onCalls, onCall = onCall) }
+    }
+}
+
+@Composable
+private fun OfflineCheck(n: Int, text: String, detail: String?) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(Mesh.IndigoTint),
+            contentAlignment = Alignment.Center,
+        ) { Text(n.toString(), color = Mesh.Indigo, style = MaterialTheme.typography.labelLarge) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink)
+            if (detail != null) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mesh.Ink2,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                )
             }
         }
     }

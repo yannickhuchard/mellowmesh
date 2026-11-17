@@ -1,6 +1,8 @@
 package io.mellowmesh.app.ui.chats
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -49,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import io.mellowmesh.app.MellowMeshApp
 import io.mellowmesh.app.R
+import io.mellowmesh.app.meshApp
 import io.mellowmesh.app.data.friendly
 import io.mellowmesh.app.ui.components.BackHeader
 import io.mellowmesh.app.ui.components.ErrorNote
@@ -96,6 +100,15 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
                 it.copy(title = Conversations.title(conv, app.repo.me, app.repo.directory, teams), kind = conv.kind)
             }
             load()
+            // A message that waited on the phone has left: show it as sent.
+            viewModelScope.launch {
+                var waiting = app.repo.outbox.value.count { it.conversationId == conversationId }
+                app.repo.outbox.collect { list ->
+                    val now = list.count { it.conversationId == conversationId }
+                    if (now < waiting) load()
+                    waiting = now
+                }
+            }
             viewModelScope.launch {
                 app.repo.live.collect { msg ->
                     if (Conversations.isChatTopic(conv, msg.topic)) {
@@ -138,7 +151,7 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             try {
-                add(app.repo.send(conversationId, text.trim()))
+                app.repo.sendOrQueue(conversationId, text.trim())?.let { add(it) }
                 onSent()
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.friendly()) }
@@ -159,6 +172,38 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
     }
 }
 
+/** A message kept on the phone until the network answers again. */
+@Composable
+private fun PendingBubble(text: String) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "pending")
+    val still = io.mellowmesh.app.ui.theme.rememberReduceMotion()
+    val pulse by t.animateFloat(
+        0.55f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1100),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "pulse",
+    )
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        Text(
+            text,
+            color = Mesh.Ink,
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(Mesh.IndigoTint.copy(alpha = if (still) 1f else pulse))
+                .border(1.dp, Mesh.Indigo.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+        Text(
+            stringResource(R.string.pending_bubble),
+            color = Mesh.Ink3,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(top = 2.dp, end = 6.dp),
+        )
+    }
+}
+
 @Composable
 fun ConversationScreen(
     conversationId: String,
@@ -172,9 +217,13 @@ fun ConversationScreen(
     var linkToOpen by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val uriHandler = LocalUriHandler.current
+    val app = LocalContext.current.meshApp
+    val outbox by app.repo.outbox.collectAsStateWithLifecycle()
+    val waiting = outbox.filter { it.conversationId == conversationId }
 
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
+    LaunchedEffect(state.messages.size, waiting.size) {
+        val total = state.messages.size + waiting.size
+        if (total > 0) listState.animateScrollToItem(total - 1)
     }
 
     val ref = vm.ref
@@ -226,6 +275,7 @@ fun ConversationScreen(
                         onLink = { linkToOpen = it },
                     )
                 }
+                items(waiting, key = { it.id }) { p -> PendingBubble(p.text) }
             }
         }
         state.error?.let { ErrorNote(it, modifier = Modifier.padding(horizontal = 12.dp)) }

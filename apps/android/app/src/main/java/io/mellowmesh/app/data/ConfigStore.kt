@@ -102,6 +102,44 @@ class ConfigStore(context: Context) {
         plain.edit().putString(KEY_READ_MARKERS, m.entries.joinToString("\n") { "${it.key}=${it.value}" }).apply()
     }
 
+    /**
+     * The Mellows (agents) this phone last saw, so they stay on screen —
+     * and callable — while the network is out of reach. Kept with the
+     * other secrets: who you work with is private.
+     */
+    fun loadAgentsCache(): List<io.mellowmesh.core.AgentRegistration> = runCatching {
+        val raw = secure.getString(KEY_AGENTS_CACHE, null) ?: return emptyList()
+        io.mellowmesh.core.MeshJson.decodeFromString(
+            kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.AgentRegistration.serializer()),
+            raw,
+        )
+    }.getOrDefault(emptyList())
+
+    fun saveAgentsCache(agents: List<io.mellowmesh.core.AgentRegistration>) {
+        val raw = io.mellowmesh.core.MeshJson.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.AgentRegistration.serializer()),
+            agents,
+        )
+        secure.edit().putString(KEY_AGENTS_CACHE, raw).apply()
+    }
+
+    /** Messages waiting for the network, oldest first (encrypted at rest). */
+    fun loadOutbox(): List<io.mellowmesh.core.PendingMessage> = runCatching {
+        val raw = secure.getString(KEY_OUTBOX, null) ?: return emptyList()
+        io.mellowmesh.core.MeshJson.decodeFromString(
+            kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.PendingMessage.serializer()),
+            raw,
+        )
+    }.getOrDefault(emptyList())
+
+    fun saveOutbox(items: List<io.mellowmesh.core.PendingMessage>) {
+        val raw = io.mellowmesh.core.MeshJson.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.PendingMessage.serializer()),
+            items,
+        )
+        secure.edit().putString(KEY_OUTBOX, raw).apply()
+    }
+
     private fun deviceName(): String = (Build.MODEL ?: "Android").take(64)
 
     companion object {
@@ -115,5 +153,7 @@ class ConfigStore(context: Context) {
         private const val KEY_DIGEST_DAY = "digest_day"
         private const val KEY_DIGEST_COUNT = "digest_count"
         private const val KEY_READ_MARKERS = "read_markers"
+        private const val KEY_AGENTS_CACHE = "agents_cache"
+        private const val KEY_OUTBOX = "outbox"
     }
 }
