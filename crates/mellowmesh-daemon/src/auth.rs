@@ -726,7 +726,7 @@ pub fn owner_token_path(db_path: &std::path::Path) -> std::path::PathBuf {
 /// Write a secret atomically: a fresh temporary file created with mode 0600
 /// on unix from the start (never readable by others, not even briefly), then
 /// renamed over `path`.
-fn write_secret_file(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_secret_file(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let tmp = path.with_extension(format!("tmp.{}", Ulid::new().to_string().to_lowercase()));
     let mut options = std::fs::OpenOptions::new();

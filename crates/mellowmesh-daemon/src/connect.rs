@@ -326,18 +326,22 @@ pub fn has_settings_folder(id: &str) -> bool {
         .is_some_and(Path::is_dir)
 }
 
-/// Keep the previous file beside the new one, then write.
+/// Keep the previous file beside the new one, then write. Both may hold a
+/// key (this one, or an earlier MellowMesh key), so both are written the
+/// way `owner.token` is: atomically, readable by this user only on Unix.
 fn write_keeping_previous(path: &Path, content: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("its settings folder could not be made ({e})"))?;
     }
     if path.is_file() {
+        let previous = std::fs::read(path).map_err(|e| format!("its previous settings could not be read ({e})"))?;
         let mut backup = path.as_os_str().to_owned();
         backup.push(".mellowmesh-backup");
-        std::fs::copy(path, PathBuf::from(backup))
+        crate::auth::write_secret_file(&PathBuf::from(backup), &previous)
             .map_err(|e| format!("its previous settings could not be kept ({e})"))?;
     }
-    std::fs::write(path, content).map_err(|e| format!("its settings could not be written ({e})"))
+    crate::auth::write_secret_file(path, content.as_bytes())
+        .map_err(|e| format!("its settings could not be written ({e})"))
 }
 
 /// What a click on Connect did.
@@ -584,6 +588,14 @@ mod tests {
         let backup = dir.join("mcp.json.mellowmesh-backup");
         assert!(read(&backup).contains("\"mine\""));
         assert!(!read(&backup).contains("mellowmesh"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for f in [&file, &backup] {
+                let mode = std::fs::metadata(f).unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o600, "a file holding a key is the user's alone");
+            }
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
