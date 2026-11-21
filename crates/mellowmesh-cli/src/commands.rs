@@ -130,7 +130,10 @@ pub fn run_dashboard(port: u16) -> anyhow::Result<()> {
         }
     };
     let opened = if cfg!(windows) {
-        std::process::Command::new("cmd").args(["/C", "start", ""]).arg(&url).status()
+        std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(&url)
+            .status()
     } else if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(&url).status()
     } else {

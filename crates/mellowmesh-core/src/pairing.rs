@@ -99,11 +99,8 @@ pub fn normalize_claim_code(typed: &str) -> Option<String> {
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_uppercase())
         .collect();
-    (cleaned.len() == CLAIM_CODE_LEN
-        && cleaned
-            .bytes()
-            .all(|b| CLAIM_CODE_ALPHABET.contains(&b)))
-    .then_some(cleaned)
+    (cleaned.len() == CLAIM_CODE_LEN && cleaned.bytes().all(|b| CLAIM_CODE_ALPHABET.contains(&b)))
+        .then_some(cleaned)
 }
 
 /// `GET /pair/:token_id` response.

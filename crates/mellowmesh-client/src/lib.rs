@@ -1041,7 +1041,10 @@ impl MellowMeshClient {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
         anyhow::ensure!(ok, "invalid platform id");
-        let path = format!("/mellows/next?platform={platform}&wait={}", wait_secs.min(25));
+        let path = format!(
+            "/mellows/next?platform={platform}&wait={}",
+            wait_secs.min(25)
+        );
         let resp = self.send(Method::GET, &path, None).await?;
         if resp.status == 204 {
             return Ok(None);

@@ -19,7 +19,7 @@ pub async fn create_mapping(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if !crate::auth::is_admin(&state, &ctx) {
         return Err((
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(&ctx),
             "Only the owner may manage identity mappings".to_string(),
         ));
     }

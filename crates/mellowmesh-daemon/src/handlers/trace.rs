@@ -55,7 +55,7 @@ fn require_admin(state: &AppState, ctx: &AuthContext) -> Result<(), (StatusCode,
         Ok(())
     } else {
         Err((
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(ctx),
             "Only the owner may enable or disable trace sessions".to_string(),
         ))
     }

@@ -47,7 +47,9 @@ impl TraceSessionManager {
             }
             ts.status = "disabled".to_string();
             self.store.insert_trace_session(&ts)?;
-            // Saturating: never wrap the gauge below zero.
+            // Saturating: never wrap the gauge below zero. (`try_update` is
+            // its new name, but the minimum supported Rust lacks it.)
+            #[allow(deprecated)]
             let _ = self.metrics.trace_sessions_active.fetch_update(
                 Ordering::Relaxed,
                 Ordering::Relaxed,

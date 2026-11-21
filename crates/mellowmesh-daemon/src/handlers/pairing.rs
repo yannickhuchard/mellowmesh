@@ -134,7 +134,10 @@ pub async fn pair(
     tracing::info!("Pairing '{}' (token {}) via {}", name, record.id, url);
 
     let link = pairing_link(&url, &plaintext, &network.name, &owner);
-    let code = state.access.pairing.register_claim_code(&link, expires_at);
+    let code = state
+        .access
+        .pairing
+        .register_claim_code(&link, expires_at, Some(&record.id));
     let response = PairResponse {
         link,
         url,
@@ -157,7 +160,7 @@ pub async fn claim_pairing_code(
     Json(request): Json<mellowmesh_core::pairing::ClaimRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     match state.access.pairing.claim_code(&request.code) {
-        Err(()) => Err(error(
+        Err(crate::pairing::Throttled) => Err(error(
             StatusCode::TOO_MANY_REQUESTS,
             "Too many tries. Wait a minute, then enter the code again.",
         )),
@@ -165,7 +168,22 @@ pub async fn claim_pairing_code(
             StatusCode::NOT_FOUND,
             "That code isn't valid any more. Make a new one on your computer.",
         )),
-        Ok(Some(link)) => Ok(Json(mellowmesh_core::pairing::ClaimResponse { link })),
+        Ok(Some((link, device_token_id))) => {
+            // The code outlives the QR scan: if the device it was made for
+            // already connected (or was removed), it must not give the same
+            // owner key to a second device.
+            if let Some(id) = device_token_id {
+                let store = state.store.clone();
+                let d = blocking(move || store.get_device_token(&id)).await?;
+                if d.is_none_or(|d| d.revoked || d.connected() || d.expired(Utc::now())) {
+                    return Err(error(
+                        StatusCode::GONE,
+                        "That code was already used by a phone. Make a new one on your computer.",
+                    ));
+                }
+            }
+            Ok(Json(mellowmesh_core::pairing::ClaimResponse { link }))
+        }
     }
 }
 
@@ -243,6 +261,7 @@ pub async fn remove_device(
     let store = state.store.clone();
     let key = d.id.clone();
     blocking(move || store.revoke_token(&key)).await?;
+    state.access.pairing.forget_codes_for(&d.id);
     // Revocation takes effect immediately, not after the cache TTL.
     state.caches.clear_tokens();
     tracing::info!("Device '{}' (token {}) removed", d.name, d.id);

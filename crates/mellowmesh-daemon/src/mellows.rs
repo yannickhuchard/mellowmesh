@@ -297,13 +297,16 @@ fn registry() -> &'static RwLock<HashMap<String, Arc<Live>>> {
 }
 
 fn insert_live(binding: Binding) {
-    registry().write().unwrap_or_else(|p| p.into_inner()).insert(
-        binding.inbox.clone(),
-        Arc::new(Live {
-            binding,
-            memory: tokio::sync::Mutex::new(VecDeque::new()),
-        }),
-    );
+    registry()
+        .write()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(
+            binding.inbox.clone(),
+            Arc::new(Live {
+                binding,
+                memory: tokio::sync::Mutex::new(VecDeque::new()),
+            }),
+        );
 }
 
 /// Every binding, oldest first.
@@ -349,7 +352,11 @@ pub fn slug(name: &str) -> Option<String> {
             out.push('_');
         }
     }
-    let out = out.trim_end_matches('_').chars().take(32).collect::<String>();
+    let out = out
+        .trim_end_matches('_')
+        .chars()
+        .take(32)
+        .collect::<String>();
     (!out.is_empty()).then_some(out)
 }
 
@@ -494,7 +501,13 @@ pub async fn create(
     );
     let _ = crate::handlers::message::handle_publish(
         shared,
-        message(&binding.outbox, &binding.agent_id, "text/markdown", hello, None),
+        message(
+            &binding.outbox,
+            &binding.agent_id,
+            "text/markdown",
+            hello,
+            None,
+        ),
     )
     .await;
     Ok(binding)
@@ -581,7 +594,9 @@ pub fn maybe_dispatch(state: &Arc<AppState>, msg: &Message) {
         due
     };
     if due {
-        let name = platforms::spec(&platform).map(|s| s.name).unwrap_or("its platform");
+        let name = platforms::spec(&platform)
+            .map(|s| s.name)
+            .unwrap_or("its platform");
         let note = format!(
             "I'm asleep right now: no {name} session on your computer is hosting your Mellows. Your message is kept — I'll answer as soon as one listens (open {name} there and give it the host message once)."
         );
@@ -680,7 +695,10 @@ async fn run_platform(spec: &PlatformSpec, prompt: &str, b: &Binding) -> Result<
 
     // Its own folder, so a platform that writes files does it away from yours.
     let seg = b.agent_id.rsplit('/').next().unwrap_or("mellow");
-    let workspace = std::env::temp_dir().join("mellowmesh").join("mellows").join(seg);
+    let workspace = std::env::temp_dir()
+        .join("mellowmesh")
+        .join("mellows")
+        .join(seg);
     let _ = std::fs::create_dir_all(&workspace);
     run_command(&exe, args, prompt, &workspace, spec.name).await
 }
@@ -702,10 +720,10 @@ async fn run_command(
     // are constants from the catalog, the prompt never touches this line.
     let mut cmd = if is_script {
         let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(&exe);
+        c.arg("/C").arg(exe);
         c
     } else {
-        tokio::process::Command::new(&exe)
+        tokio::process::Command::new(exe)
     };
     cmd.args(args)
         .current_dir(workspace)
@@ -740,7 +758,10 @@ async fn run_command(
     // The platform's own words are the most useful thing to relay
     // ("not logged in", "credit balance is too low"…), kept short.
     let said = if !stdout.is_empty() { stdout } else { stderr };
-    let first = said.lines().find(|l| !l.trim().is_empty()).unwrap_or("no answer");
+    let first = said
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("no answer");
     Err(format!(
         "{} said: {}",
         name,
@@ -777,7 +798,14 @@ mod tests {
         let workspace = std::env::temp_dir().join("mellowmesh-test-karim");
         let _ = std::fs::create_dir_all(&workspace);
         // An option `sort` does not know: it exits non-zero with a message.
-        let got = run_command(&stand_in, &["--mellowmesh-nope"], "hi", &workspace, "Stand-in").await;
+        let got = run_command(
+            &stand_in,
+            &["--mellowmesh-nope"],
+            "hi",
+            &workspace,
+            "Stand-in",
+        )
+        .await;
         let err = got.expect_err("an unknown option must fail");
         assert!(err.starts_with("Stand-in said: "), "{err}");
     }
@@ -800,7 +828,10 @@ mod tests {
         let old = r#"{"agent_id":"agent://k/r","name":"R","platform":"claude-code","purpose":"p",
             "inbox":"_agent.k.r.inbox","outbox":"_agent.k.r.outbox","created_at":"2026-11-15T20:00:00Z"}"#;
         let b: Binding = serde_json::from_str(old).unwrap();
-        assert_eq!(b.mode, MODE_SESSION, "never headless unless the owner asked");
+        assert_eq!(
+            b.mode, MODE_SESSION,
+            "never headless unless the owner asked"
+        );
     }
 
     #[test]
@@ -809,8 +840,14 @@ mod tests {
         let p = host_prompt(spec);
         assert!(p.contains("mellow_wait") && p.contains("mellow_reply"));
         assert!(p.contains("\"claude-code\""));
-        assert!(p.contains("create_decision"), "actions go through a decision");
-        assert!(p.contains(spec.command), "says how to connect the MCP if missing");
+        assert!(
+            p.contains("create_decision"),
+            "actions go through a decision"
+        );
+        assert!(
+            p.contains(spec.command),
+            "says how to connect the MCP if missing"
+        );
     }
 
     /// Persona simulation — Léa's open session hosts her Mellows: a message
@@ -835,14 +872,27 @@ mod tests {
             .or_default()
             .push_back(Waiting {
                 live,
-                msg: message("_agent.lea.ops.inbox", "human://lea", "text/plain", "Is the deploy safe?".into(), None),
+                msg: message(
+                    "_agent.lea.ops.inbox",
+                    "human://lea",
+                    "text/plain",
+                    "Is the deploy safe?".into(),
+                    None,
+                ),
             });
-        let got = wait_next(platform, Duration::from_millis(200)).await.expect("a message");
+        let got = wait_next(platform, Duration::from_millis(200))
+            .await
+            .expect("a message");
         assert_eq!(got.name, "Reviewer");
         assert_eq!(got.body, "Is the deploy safe?");
         assert!(got.history.is_empty());
-        assert!(is_hosted(platform), "asking for work marks the session as hosting");
-        assert!(wait_next(platform, Duration::from_millis(50)).await.is_none());
+        assert!(
+            is_hosted(platform),
+            "asking for work marks the session as hosting"
+        );
+        assert!(wait_next(platform, Duration::from_millis(50))
+            .await
+            .is_none());
     }
 
     #[test]
@@ -857,15 +907,24 @@ mod tests {
     #[test]
     fn the_prompt_carries_identity_purpose_memory_and_the_new_message() {
         let memory = vec![
-            Line { from_owner: true, text: "Hello".into() },
-            Line { from_owner: false, text: "Hi Karim".into() },
+            Line {
+                from_owner: true,
+                text: "Hello".into(),
+            },
+            Line {
+                from_owner: false,
+                text: "Hi Karim".into(),
+            },
         ];
         let p = build_prompt(&binding(), &memory, "human://karim", "Look at PR 12");
         assert!(p.contains("\"Reviewer\""));
         assert!(p.contains("Your job: Review my pull requests."));
         assert!(p.contains("Owner: Hello\nYou: Hi Karim"));
         assert!(p.trim_end().ends_with("Look at PR 12"));
-        assert!(p.contains("ask for the OK"), "a piloted Mellow never acts on its own");
+        assert!(
+            p.contains("ask for the OK"),
+            "a piloted Mellow never acts on its own"
+        );
     }
 
     #[test]

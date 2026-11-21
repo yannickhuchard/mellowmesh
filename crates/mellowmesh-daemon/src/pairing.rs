@@ -43,9 +43,16 @@ pub struct PairingState {
     claim_misses: std::sync::Mutex<(std::time::Instant, u32)>,
 }
 
+/// Too many wrong codes this minute: try again later.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Throttled;
+
 struct ClaimEntry {
     link: String,
     expires_at: chrono::DateTime<chrono::Utc>,
+    /// The device token the link carries, when it is one: once that device
+    /// has connected, the code must not hand the same key to anyone else.
+    device_token_id: Option<String>,
 }
 
 /// Failed claim attempts allowed per minute, across all callers: with a
@@ -110,6 +117,7 @@ impl PairingState {
         &self,
         link: &str,
         expires_at: chrono::DateTime<chrono::Utc>,
+        device_token_id: Option<&str>,
     ) -> String {
         let mut codes = self.codes.lock().unwrap_or_else(|p| p.into_inner());
         let now = chrono::Utc::now();
@@ -121,6 +129,7 @@ impl PairingState {
                 slot.insert(ClaimEntry {
                     link: link.to_string(),
                     expires_at,
+                    device_token_id: device_token_id.map(str::to_string),
                 });
                 return code;
             }
@@ -128,16 +137,16 @@ impl PairingState {
     }
 
     /// Redeem a typed code: the link, once — the entry is gone after.
-    /// `Err(())` when the throttle is exhausted; `Ok(None)` for a wrong,
+    /// `Err(Throttled)` when the throttle is exhausted; `Ok(None)` for a wrong,
     /// used or expired code (counted against the throttle).
-    pub fn claim_code(&self, typed: &str) -> Result<Option<String>, ()> {
+    pub fn claim_code(&self, typed: &str) -> Result<Option<(String, Option<String>)>, Throttled> {
         {
             let mut misses = self.claim_misses.lock().unwrap_or_else(|p| p.into_inner());
             if misses.0.elapsed() > std::time::Duration::from_secs(60) {
                 *misses = (std::time::Instant::now(), 0);
             }
             if misses.1 >= CLAIM_MISSES_PER_MINUTE {
-                return Err(());
+                return Err(Throttled);
             }
         }
         let hit = mellowmesh_core::pairing::normalize_claim_code(typed).and_then(|key| {
@@ -145,13 +154,20 @@ impl PairingState {
             codes
                 .remove(&key)
                 .filter(|e| e.expires_at > chrono::Utc::now())
-                .map(|e| e.link)
+                .map(|e| (e.link, e.device_token_id))
         });
         if hit.is_none() {
             let mut misses = self.claim_misses.lock().unwrap_or_else(|p| p.into_inner());
             misses.1 += 1;
         }
         Ok(hit)
+    }
+
+    /// Forget every code that redeems `device_token_id` (the device has
+    /// connected, or was removed).
+    pub fn forget_codes_for(&self, device_token_id: &str) {
+        let mut codes = self.codes.lock().unwrap_or_else(|p| p.into_inner());
+        codes.retain(|_, e| e.device_token_id.as_deref() != Some(device_token_id));
     }
 }
 

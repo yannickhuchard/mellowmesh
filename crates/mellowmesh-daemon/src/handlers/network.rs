@@ -32,7 +32,7 @@ fn require_admin(state: &AppState, ctx: &AuthContext) -> Result<(), ApiError> {
         Ok(())
     } else {
         Err((
-            StatusCode::FORBIDDEN,
+            crate::auth::admin_refusal(ctx),
             "Only the owner may manage the network, spaces and teams".to_string(),
         ))
     }

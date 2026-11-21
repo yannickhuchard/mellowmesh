@@ -57,6 +57,9 @@ pub fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
 /// auth middleware already refused a person's token in the URL, so a query
 /// token reaching here is an agent's (web connectors without headers).
 fn caller_token(headers: &HeaderMap, uri: &Uri) -> Option<String> {
+    // Same precedence as the middleware: a Bearer header wins; any other
+    // Authorization scheme is ignored and the URL token is used — the one
+    // the middleware already checked is an agent's.
     if let Some(t) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())

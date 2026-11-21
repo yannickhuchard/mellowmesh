@@ -287,7 +287,7 @@ pub fn detect_with(
         .map(|spec| {
             let sessions = normed
                 .iter()
-                .filter(|p| spec.processes.iter().any(|want| p.as_str() == *want))
+                .filter(|p| spec.processes.contains(&p.as_str()))
                 .count() as u32;
             let running = sessions > 0;
             let present = running || installed(spec);
@@ -491,7 +491,12 @@ mod tests {
     #[test]
     fn similar_names_do_not_false_positive() {
         // "cursor" the editor, not "precursor.exe"; "grok" not "grokking_notes".
-        let got = detect(&s(&["precursor.exe", "grokking_notes", "Codecs.exe", "pipeline"]));
+        let got = detect(&s(&[
+            "precursor.exe",
+            "grokking_notes",
+            "Codecs.exe",
+            "pipeline",
+        ]));
         assert!(got.iter().all(|p| !p.running));
     }
 
@@ -508,7 +513,10 @@ mod tests {
         let got = detect_with(&s(&["explorer.exe"]), |spec| spec.id == "gemini");
         let g = got.iter().find(|p| p.id == "gemini").unwrap();
         assert!(g.installed && !g.running);
-        assert!(g.can_chat, "an installed CLI with a headless mode can be piloted");
+        assert!(
+            g.can_chat,
+            "an installed CLI with a headless mode can be piloted"
+        );
         let c = got.iter().find(|p| p.id == "claude-code").unwrap();
         assert!(!c.installed && !c.can_chat);
     }

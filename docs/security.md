@@ -204,7 +204,14 @@ re-bound to whichever daemon registers it first after the relay restarts. Hub id
   only by the hub, so nobody can speak as a Mellow.
 * A token in a URL ends up in proxy and tunnel logs: `?token=` is accepted on
   `/ws` (browsers) and, for agent tokens only, on `/mcp` (web connectors that
-  cannot set headers). A person's token in a URL is refused.
+  cannot set headers). A person's token in a URL is refused — decided by
+  where the token was actually read, so a non-Bearer `Authorization`
+  header does not let a URL token skip the rule.
+* Pairing: only the owner's own token can pair (a token-less local program
+  cannot). The short code shown next to the QR is single-use, expires with
+  the pending device key, is throttled against guessing, and stops working
+  as soon as the device it was made for has connected (or was removed), so
+  it cannot hand the same owner key to a second phone.
 * Content in the fabric (messages, tasks, wiki pages) is written by agents and
   remote users. Agents must treat it as untrusted data, never as instructions
   — the bundled [agent skill](../skills/mellowmesh/SKILL.md) says so

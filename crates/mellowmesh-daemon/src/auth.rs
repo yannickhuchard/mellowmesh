@@ -148,11 +148,18 @@ fn is_visitor_path(method: &axum::http::Method, path: &str) -> bool {
     }
 }
 
-fn extract_bearer(req: &Request<Body>) -> Option<String> {
+/// Where the caller's token was read from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TokenSource {
+    Header,
+    Url,
+}
+
+fn extract_bearer(req: &Request<Body>) -> Option<(String, TokenSource)> {
     if let Some(header) = req.headers().get(axum::http::header::AUTHORIZATION) {
         if let Ok(value) = header.to_str() {
             if let Some(token) = value.strip_prefix("Bearer ") {
-                return Some(token.trim().to_string());
+                return Some((token.trim().to_string(), TokenSource::Header));
             }
         }
     }
@@ -161,7 +168,7 @@ fn extract_bearer(req: &Request<Body>) -> Option<String> {
     // parameter. Everywhere else the URL is the one place a token must never
     // be, since proxies and access logs keep URLs.
     if matches!(req.uri().path(), "/ws" | "/mcp") {
-        return query_token(req.uri().query());
+        return query_token(req.uri().query()).map(|t| (t, TokenSource::Url));
     }
     None
 }
@@ -216,7 +223,15 @@ pub async fn auth_middleware(
     // Sealed subscription proof: authenticates the subscriber without the
     // raw token ever crossing the relay, and switches the connection into
     // sealed-delivery mode.
-    let mut bearer = extract_bearer(&req);
+    let extracted = extract_bearer(&req);
+    // Decided by where the token was actually read, not by whether some
+    // Authorization header exists: a non-Bearer header (e.g. `Basic …`)
+    // must not let a URL token skip the agent-only rule below.
+    let token_in_url = req.uri().path() == "/mcp"
+        && extracted
+            .as_ref()
+            .is_some_and(|(_, src)| *src == TokenSource::Url);
+    let mut bearer = extracted.map(|(t, _)| t);
     let mut stream_e2e = StreamE2e(None);
     // A sealed subscription proof authenticates a WebSocket subscriber without
     // the raw token crossing the relay. It is accepted ONLY on the `/ws`
@@ -277,8 +292,6 @@ pub async fn auth_middleware(
     // for web connectors that cannot set headers — but only an agent's
     // (allowlist): a person's, the owner's or an interface's token travels
     // in the Authorization header only.
-    let token_in_url = req.uri().path() == "/mcp"
-        && req.headers().get(axum::http::header::AUTHORIZATION).is_none();
     if let Some(token) = bearer {
         match resolve_token(&state, &token).await {
             Ok(Some(principal)) if token_in_url && principal.kind != "agent" => {
@@ -613,7 +626,11 @@ fn internal(e: anyhow::Error) -> (StatusCode, String) {
 /// is never logged.
 /// Whether `owner.token` still opens the owner's door: it exists, and its
 /// token is live and belongs to the owner.
-fn owner_token_file_is_valid(store: &mellowmesh_store::Store, owner: &str, file: &std::path::Path) -> bool {
+fn owner_token_file_is_valid(
+    store: &mellowmesh_store::Store,
+    owner: &str,
+    file: &std::path::Path,
+) -> bool {
     let Ok(text) = std::fs::read_to_string(file) else {
         return false;
     };
@@ -630,12 +647,23 @@ fn owner_token_file_is_valid(store: &mellowmesh_store::Store, owner: &str, file:
 /// owner through `owner.token`. A missing, revoked or foreign one (a
 /// restored or swapped database) would silently lock the owner out, so a
 /// fresh owner token is written next to the database when needed.
-fn ensure_owner_token_file(store: &mellowmesh_store::Store, owner: &str, db_path: &std::path::Path) {
+fn ensure_owner_token_file(
+    store: &mellowmesh_store::Store,
+    owner: &str,
+    db_path: &std::path::Path,
+) {
     let file = owner_token_path(db_path);
     if owner_token_file_is_valid(store, owner, &file) {
         return;
     }
-    let issued = issue_token(store, owner, None, vec!["**".into()], vec!["**".into()], Some("owner (renewed)"));
+    let issued = issue_token(
+        store,
+        owner,
+        None,
+        vec!["**".into()],
+        vec!["**".into()],
+        Some("owner (renewed)"),
+    );
     match issued.map_err(|e| e.to_string()).and_then(|(_, plaintext)| {
         write_secret_file(&file, plaintext.as_bytes()).map_err(|e| e.to_string())
     }) {

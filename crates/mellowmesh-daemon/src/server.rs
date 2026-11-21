@@ -250,7 +250,10 @@ struct MellowReply {
     body: String,
 }
 
-fn owner_only(state: &AppState, ctx: &crate::auth::AuthContext) -> Option<axum::response::Response> {
+fn owner_only(
+    state: &AppState,
+    ctx: &crate::auth::AuthContext,
+) -> Option<axum::response::Response> {
     if crate::auth::is_admin(state, ctx) {
         return None;
     }
@@ -288,7 +291,8 @@ async fn create_mellow_handler(
         return no;
     }
     use crate::mellows::CreateError;
-    match crate::mellows::create(&state, &id, &body.name, &body.purpose, body.mode.as_deref()).await {
+    match crate::mellows::create(&state, &id, &body.name, &body.purpose, body.mode.as_deref()).await
+    {
         Ok(binding) => {
             // The conversation id the apps open: inbox without ".inbox".
             let conversation = binding.inbox.trim_end_matches(".inbox").to_string();
@@ -399,32 +403,45 @@ async fn invite_platform_handler(
     let Some(spec) = crate::platforms::spec(&id) else {
         return (
             StatusCode::NOT_FOUND,
-            axum::response::Json(serde_json::json!({ "error": "That AI app is not one MellowMesh knows." })),
+            axum::response::Json(
+                serde_json::json!({ "error": "That AI app is not one MellowMesh knows." }),
+            ),
         )
             .into_response();
     };
     let store = state.store.clone();
     let owner = state.owner.clone();
-    let issued = tokio::task::spawn_blocking(move || crate::connect::issue_platform_token(&store, &owner, spec))
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
+    let issued = tokio::task::spawn_blocking(move || {
+        crate::connect::issue_platform_token(&store, &owner, spec)
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
     state.caches.clear_tokens();
     let (principal, token) = match issued {
         Ok(t) => t,
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                axum::response::Json(serde_json::json!({ "error": format!("No invitation could be made: {e}") })),
+                axum::response::Json(
+                    serde_json::json!({ "error": format!("No invitation could be made: {e}") }),
+                ),
             )
                 .into_response()
         }
     };
     let url = invite_base_url(&state);
-    let network = state.store.get_network().map(|n| n.name).unwrap_or_default();
+    let network = state
+        .store
+        .get_network()
+        .map(|n| n.name)
+        .unwrap_or_default();
     let link = mellowmesh_core::pairing::pairing_link(&url, &token, &network, &principal);
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
-    let code = state.access.pairing.register_claim_code(&link, expires_at);
+    let code = state
+        .access
+        .pairing
+        .register_claim_code(&link, expires_at, None);
     axum::response::Json(serde_json::json!({
         "code": code,
         "url": url,
@@ -446,7 +463,8 @@ async fn list_mellows_handler(
     let all: Vec<serde_json::Value> = crate::mellows::list()
         .into_iter()
         .map(|b| {
-            let awake = b.mode == crate::mellows::MODE_HEADLESS || crate::mellows::is_hosted(&b.platform);
+            let awake =
+                b.mode == crate::mellows::MODE_HEADLESS || crate::mellows::is_hosted(&b.platform);
             let mut v = serde_json::to_value(&b).unwrap_or_default();
             v["awake"] = serde_json::json!(awake);
             v
@@ -471,7 +489,9 @@ async fn mellow_next_handler(
     if crate::platforms::spec(&params.platform).is_none() {
         return (
             StatusCode::NOT_FOUND,
-            axum::response::Json(serde_json::json!({ "error": "That AI app is not one MellowMesh knows." })),
+            axum::response::Json(
+                serde_json::json!({ "error": "That AI app is not one MellowMesh knows." }),
+            ),
         )
             .into_response();
     }
@@ -494,7 +514,15 @@ async fn mellow_reply_handler(
         crate::mellows::HostRight::Platform(p) => Some(p),
         crate::mellows::HostRight::None => return host_refused(&ctx),
     };
-    match crate::mellows::reply(&state, &body.agent_id, body.message_id.as_deref(), &body.body, only).await {
+    match crate::mellows::reply(
+        &state,
+        &body.agent_id,
+        body.message_id.as_deref(),
+        &body.body,
+        only,
+    )
+    .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
@@ -1367,7 +1395,9 @@ mod tests {
         ] {
             let req = match method {
                 "GET" => http.get(format!("{base}{path}")),
-                _ => http.post(format!("{base}{path}")).json(&serde_json::json!({})),
+                _ => http
+                    .post(format!("{base}{path}"))
+                    .json(&serde_json::json!({})),
             };
             assert_eq!(req.send().await.unwrap().status(), 401, "{method} {path}");
         }
@@ -1396,8 +1426,17 @@ mod tests {
                 .send()
         };
         assert_eq!(publish("_forum.general").await.unwrap().status(), 200);
-        assert_eq!(publish("_agent.test.cursor.notes").await.unwrap().status(), 200);
-        assert_eq!(publish("_agent.test.reviewer.inbox").await.unwrap().status(), 403);
+        assert_eq!(
+            publish("_agent.test.cursor.notes").await.unwrap().status(),
+            200
+        );
+        assert_eq!(
+            publish("_agent.test.reviewer.inbox")
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
         let mint = http
             .post(format!("{base}/auth/tokens"))
             .bearer_auth(&token)
@@ -1436,18 +1475,58 @@ mod tests {
         let store = Store::new_in_memory().unwrap();
         let state = test_state(store.clone(), false);
         let (_, agent) = crate::auth::issue_token(
-            &store, "agent://test/grok", None, vec!["_forum.**".into()], vec!["_forum.**".into()], None,
+            &store,
+            "agent://test/grok",
+            None,
+            vec!["_forum.**".into()],
+            vec!["_forum.**".into()],
+            None,
         )
         .unwrap();
-        let (_, human) =
-            crate::auth::issue_token(&store, "human://test", None, vec!["**".into()], vec!["**".into()], None).unwrap();
+        let (_, human) = crate::auth::issue_token(
+            &store,
+            "human://test",
+            None,
+            vec!["**".into()],
+            vec!["**".into()],
+            None,
+        )
+        .unwrap();
         let base = serve(state, 41073).await;
         let http = reqwest::Client::new();
         let init = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" });
-        let ok = http.post(format!("{base}/mcp?token={agent}")).json(&init).send().await.unwrap();
+        let ok = http
+            .post(format!("{base}/mcp?token={agent}"))
+            .json(&init)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(ok.status(), 200);
-        let refused = http.post(format!("{base}/mcp?token={human}")).json(&init).send().await.unwrap();
+        let refused = http
+            .post(format!("{base}/mcp?token={human}"))
+            .json(&init)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(refused.status(), 401);
+        // A non-Bearer Authorization header must not let a person's URL token through.
+        let sneaky = http
+            .post(format!("{base}/mcp?token={human}"))
+            .header("Authorization", "Basic Zm9vOmJhcg==")
+            .json(&init)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(sneaky.status(), 401);
+        // With a real Bearer header, that header's token is the one used.
+        let header_wins = http
+            .post(format!("{base}/mcp?token={agent}"))
+            .bearer_auth(&human)
+            .json(&init)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(header_wins.status(), 200);
     }
 
     #[tokio::test]
@@ -1455,8 +1534,15 @@ mod tests {
         let store = Store::new_in_memory().unwrap();
         let state = test_state(store.clone(), false);
         // Tracing is owner-only: a token-less local caller is not the owner.
-        let (_, owner_token) =
-            crate::auth::issue_token(&store, &state.owner, None, vec!["**".into()], vec!["**".into()], None).unwrap();
+        let (_, owner_token) = crate::auth::issue_token(
+            &store,
+            &state.owner,
+            None,
+            vec!["**".into()],
+            vec!["**".into()],
+            None,
+        )
+        .unwrap();
         let port = 41068;
         let base = serve(state, port).await;
         let http = reqwest::Client::new();
@@ -2240,8 +2326,15 @@ mod tests {
     async fn test_identity_mapping_rest_api() {
         let store = Store::new_in_memory().unwrap();
         // Identity mappings are owner-only: the test speaks as the owner.
-        let (_, owner_token) =
-            crate::auth::issue_token(&store, "human://test", None, vec!["**".into()], vec!["**".into()], None).unwrap();
+        let (_, owner_token) = crate::auth::issue_token(
+            &store,
+            "human://test",
+            None,
+            vec!["**".into()],
+            vec!["**".into()],
+            None,
+        )
+        .unwrap();
         let metrics = Arc::new(DaemonMetrics::default());
         let pipeline = Arc::new(PersistencePipeline::new(store.clone(), metrics.clone()));
         pipeline.start();

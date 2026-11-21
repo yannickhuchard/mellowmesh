@@ -105,7 +105,11 @@ pub fn connector(id: &str) -> Connector {
         "cursor" => json(h.join(".cursor").join("mcp.json")),
         "windsurf" => json(h.join(".codeium").join("windsurf").join("mcp_config.json")),
         "gemini" => json(h.join(".gemini").join("settings.json")),
-        "antigravity" => json(h.join(".gemini").join("antigravity").join("mcp_config.json")),
+        "antigravity" => json(
+            h.join(".gemini")
+                .join("antigravity")
+                .join("mcp_config.json"),
+        ),
         "kimi" => json(h.join(".kimi").join("mcp.json")),
         "github-copilot" => Connector::Json {
             path: app_data().join("Code").join("User").join("mcp.json"),
@@ -123,7 +127,11 @@ pub fn connector(id: &str) -> Connector {
 /// MellowMesh's own command: the `mellowmesh` binary beside this hub, else
 /// the one on `PATH`.
 pub fn own_command() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "mellowmesh.exe" } else { "mellowmesh" };
+    let name = if cfg!(windows) {
+        "mellowmesh.exe"
+    } else {
+        "mellowmesh"
+    };
     if let Some(sibling) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|d| d.join(name)))
@@ -144,7 +152,13 @@ pub fn platform_scopes(owner: &str, platform: &str) -> (Vec<String>, Vec<String>
         crate::mellows::owner_handle(owner),
         crate::mellows::slug(platform).unwrap_or_else(|| "platform".into())
     );
-    let shared = ["_forum.**", "_task.**", "_artifact.**", "_project.**", "_team.**"];
+    let shared = [
+        "_forum.**",
+        "_task.**",
+        "_artifact.**",
+        "_project.**",
+        "_team.**",
+    ];
     let mut read: Vec<String> = shared.iter().map(|s| s.to_string()).collect();
     read.push("_decision.**".into());
     read.push(own.clone());
@@ -201,7 +215,8 @@ pub fn merge_json(
     let mut root: serde_json::Value = if existing.trim().is_empty() {
         serde_json::json!({})
     } else {
-        serde_json::from_str(existing).map_err(|_| "its settings file is not plain JSON".to_string())?
+        serde_json::from_str(existing)
+            .map_err(|_| "its settings file is not plain JSON".to_string())?
     };
     let obj = root
         .as_object_mut()
@@ -331,10 +346,12 @@ pub fn has_settings_folder(id: &str) -> bool {
 /// way `owner.token` is: atomically, readable by this user only on Unix.
 fn write_keeping_previous(path: &Path, content: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("its settings folder could not be made ({e})"))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("its settings folder could not be made ({e})"))?;
     }
     if path.is_file() {
-        let previous = std::fs::read(path).map_err(|e| format!("its previous settings could not be read ({e})"))?;
+        let previous = std::fs::read(path)
+            .map_err(|e| format!("its previous settings could not be read ({e})"))?;
         let mut backup = path.as_os_str().to_owned();
         backup.push(".mellowmesh-backup");
         crate::auth::write_secret_file(&PathBuf::from(backup), &previous)
@@ -356,13 +373,19 @@ pub struct Connected {
 
 /// Connect a platform. `Ok` says what changed; `Err` says why nothing did.
 /// Blocking: call from the blocking pool.
-pub fn connect(store: &mellowmesh_store::Store, owner: &str, id: &str) -> Result<Connected, String> {
+pub fn connect(
+    store: &mellowmesh_store::Store,
+    owner: &str,
+    id: &str,
+) -> Result<Connected, String> {
     let spec = platforms::spec(id).ok_or("That AI app is not one MellowMesh knows.")?;
     let name = spec.name;
     let way = connector(id);
     match way {
         Connector::Message => {
-            return Err(format!("{name} lives on the web: invite it with a pasted message instead."))
+            return Err(format!(
+                "{name} lives on the web: invite it with a pasted message instead."
+            ))
         }
         Connector::None => return Err(format!("{name} has no way to connect to MellowMesh yet.")),
         _ => {}
@@ -397,12 +420,21 @@ pub fn connect(store: &mellowmesh_store::Store, owner: &str, id: &str) -> Result
     result
 }
 
-fn write_entry(way: &Connector, name: &str, command: &Path, token: &str) -> Result<Connected, String> {
+fn write_entry(
+    way: &Connector,
+    name: &str,
+    command: &Path,
+    token: &str,
+) -> Result<Connected, String> {
     let refuse = |why: String| format!("{name} was left untouched: {why}.");
-    let done = |message: String| Connected { message, snippet: None };
+    let done = |message: String| Connected {
+        message,
+        snippet: None,
+    };
     match way {
         Connector::ClaudeCli => {
-            let claude = platforms::which("claude").ok_or_else(|| refuse("its command is not installed".into()))?;
+            let claude = platforms::which("claude")
+                .ok_or_else(|| refuse("its command is not installed".into()))?;
             // An earlier entry (possibly without a token) is replaced.
             let _ = std::process::Command::new(&claude)
                 .args(["mcp", "remove", "--scope", "user", SERVER_NAME])
@@ -419,8 +451,14 @@ fn write_entry(way: &Connector, name: &str, command: &Path, token: &str) -> Resu
                 .map_err(|e| refuse(format!("its command could not be run ({e})")))?;
             if !out.status.success() {
                 let said = String::from_utf8_lossy(&out.stderr);
-                let first = said.lines().find(|l| !l.trim().is_empty()).unwrap_or("no reason given");
-                return Err(refuse(format!("it answered \"{}\"", first.chars().take(160).collect::<String>())));
+                let first = said
+                    .lines()
+                    .find(|l| !l.trim().is_empty())
+                    .unwrap_or("no reason given");
+                return Err(refuse(format!(
+                    "it answered \"{}\"",
+                    first.chars().take(160).collect::<String>()
+                )));
             }
             Ok(done(format!(
                 "Added MellowMesh to {name} with its own limited key. Open a new {name} session to see it."
@@ -437,12 +475,18 @@ fn write_entry(way: &Connector, name: &str, command: &Path, token: &str) -> Resu
         Connector::CodexToml(path) => {
             let text = strip_toml(&read(path)) + &codex_block(command, token).map_err(refuse)?;
             write_keeping_previous(path, &text).map_err(refuse)?;
-            Ok(done(format!("Added MellowMesh to {name} ({}), with its own limited key.", path.display())))
+            Ok(done(format!(
+                "Added MellowMesh to {name} ({}), with its own limited key.",
+                path.display()
+            )))
         }
         Connector::VibeToml(path) => {
             let text = strip_toml(&read(path)) + &vibe_block(command, token).map_err(refuse)?;
             write_keeping_previous(path, &text).map_err(refuse)?;
-            Ok(done(format!("Added MellowMesh to {name} ({}), with its own limited key.", path.display())))
+            Ok(done(format!(
+                "Added MellowMesh to {name} ({}), with its own limited key.",
+                path.display()
+            )))
         }
         Connector::Snippet => {
             let snippet = serde_json::to_string_pretty(&serde_json::json!({
@@ -473,7 +517,10 @@ mod tests {
         let out = merge_json("", "mcpServers", &exe(), false, "mm_k").unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["mcpServers"]["mellowmesh"]["args"][0], "mcp");
-        assert_eq!(v["mcpServers"]["mellowmesh"]["env"]["MELLOWMESH_TOKEN"], "mm_k");
+        assert_eq!(
+            v["mcpServers"]["mellowmesh"]["env"]["MELLOWMESH_TOKEN"],
+            "mm_k"
+        );
         assert!(json_has_token(&out, "mcpServers"));
     }
 
@@ -489,7 +536,10 @@ mod tests {
     #[test]
     fn an_old_entry_without_a_key_is_not_connected_and_gets_replaced() {
         let old = r#"{"mcpServers":{"mellowmesh":{"command":"x","args":["mcp"]}}}"#;
-        assert!(!json_has_token(old, "mcpServers"), "an owner-power entry must be redone");
+        assert!(
+            !json_has_token(old, "mcpServers"),
+            "an owner-power entry must be redone"
+        );
         let out = merge_json(old, "mcpServers", &exe(), false, "mm_new").unwrap();
         assert!(json_has_token(&out, "mcpServers"));
     }
@@ -534,14 +584,20 @@ mod tests {
         assert!(write.contains(&"_agent.yannick.claude_code.**".to_string()));
         assert!(!write.iter().any(|s| s == "**" || s == "_agent.**"));
         assert!(!read.iter().any(|s| s == "**" || s == "_agent.**"));
-        assert!(!write.iter().any(|s| s.starts_with("_decision") || s.starts_with("_system")));
+        assert!(!write
+            .iter()
+            .any(|s| s.starts_with("_decision") || s.starts_with("_system")));
     }
 
     #[test]
     fn every_catalog_platform_has_a_stated_way_in() {
         for spec in platforms::CATALOG {
             let kind = connector(spec.id).kind();
-            assert!(matches!(kind, "one_click" | "snippet" | "message" | "none"), "{}", spec.id);
+            assert!(
+                matches!(kind, "one_click" | "snippet" | "message" | "none"),
+                "{}",
+                spec.id
+            );
         }
         assert_eq!(connector("cursor").kind(), "one_click");
         assert_eq!(connector("warp").kind(), "snippet");

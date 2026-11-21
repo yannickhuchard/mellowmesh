@@ -289,7 +289,8 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                     },
                     "priority": {
                         "type": "string",
-                        "description": "Priority: low, medium, high",
+                        "enum": ["low", "medium", "high", "critical"],
+                        "description": "Priority: low, medium, high or critical",
                         "default": "medium"
                     },
                     "created_by": {
@@ -677,6 +678,7 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                     },
                     "priority": {
                         "type": "string",
+                        "enum": ["low", "medium", "high", "critical"],
                         "description": "low, medium, high or critical"
                     },
                     "depends_on": {

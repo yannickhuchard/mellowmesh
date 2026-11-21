@@ -465,7 +465,21 @@ async fn reference_hub_passes_conformance_kit() {
         .join("../../conformance/mellowmesh_conformance.py");
     let url = format!("http://127.0.0.1:{port}");
     let output = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("python3")
+        // `python3` on Linux/macOS; on Windows it is often a Store stub that
+        // does nothing, so fall back to `python`. MELLOWMESH_PYTHON overrides.
+        let python = std::env::var("MELLOWMESH_PYTHON").ok().unwrap_or_else(|| {
+            ["python3", "python"]
+                .into_iter()
+                .find(|p| {
+                    std::process::Command::new(p)
+                        .arg("--version")
+                        .output()
+                        .is_ok_and(|o| o.status.success())
+                })
+                .unwrap_or("python3")
+                .to_string()
+        });
+        std::process::Command::new(python)
             .arg(kit)
             .args(["--url", &url, "--reclaim-timeout", "15"])
             .args(["--agent-token", &agent_token])

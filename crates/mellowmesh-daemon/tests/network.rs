@@ -166,12 +166,24 @@ async fn remote_visitors_read_open_spaces_only() {
 #[tokio::test]
 async fn relay_marker_and_non_owner_admin() {
     let hub = spawn_hub(false).await;
-    // Open mode: a local anonymous caller is an admin...
+    // Open mode: a local caller without a token reads and publishes, but is
+    // not the owner — administering needs the owner's token...
     let (s, _) = hub
         .send(
             reqwest::Method::POST,
             "/spaces",
             None,
+            false,
+            json!({ "id": "family", "patterns": ["_chat.family.**"] }),
+        )
+        .await;
+    assert_eq!(s, 401);
+    let owner = hub.token(OWNER, &["**"], &["**"]);
+    let (s, _) = hub
+        .send(
+            reqwest::Method::POST,
+            "/spaces",
+            Some(&owner),
             false,
             json!({ "id": "family", "patterns": ["_chat.family.**"] }),
         )

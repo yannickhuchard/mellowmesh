@@ -154,14 +154,15 @@ async fn pairing_endpoints_are_owner_only() {
             )
             .await;
         assert_eq!(s, 403);
-        // Local anonymous: the owner in open mode only.
-        let (s, v) = pair(&hub, None, body.clone()).await;
-        if require_auth {
-            assert_eq!(s, 401);
-        } else {
-            assert_eq!(s, 201, "{v}");
-            assert_eq!(v["principal"], OWNER);
-        }
+        // Local anonymous: never the owner, even in open mode (it would hand
+        // an owner key to any program on this computer).
+        let (s, _) = pair(&hub, None, body.clone()).await;
+        assert_eq!(s, 401);
+        // The owner's own token pairs.
+        let owner = hub.token(OWNER, &["**"], &["**"]);
+        let (s, v) = pair(&hub, Some(&owner), body.clone()).await;
+        assert_eq!(s, 201, "{v}");
+        assert_eq!(v["principal"], OWNER);
     }
 }
 
@@ -196,6 +197,17 @@ async fn pair_status_flips_connected_and_devices_can_be_removed() {
     assert_eq!(st["connected"], true);
     assert_eq!(st["expired"], false);
     assert!(st["last_seen"].is_string());
+
+    // The phone scanned the QR; the short code shown next to it must not
+    // hand the same owner key to a second device afterwards.
+    let r = hub
+        .http
+        .post(format!("{}/pair/claim", hub.base))
+        .json(&json!({ "code": p["code"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 410);
 
     // A second, pending device; newest first.
     let (_, p2) = pair(
