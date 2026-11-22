@@ -315,4 +315,9 @@
     <string name="add_machine_confirm_body">A link opened outside the app wants to add this machine to your phone. Add it only if it is one of your own computers. It is added beside the others, and the machine in use does not change.</string>
     <string name="add_machine_confirm_yes">Add it</string>
     <string name="add_machine_confirm_unreadable">This link cannot be read.</string>
+    <string name="add_machine_done_title">%1$s added</string>
+    <string name="add_machine_done_body">Your phone now knows %1$d machines. Add the next one now, or come back later from the "On … ▾" menu or Settings.</string>
+    <string name="add_machine_new">NEW</string>
+    <string name="add_machine_another">+ Add another machine</string>
+    <string name="add_machine_finish">Done</string>
 </resources>

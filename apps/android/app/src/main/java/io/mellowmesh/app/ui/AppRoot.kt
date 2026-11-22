@@ -252,6 +252,7 @@ private fun MainScaffold(
                         onRoadmap = { nav.navigate(Routes.roadmap("all")) },
                         onNetwork = { nav.navigate(Routes.NETWORK) },
                         onSettings = { nav.navigate(Routes.SETTINGS) },
+                        onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
                         onCalls = { nav.navigate(Routes.CALLS) },
                         onCall = { machine, id -> nav.navigate(Routes.call(machine, id)) },
                     )

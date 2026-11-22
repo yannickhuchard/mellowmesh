@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import io.mellowmesh.app.meshApp
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -83,6 +85,8 @@ data class PairingState(
     val safety: UrlSafety? = null,
     /** Set once a machine was paired (used when adding one more). */
     val paired: Boolean = false,
+    /** Name of the machine just added (add-machine flow). */
+    val addedLabel: String? = null,
 )
 
 class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
@@ -91,6 +95,13 @@ class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
 
     private var pending: Triple<String, String?, String?>? = null
     private var pendingName: String? = null
+
+    /** Start again for one more machine (add several in a row). */
+    fun again() {
+        pending = null
+        pendingName = null
+        _state.value = PairingState(tourDone = true)
+    }
 
     fun finishTour() {
         app.store.tourDone = true
@@ -171,7 +182,10 @@ class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
             try {
                 app.repo.pair(url, token, principal, name)
                 app.store.tourDone = true
-                _state.update { it.copy(paired = true) }
+                val label = app.repo.machines.value
+                    .firstOrNull { io.mellowmesh.core.Machines.sameAddress(it.machine.baseUrl, url) }
+                    ?.machine?.label ?: io.mellowmesh.core.Machines.labelFromUrl(url)
+                _state.update { it.copy(paired = true, addedLabel = label) }
                 // The root switches to the Plaza as soon as the config is stored.
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.friendly()) }
@@ -265,9 +279,7 @@ fun AddMachineScreen(pendingLink: String?, onLinkConsumed: () -> Unit, onDone: (
             },
         )
     }
-    LaunchedEffect(state.paired) {
-        if (state.paired) onDone()
-    }
+    val machines by app().repo.machines.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -281,7 +293,87 @@ fun AddMachineScreen(pendingLink: String?, onLinkConsumed: () -> Unit, onDone: (
             subtitle = stringResource(R.string.add_machine_subtitle),
             onBack = onDone,
         )
-        Box(Modifier.weight(1f)) { ConnectPanel(state.copy(tourDone = true), vm) }
+        Box(Modifier.weight(1f)) {
+            if (state.paired) {
+                AddedPanel(
+                    label = state.addedLabel.orEmpty(),
+                    machines = machines,
+                    onAnother = vm::again,
+                    onDone = onDone,
+                )
+            } else {
+                ConnectPanel(state.copy(tourDone = true), vm)
+            }
+        }
+    }
+}
+
+@Composable
+private fun app() = androidx.compose.ui.platform.LocalContext.current.meshApp
+
+/**
+ * A machine was added: say so, show every machine the phone now knows,
+ * and offer to add another right away (several machines in a row).
+ */
+@Composable
+private fun AddedPanel(
+    label: String,
+    machines: List<io.mellowmesh.app.data.MachineStatus>,
+    onAnother: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        io.mellowmesh.app.ui.components.Mello(size = 96.dp, mood = io.mellowmesh.core.Mood.DONE)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            stringResource(R.string.add_machine_done_title, label),
+            style = MaterialTheme.typography.headlineSmall,
+            color = Mesh.Ink,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Text(
+            stringResource(R.string.add_machine_done_body, machines.size),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Mesh.Ink2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Spacer(Modifier.height(16.dp))
+        io.mellowmesh.app.ui.components.MeshCard(Modifier.fillMaxWidth()) {
+            for (m in machines) {
+                androidx.compose.foundation.layout.Row(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    io.mellowmesh.app.ui.components.MachineDot(m.reachable)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(m.machine.label, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                        Text(m.machine.baseUrl, style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3, maxLines = 1)
+                    }
+                    if (m.machine.label == label) {
+                        Text(stringResource(R.string.add_machine_new), style = MaterialTheme.typography.labelSmall, color = Mesh.Green)
+                    } else if (m.active) {
+                        Text(stringResource(R.string.machine_here), style = MaterialTheme.typography.labelSmall, color = Mesh.Indigo)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        io.mellowmesh.app.ui.components.InkButton(
+            stringResource(R.string.add_machine_another),
+            onClick = onAnother,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        androidx.compose.material3.OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text(stringResource(R.string.add_machine_finish), color = Mesh.Ink)
+        }
     }
 }
 

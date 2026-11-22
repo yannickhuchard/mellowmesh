@@ -81,6 +81,7 @@ fun PlazaScreen(
     onRoadmap: () -> Unit,
     onNetwork: () -> Unit,
     onSettings: () -> Unit,
+    onAddMachine: () -> Unit,
     onCalls: () -> Unit,
     onCall: (machineId: String, agentId: String) -> Unit,
 ) {
@@ -105,7 +106,7 @@ fun PlazaScreen(
                 }
             },
         )
-        MachineChip()
+        MachineChip(onAddMachine)
         val model = home
         if (reachable == false && (model == null || error != null)) {
             OfflinePanel(onRetry = { scope.launch { app.repo.refreshHome() } }, onCalls = onCalls, onCall = onCall)
@@ -428,14 +429,14 @@ private fun OfflineCheck(n: Int, text: String, detail: String?) {
 
 /**
  * "On Desktop ▾": which machine the Plaza, boards and to-dos come from.
- * Shown only when the phone knows more than one machine; a breathing dot
- * when it answers, a still grey one when it rests.
+ * A breathing dot when it answers, a still grey one when it rests; the
+ * menu switches machine or adds another one.
  */
 @Composable
-private fun MachineChip() {
+private fun MachineChip(onAddMachine: () -> Unit) {
     val app = LocalContext.current.meshApp
     val machines by app.repo.machines.collectAsStateWithLifecycle()
-    if (machines.size < 2) return
+    if (machines.isEmpty()) return
     val current = machines.firstOrNull { it.active } ?: return
     var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Box(Modifier.padding(start = 16.dp, bottom = 4.dp)) {
@@ -481,6 +482,14 @@ private fun MachineChip() {
                     },
                 )
             }
+            androidx.compose.material3.HorizontalDivider(color = Mesh.Hairline)
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text(stringResource(R.string.add_machine), color = Mesh.Indigo, style = MaterialTheme.typography.bodyLarge) },
+                onClick = {
+                    open = false
+                    onAddMachine()
+                },
+            )
         }
     }
 }
