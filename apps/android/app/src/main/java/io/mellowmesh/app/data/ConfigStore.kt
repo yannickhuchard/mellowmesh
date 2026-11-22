@@ -155,6 +155,24 @@ class ConfigStore(context: Context) {
         get() = if (plain.contains(KEY_EVERYWHERE)) plain.getBoolean(KEY_EVERYWHERE, true) else null
         set(v) = plain.edit().apply { if (v == null) remove(KEY_EVERYWHERE) else putBoolean(KEY_EVERYWHERE, v) }.apply()
 
+    /** The person's groups of Mellows (names and ids only: no key, kept in plain settings). */
+    fun loadGroups(): List<io.mellowmesh.core.MellowGroup> = runCatching {
+        val raw = plain.getString(KEY_GROUPS, null) ?: return emptyList()
+        MeshJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.MellowGroup.serializer()), raw)
+    }.getOrDefault(emptyList())
+
+    fun saveGroups(list: List<io.mellowmesh.core.MellowGroup>) {
+        plain.edit().putString(
+            KEY_GROUPS,
+            MeshJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.MellowGroup.serializer()), list),
+        ).apply()
+    }
+
+    /** Soft sounds for sent, received, joined (on by default; silent when the phone is). */
+    var sounds: Boolean
+        get() = plain.getBoolean(KEY_SOUNDS, true)
+        set(v) = plain.edit().putBoolean(KEY_SOUNDS, v).apply()
+
     var tourDone: Boolean
         get() = plain.getBoolean(KEY_TOUR, false)
         set(v) = plain.edit().putBoolean(KEY_TOUR, v).apply()
@@ -241,6 +259,8 @@ class ConfigStore(context: Context) {
         private const val KEY_TOUR = "tour_done"
         private const val KEY_LADDER = "ladder"
         private const val KEY_EVERYWHERE = "plaza_everywhere"
+        private const val KEY_GROUPS = "mellow_groups"
+        private const val KEY_SOUNDS = "sounds"
         private const val KEY_DIGEST_DAY = "digest_day"
         private const val KEY_DIGEST_COUNT = "digest_count"
         private const val KEY_READ_MARKERS = "read_markers"

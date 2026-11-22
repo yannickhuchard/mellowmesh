@@ -11,7 +11,10 @@ import io.mellowmesh.core.GraphScope
 import io.mellowmesh.core.HomeInputs
 import io.mellowmesh.core.HomeModel
 import io.mellowmesh.core.HomeModelBuilder
+import io.mellowmesh.core.ChatSpace
 import io.mellowmesh.core.Everywhere
+import io.mellowmesh.core.MellowGroup
+import io.mellowmesh.core.PlacedConversation
 import io.mellowmesh.core.EverywhereModel
 import io.mellowmesh.core.LiveListener
 import io.mellowmesh.core.MachineHealth
@@ -126,6 +129,36 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     private val _everywhere = MutableStateFlow<EverywhereModel?>(null)
     /** Every Mellow of every machine with what needs the person (the Everywhere Plaza). */
     val everywhere: StateFlow<EverywhereModel?> = _everywhere.asStateFlow()
+
+    private val _allConversations = MutableStateFlow<List<PlacedConversation>>(emptyList())
+    /** The conversations of every machine (Chats shows them together). */
+    val allConversations: StateFlow<List<PlacedConversation>> = _allConversations.asStateFlow()
+
+    private val _groups = MutableStateFlow(store.loadGroups())
+    /** The person's own groups of Mellows, from any network. */
+    val groups: StateFlow<List<MellowGroup>> = _groups.asStateFlow()
+
+    /** Make a group (returns it), or null when the name is not usable or there are too many. */
+    fun createGroup(name: String, members: List<String> = emptyList()): MellowGroup? {
+        val clean = ChatSpace.cleanName(name) ?: return null
+        if (_groups.value.size >= ChatSpace.MAX_GROUPS) return null
+        val g = MellowGroup("g_" + java.util.UUID.randomUUID().toString().take(8), clean, members.distinctBy { it.lowercase() })
+        saveGroups(_groups.value + g)
+        return g
+    }
+
+    fun addToGroup(groupId: String, agentId: String) =
+        saveGroups(_groups.value.map { if (it.id == groupId) ChatSpace.add(it, agentId) else it })
+
+    fun removeFromGroup(groupId: String, agentId: String) =
+        saveGroups(_groups.value.map { if (it.id == groupId) ChatSpace.remove(it, agentId) else it })
+
+    fun deleteGroup(groupId: String) = saveGroups(_groups.value.filterNot { it.id == groupId })
+
+    private fun saveGroups(list: List<MellowGroup>) {
+        _groups.value = list
+        store.saveGroups(list)
+    }
 
     private val _everywhereOn = MutableStateFlow(false)
     /** The Plaza shows every machine at once (only offered with two machines or more). */
@@ -540,6 +573,10 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             }.awaitAll()
         }
         _everywhere.value = Everywhere.build(homes)
+        _allConversations.value = homes.flatMap { h ->
+            val key = ChatSpace.segmentKey(h.networkName, h.label)
+            h.home?.conversations.orEmpty().map { PlacedConversation(it, h.machineId, key) }
+        }
         flushOutbox()
     }
 

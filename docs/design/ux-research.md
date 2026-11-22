@@ -628,6 +628,119 @@ What went wrong, in order of harm:
 | T24 | Karim: one of his two addresses died. Find which, and fix it. | 1 min | Names the tunnel from its "address lost" card and taps *Pair again* or *Remove*. |
 | T25 | Sofia: open the team's Reviewer from her phone while her own hub is in use. | 20 s | Taps Reviewer in the Everywhere list; it opens on the team hub. |
 
+## Redesign research — talk to Mellows like people, follow the journey
+
+**The owner's brief, in short.** Talking to Mellows is the heart of the
+product and must feel like talking to people: the Chats page comes right
+after the Plaza; every Mellow of every network is reachable at once in
+one conversation space (a *virtual Mellow network*, wherever the agents
+run), segmented by network (local, *my mesh*, a team's, the cloud), and
+grouped the way the person wants. Something with the ease of Discord or
+Slack, but calmer and less crowded. Onboarding and administration are
+separated per network segment. The core of the activity is **following
+the journey** — the path of a person, a team or a customer, where one or
+more Mellows help along the way; the path invents itself as work goes, and
+what repeats becomes visible. Keep the visual language; motion and sound
+become part of it, so that nothing feels like a jump.
+
+### Simulated use of today's chats (cognitive walkthrough, six personas)
+
+Each persona was walked through the current Android app, screen by
+screen, from the code (taps counted from the Plaza):
+
+| Persona · task | Today | Friction |
+| :--- | :--- | :--- |
+| Marc: say hello to the Mellow he was just given | Chats is empty ("No chats yet") → *Meet helpers* → Shops → *Say hello* (3 taps, wrong place) | a Mellow he owns is not in Chats until he has written to it |
+| Léa: ask Coder (Laptop) and Ops (Desktop) about the deploy | Plaza → machine chip → Laptop → Coder → Chat; back; chip → Desktop → Ops → Chat (≈10 taps) | Chats only knows the machine in use; no way to talk to both at once |
+| Léa: find yesterday's thread with Writer | Chats → scroll | the list mixes Mellows, people, teams and rooms with no grouping; ordering only by time |
+| Karim: keep his three coding Mellows together | — | no way to group; only "kinds" fixed by the app |
+| Sofia: talk to the team's Reviewer and to her own Coder | switch machine each time | the team's network and hers never appear side by side |
+| Nadia: see what her Mellows are doing on the "move house" project | Plaza → each helper → its board | work is scattered per Mellow; there is no view of *the path* (looking for a flat → visits → contract → moving) |
+| Aïcha: invite a colleague into the company network, not her home one | Settings → pairing (one flow for everything) | onboarding and admin are the same screens for every network; nothing says *which* network she is changing |
+
+**What the walkthrough says.**
+
+1. *People think in who, not where.* A Mellow should be in Chats the
+   moment it exists, whatever machine or network hosts it.
+2. *A conversation list is not a directory.* The person needs both: who is
+   there (a roster, like a contact list or a Discord member list) and what
+   is going on (conversations, newest first).
+3. *Grouping belongs to the person.* The app proposes segments (one per
+   network); the person makes their own groups (*Website*, *Family*,
+   *Coding crew*), and a Mellow may be in several.
+4. *The journey is the unit of work*, not the task or the Mellow. A
+   conversation, a task, a decision all happen *somewhere on a journey*.
+5. *Network segments need their own doors.* Joining, inviting, and
+   administering are per segment, and always say which segment.
+
+### Decisions
+
+**Navigation (bottom bar, four places, in this order):** **Plaza** (home)
+· **Chats** · **Journeys** · **To do**. Shops move inside Chats (*+ New
+Mellow*) and the Plaza map; Settings stay in the corner. The Chats tab
+opens by default after the first conversation.
+
+**Chats, the calm Discord.**
+- A *segment strip* at the top: **All** · each network segment (dot
+  colour, name, count: *Home 3*, *Léa's mesh 5*, *Platform team 4*,
+  *Cloud 2*) · **+**. One tap filters; the strip never hides that others
+  exist.
+- **Your groups** come first, made by the person (long-press a Mellow →
+  *Add to group*, or *New group*): each group is a row of blobs with its
+  name; a tap opens the group's conversations.
+- **Everyone** — every Mellow and person of the selected segments, as a
+  roster of blobs with presence (breathing when free, working ring, asleep
+  when its machine rests), one tap to talk. No empty Chats ever: a Mellow
+  you never wrote to is one tap away.
+- **Conversations** — newest first, each with its segment dot.
+- Less than Slack: no channels list to manage, no sidebar, no thread
+  pane. Groups and segments are the only structure.
+
+**A conversation feels like people.** The Mellow's blob in the header
+shows its mood live (thinking dots while it thinks, a working ring with
+progress). Messages rise in with a soft spring; a Mellow's answer types
+in. A small ribbon at the top says which journey this is part of. Several
+Mellows can be in one conversation; when one hands over to another, the
+hand-over is drawn (one blob passes a small parcel to the next).
+
+**Journeys.** A journey is a path drawn as a line of stations: each
+station is a step (a conversation, a task, a decision, a delivery) with
+the Mellows and people around it. The line grows as work happens — no
+predefined plan; the next station is a dotted outline until something
+happens. Branches are allowed. When a sequence of steps repeats (*same
+kind of steps, same Mellows, three times*), the journey shows *"This
+repeats: make it a routine?"* — the repeatable part is highlighted on the
+line. Views: *Mine*, *Team*, *Customer* (a client's path, followed by the
+Mellows that serve them).
+
+**Network segments: separate doors.** Each segment has its own card:
+*This device (local)*, *My mesh*, *Team*, *Organization*, *Cloud*, *Open
+network*. Onboarding is chosen per segment ("Join a team network" is not
+"Pair my computer"), and administration is scoped: the admin screen's
+title and colour say which segment is being changed, and an owner sees
+only the segments they administer.
+
+**Motion and sound are part of the language.**
+- Motion: everything that moves *comes from somewhere* — a new message
+  rises from the composer, a Mellow joining a group hops in from the
+  roster, a finished step fills the journey line up to the next station.
+  Springs, never linear slides; 150–350 ms; nothing loops forever except
+  breathing presence. *Reduce motion* turns all of it into fades.
+- Sound: short, soft, tuned to one family (a warm marimba-like tone):
+  *sent* (a light tick), *received* (two soft notes), *needs you* (a gentle
+  rising pair), *step done* (a chime), *Mellow joined* (a pop). Never for
+  every message in a busy room; silent in quiet hours and when the phone is
+  silent; one switch in Settings.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T26 | Marc: say hello to the Mellow he was just given. | 10 s | Chats → taps the Mellow in *Everyone*; no Shops detour. |
+| T27 | Léa: write to Coder (Laptop) and then Ops (Desktop) without switching machine. | 30 s | Both from the same Chats list; no machine menu. |
+| T28 | Karim: make a group *Coding crew* with three Mellows from two networks. | 40 s | The group appears at the top of Chats with three blobs. |
+| T29 | Sofia: show only the team network's Mellows, then all again. | 5 s | Taps *Platform team* then *All* in the segment strip. |
+| T30 | Nadia: on the *Move house* journey, say what step comes next and which Mellow helps. | 30 s | Reads the dotted next station and its Mellow. |
+| T31 | Aïcha: invite a colleague to the company network, not her home one. | 1 min | Starts from the company segment card; the screen names it. |
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

@@ -228,6 +228,27 @@ fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> U
                 }
             }
 
+            SectionTitle(stringResource(R.string.sounds_title))
+            MeshCard(Modifier.fillMaxWidth()) {
+                var sounds by remember { mutableStateOf(app.store.sounds) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.sounds_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Mesh.Ink2,
+                        modifier = Modifier.weight(1f),
+                    )
+                    androidx.compose.material3.Switch(
+                        checked = sounds,
+                        onCheckedChange = {
+                            sounds = it
+                            app.store.sounds = it
+                            if (it) io.mellowmesh.app.ui.components.SoundFx.play(app, io.mellowmesh.app.ui.components.SoundFx.Cue.RECEIVED)
+                        },
+                    )
+                }
+            }
+
             SectionTitle(stringResource(R.string.email_title))
             MeshCard(Modifier.fillMaxWidth(), contentPadding = 4.dp) {
                 Row(

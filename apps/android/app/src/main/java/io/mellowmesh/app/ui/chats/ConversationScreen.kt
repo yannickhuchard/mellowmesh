@@ -112,7 +112,12 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
             viewModelScope.launch {
                 app.repo.live.collect { msg ->
                     if (Conversations.isChatTopic(conv, msg.topic)) {
-                        add(Chat.toChat(msg, app.repo.me, app.repo.directory))
+                        val m = Chat.toChat(msg, app.repo.me, app.repo.directory)
+                        val fresh = _state.value.messages.none { it.id == m.id }
+                        add(m)
+                        if (fresh && !m.isMine && m.isHelper) {
+                            io.mellowmesh.app.ui.components.SoundFx.play(app, io.mellowmesh.app.ui.components.SoundFx.Cue.RECEIVED)
+                        }
                     }
                 }
             }
@@ -152,6 +157,7 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
         viewModelScope.launch {
             try {
                 app.repo.sendOrQueue(conversationId, text.trim())?.let { add(it) }
+                io.mellowmesh.app.ui.components.SoundFx.play(app, io.mellowmesh.app.ui.components.SoundFx.Cue.SENT)
                 onSent()
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.friendly()) }
@@ -216,6 +222,9 @@ fun ConversationScreen(
     var input by rememberSaveable { mutableStateOf("") }
     var linkToOpen by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    // What was already there when the conversation opened appears at once;
+    // only what arrives afterwards rises in.
+    val openedAt = remember { System.currentTimeMillis() - 1_500 }
     val uriHandler = LocalUriHandler.current
     val app = LocalContext.current.meshApp
     val outbox by app.repo.outbox.collectAsStateWithLifecycle()
@@ -268,12 +277,20 @@ fun ConversationScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(state.messages, key = { it.id.ifEmpty { "${it.tsMs}-${it.body.hashCode()}" } }) { m ->
-                    MessageBubble(
-                        m = m,
-                        showSender = state.kind != ConversationKind.AGENT && state.kind != ConversationKind.PERSON,
-                        onAction = { a -> vm.action(m, a) },
-                        onLink = { linkToOpen = it },
-                    )
+                    // Messages that arrive while the conversation is open rise in
+                    // from where they come (theirs from the left, yours from the composer).
+                    io.mellowmesh.app.ui.components.RiseIn(
+                        enabled = !state.loading && m.tsMs > openedAt,
+                        fromStart = !m.isMine,
+                        modifier = Modifier.animateItem(),
+                    ) {
+                        MessageBubble(
+                            m = m,
+                            showSender = state.kind != ConversationKind.AGENT && state.kind != ConversationKind.PERSON,
+                            onAction = { a -> vm.action(m, a) },
+                            onLink = { linkToOpen = it },
+                        )
+                    }
                 }
                 items(waiting, key = { it.id }) { p -> PendingBubble(p.text) }
             }

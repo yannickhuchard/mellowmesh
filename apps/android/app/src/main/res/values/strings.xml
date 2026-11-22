@@ -326,6 +326,26 @@
     <string name="machine_key_body">Its key was revoked or the hub was reset. Pair it again to come back.</string>
     <string name="machine_pair_again">Pair again</string>
     <string name="machine_same_as">same as %1$s</string>
+    <!-- Chats: one conversation space over every network -->
+    <string name="chats_new_group">+ Group</string>
+    <string name="chats_your_groups">Your groups</string>
+    <string name="chats_everyone">Everyone</string>
+    <string name="chats_in_group">In this group</string>
+    <string name="chats_hold_hint">hold a Mellow to group it</string>
+    <string name="chats_conversations">Conversations</string>
+    <string name="chats_no_conversation_yet">No conversation here yet. Tap a Mellow above to say hello.</string>
+    <string name="chats_group_count">%1$d Mellows, from any network</string>
+    <string name="chats_all_chats">All chats</string>
+    <string name="chats_delete_group">Delete group</string>
+    <string name="chats_delete_group_title">Delete “%1$s”?</string>
+    <string name="chats_delete_group_body">Only the group goes away. Its Mellows and your conversations stay.</string>
+    <string name="chats_new_group_title">New group</string>
+    <string name="chats_group_name_hint">Website launch, Family…</string>
+    <string name="chats_create_group">Create</string>
+    <string name="chats_add_to_group">Put %1$s in…</string>
+    <string name="done">Done</string>
+    <string name="sounds_title">Sounds</string>
+    <string name="sounds_body">Soft sounds when you send, when a Mellow answers, when one joins a group. Silent when your phone is.</string>
     <string name="machine_remove">Remove</string>
     <string name="machine_remove_title">Remove %1$s from this phone?</string>
     <string name="machine_remove_confirm">This phone forgets %1$s and its key. Your other machines keep working. To come back, pair it again.</string>

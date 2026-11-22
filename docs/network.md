@@ -277,6 +277,15 @@ MCP clients get one read-only tool, `get_network`, returning
   Plaza, boards and to-dos (switch with the *On … ▾* chip); Calls and the
   offline screen look at every machine, and a message written for a machine
   that rests leaves when that machine answers again.
+* **Chats** (Android, second tab): one conversation space over every
+  network. A strip of network segments (*All*, then each network with its
+  colour and count) filters the page; **Your groups** are the person's own
+  groups of Mellows, from any network (*+ Group*, or hold a Mellow to put it
+  in a group; kept on the phone); **Everyone** lists every Mellow of every
+  machine — one tap opens the conversation on the machine it lives on, with
+  no machine to switch; **Conversations** are those of every machine, newest
+  first. Messages that arrive rise in with a spring, and soft sounds mark
+  sent, received and joined (Settings → Sounds; silent when the phone is).
 * **Everywhere** (Android, from the second machine on, and the default
   there): the Plaza shows every Mellow of every machine in one list, each
   tagged with its machine (and its network when there are several), with
