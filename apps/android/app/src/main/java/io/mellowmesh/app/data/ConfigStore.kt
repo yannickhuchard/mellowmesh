@@ -98,8 +98,9 @@ class ConfigStore(context: Context) {
     fun networkName(): String? = activeMachine()?.networkName
 
     /**
-     * Remember a machine just paired (or a fresh key for one already known)
-     * and put it in use. Returns it, with its stable id.
+     * Remember a machine just paired (or a fresh key for one already known),
+     * putting it in use only when asked (the first machine). Returns it,
+     * with its stable id.
      */
     fun addMachine(
         baseUrl: String,
@@ -107,6 +108,7 @@ class ConfigStore(context: Context) {
         principal: String?,
         networkName: String?,
         label: String,
+        makeActive: Boolean,
     ): io.mellowmesh.core.SavedMachine {
         val incoming = io.mellowmesh.core.SavedMachine(
             id = newMachineId(),
@@ -120,7 +122,7 @@ class ConfigStore(context: Context) {
         val list = io.mellowmesh.core.Machines.upsert(loadMachines(), incoming)
         saveMachines(list)
         val saved = list.first { io.mellowmesh.core.Machines.sameAddress(it.baseUrl, baseUrl) }
-        activeMachineId = saved.id
+        if (makeActive) activeMachineId = saved.id
         return saved
     }
 

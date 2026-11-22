@@ -220,11 +220,50 @@ fun WelcomeScreen(pendingLink: String?, onLinkConsumed: () -> Unit) {
 fun AddMachineScreen(pendingLink: String?, onLinkConsumed: () -> Unit, onDone: () -> Unit) {
     val vm = meshViewModel(key = "add-machine") { PairingViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    // A link opened from outside the app (a web page, a message, another
+    // app) could point at someone else's machine: show where it leads and
+    // add it only when the person confirms.
+    var toConfirm by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     LaunchedEffect(pendingLink) {
         if (pendingLink != null) {
-            vm.submitLink(pendingLink)
+            toConfirm = pendingLink
             onLinkConsumed()
         }
+    }
+    toConfirm?.let { link ->
+        val where = runCatching { Pairing.parse(link) }.getOrNull()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { toConfirm = null },
+            title = { Text(stringResource(R.string.add_machine_confirm_title)) },
+            text = {
+                Column {
+                    Text(
+                        where?.baseUrl ?: stringResource(R.string.add_machine_confirm_unreadable),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Mesh.Ink,
+                    )
+                    where?.networkName?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(stringResource(R.string.add_machine_confirm_body), color = Mesh.Ink2)
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        toConfirm = null
+                        vm.submitLink(link)
+                    },
+                    enabled = where != null,
+                ) { Text(stringResource(R.string.add_machine_confirm_yes)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { toConfirm = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
     LaunchedEffect(state.paired) {
         if (state.paired) onDone()

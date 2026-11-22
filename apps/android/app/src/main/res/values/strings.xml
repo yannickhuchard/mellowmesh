@@ -311,4 +311,8 @@
     <string name="machine_other_can_pick_up">Your Mellows on %1$s can pick up now.</string>
     <string name="call_on_machine">on %1$s</string>
     <string name="call_away_resting_machine">%1$s is resting. Leave a message: it leaves when that machine answers again.</string>
+    <string name="add_machine_confirm_title">Add this machine?</string>
+    <string name="add_machine_confirm_body">A link opened outside the app wants to add this machine to your phone. Add it only if it is one of your own computers. It is added beside the others, and the machine in use does not change.</string>
+    <string name="add_machine_confirm_yes">Add it</string>
+    <string name="add_machine_confirm_unreadable">This link cannot be read.</string>
 </resources>

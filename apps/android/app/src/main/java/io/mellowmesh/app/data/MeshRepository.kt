@@ -148,7 +148,13 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         activate(store.activeMachineId)
         // The Mellows met before stay on screen (and callable) offline.
         _agents.value = activeId?.let { store.loadAgentsCache(it) }.orEmpty()
-        _outbox.value = store.loadOutbox()
+        // Messages saved before machines existed belong to the machine that
+        // was in use then: bind them now, so adding a machine never
+        // redirects them.
+        val loaded = store.loadOutbox()
+        val bound = loaded.map { if (it.machineId == null && activeId != null) it.copy(machineId = activeId) else it }
+        if (bound != loaded) store.saveOutbox(bound)
+        _outbox.value = bound
     }
 
     val isPaired: Boolean get() = client != null
@@ -269,9 +275,10 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     // ---- pairing -----------------------------------------------------------------
 
     /**
-     * Check the machine and the key, then add it to the paired machines and
-     * put it in use (pairing never replaces another machine). Returns who we
-     * are there. Older hubs without `/whoami` are accepted when an
+     * Check the machine and the key, then add it to the paired machines
+     * (pairing never replaces another one). Only the first machine is put in
+     * use; an added one waits until the person picks it, so a pairing link
+     * can never silently redirect what they send. Returns who we are there. Older hubs without `/whoami` are accepted when an
      * authenticated read works.
      */
     suspend fun pair(baseUrl: String, token: String?, principal: String?, networkName: String?): WhoAmI =
@@ -295,15 +302,19 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             }
             val label = runCatching { probe.platforms().machine }.getOrNull()?.takeIf { it.isNotBlank() }
                 ?: Machines.labelFromUrl(baseUrl)
-            val saved = store.addMachine(baseUrl, token, effectivePrincipal, name, label)
+            val first = store.loadMachines().isEmpty()
+            val saved = store.addMachine(baseUrl, token, effectivePrincipal, name, label, makeActive = first)
             withContext(Dispatchers.Main) {
-                stopLive()
                 syncMachines()
-                activate(saved.id)
-                resetActiveViews()
+                // The first machine, or a fresh key for the one in use.
+                if (first || saved.id == activeId) {
+                    stopLive()
+                    activate(saved.id)
+                    resetActiveViews()
+                    _whoami.value = who
+                    if (foreground) startLive()
+                }
                 markReachable(saved.id, true)
-                _whoami.value = who
-                if (foreground) startLive()
             }
             who
         }
