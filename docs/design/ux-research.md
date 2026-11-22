@@ -562,6 +562,72 @@ travel.
 | T21 | Léa: find, from a message of Atlas, who answers for it. | 30 s | Says "Acme SA", from the line under the sender. |
 | T22 | Sofia: ask the team memory "why did we choose Postgres?" and open the decision behind the answer. | 2 min | Opens the decision node and the message it came from. |
 
+## Feature research — every network at a glance ("Everywhere")
+
+**The problem, seen on a real phone.** The owner paired two machines:
+`node://localhost` (answers, 3 Mellows) and a tunnel address (its tunnel
+had closed). The Plaza showed only the machine *in use*, and that one was
+the broken tunnel: an empty Plaza, "That is not there any more", and
+"Not checked yet · 0 Mellows" for an address that *had* answered (with a
+404 from the tunnel service). The three working Mellows were one menu
+away, invisible. The owner's words: *I must be able to see all my
+Mellows/agents at once.*
+
+What went wrong, in order of harm:
+
+1. **One machine at a time.** The Plaza is scoped to the machine in use;
+   a person thinks in *my Mellows*, not in *which computer hosts them*.
+2. **A broken machine hides the working ones.** When the machine in use
+   fails, the whole Plaza fails with it.
+3. **A wrong diagnosis.** An address that answers "not found" is neither
+   "not checked yet" nor "resting": it no longer leads to a hub (a closed
+   tunnel, a reused address). That needs its own words and its own fix.
+4. **Machine names from the inside.** `node://localhost` is the hub's
+   internal id, not a name a person gave their computer.
+
+### Personas
+
+| Persona | Machines and networks | What "everything" means to them |
+| :--- | :--- | :--- |
+| Léa, solo founder | Desktop (home), Laptop, a cloud Server — one network | all her Mellows in one list, whichever computer is awake |
+| Karim, indie dev | the same hub by LAN address and by tunnel | one Mellow listed once, not twice; the dead address named as such |
+| Sofia, engineering lead | her own hub and her team's hub — two networks | her Mellows and the team's, each tagged with its network |
+| Marc, first-timer | one machine today, a second one later | nothing changes until he adds a second machine |
+| Aïcha, admin | several hubs of the company | a count per hub, what needs her across all of them |
+
+### Decisions
+
+- **"Everywhere" is a view, not a machine.** The machine chip gains a
+  first entry, *Everywhere*. It becomes the default as soon as a second
+  machine is paired (Marc, with one machine, never sees it). Choosing one
+  machine still scopes the boards, the roadmap and the to-dos to it.
+- **The Everywhere Plaza:** a strip with one dot per machine (live,
+  resting, *address lost*) and its Mellow count; *Needs you* summed over
+  every machine; then every Mellow in one list, sorted by what needs the
+  person first, each with a small tag naming its machine (and its network
+  when there are several networks). Filter chips narrow the list to one
+  machine without leaving the view.
+- **A broken machine never empties the view.** It turns into one line
+  in the strip and one card ("The address of *Tunnel* no longer leads to
+  your hub — the tunnel may have closed") with *Pair again* and *Remove*.
+  Mellows of a resting machine stay listed, asleep, still callable (what
+  is written for them waits on the phone).
+- **One Mellow, once.** The same Mellow reached through two addresses is
+  listed once, on the address that answers.
+- **Tapping a Mellow of another machine** opens it there; the Plaza stays
+  on Everywhere.
+- **Health has four honest states:** *answers*, *resting* (cannot be
+  reached), *address lost* (answers, but it is not a hub), *key refused*
+  (the hub no longer knows this phone). Each has its own words and fix.
+- **Names a person recognizes:** the hub tells its computer's name;
+  `node://…` is never shown.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T23 | Léa, with three machines: how many Mellows need you right now, on all machines? | 10 s | Reads the number on the Everywhere Plaza, without opening the machine menu. |
+| T24 | Karim: one of his two addresses died. Find which, and fix it. | 1 min | Names the tunnel from its "address lost" card and taps *Pair again* or *Remove*. |
+| T25 | Sofia: open the team's Reviewer from her phone while her own hub is in use. | 20 s | Taps Reviewer in the Everywhere list; it opens on the team hub. |
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

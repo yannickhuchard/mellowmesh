@@ -11,7 +11,11 @@ import io.mellowmesh.core.GraphScope
 import io.mellowmesh.core.HomeInputs
 import io.mellowmesh.core.HomeModel
 import io.mellowmesh.core.HomeModelBuilder
+import io.mellowmesh.core.Everywhere
+import io.mellowmesh.core.EverywhereModel
 import io.mellowmesh.core.LiveListener
+import io.mellowmesh.core.MachineHealth
+import io.mellowmesh.core.MachineHome
 import io.mellowmesh.core.Machines
 import io.mellowmesh.core.MeshClient
 import io.mellowmesh.core.MeshConfig
@@ -70,7 +74,19 @@ data class MachineStatus(
     val reachable: Boolean?,
     val agents: List<AgentRegistration>,
     val lastAnswerMs: Long?,
-)
+    /** Something answers at the address but it is not usable: a lost address or a refused key. */
+    val trouble: MachineHealth? = null,
+) {
+    /** The name to show (never the hub's `node://…` id). */
+    val name: String get() = Machines.displayLabel(machine.label, machine.baseUrl)
+
+    val health: MachineHealth
+        get() = trouble ?: when (reachable) {
+            true -> MachineHealth.ANSWERS
+            false -> MachineHealth.RESTING
+            null -> MachineHealth.UNKNOWN
+        }
+}
 
 /** A Mellow and the machine it lives on (for calls across machines). */
 data class MachineAgent(
@@ -106,6 +122,14 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     private val _allMellows = MutableStateFlow<List<MachineAgent>>(emptyList())
     /** Every Mellow of every paired machine (each once), free machines first. */
     val allMellows: StateFlow<List<MachineAgent>> = _allMellows.asStateFlow()
+
+    private val _everywhere = MutableStateFlow<EverywhereModel?>(null)
+    /** Every Mellow of every machine with what needs the person (the Everywhere Plaza). */
+    val everywhere: StateFlow<EverywhereModel?> = _everywhere.asStateFlow()
+
+    private val _everywhereOn = MutableStateFlow(false)
+    /** The Plaza shows every machine at once (only offered with two machines or more). */
+    val everywhereOn: StateFlow<Boolean> = _everywhereOn.asStateFlow()
 
     private val _whoami = MutableStateFlow<WhoAmI?>(null)
     val whoami: StateFlow<WhoAmI?> = _whoami.asStateFlow()
@@ -189,9 +213,23 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                 reachable = old?.reachable,
                 agents = old?.agents ?: store.loadAgentsCache(m.id),
                 lastAnswerMs = old?.lastAnswerMs,
+                trouble = old?.trouble,
             )
         }
         rebuildMellows()
+        updateEverywhereOn()
+    }
+
+    /** Everywhere is offered from two machines on, and is the default there unless the person chose one machine. */
+    private fun updateEverywhereOn() {
+        _everywhereOn.value = _machines.value.size >= 2 && store.everywhere != false
+    }
+
+    /** Show every machine on the Plaza (true) or the machine in use only. */
+    fun setEverywhere(on: Boolean) {
+        store.everywhere = on
+        updateEverywhereOn()
+        scope.launch { if (_everywhereOn.value) refreshEverywhere() else refreshHome() }
     }
 
     private fun activate(id: String?) {
@@ -210,9 +248,25 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     private fun markReachable(id: String, value: Boolean) {
         updateStatus(id) {
-            it.copy(reachable = value, lastAnswerMs = if (value) System.currentTimeMillis() else it.lastAnswerMs)
+            it.copy(
+                reachable = value,
+                lastAnswerMs = if (value) System.currentTimeMillis() else it.lastAnswerMs,
+                trouble = if (value) null else it.trouble,
+            )
         }
         if (id == activeId) _reachable.value = value
+    }
+
+    /**
+     * Record what a failed read of a machine's Mellows says about it: out
+     * of reach, an address that no longer leads to the hub, or a refused
+     * key. Returns that health (null: the failure says nothing about the machine).
+     */
+    private fun markFailure(id: String, e: Throwable): MachineHealth? {
+        val h = MachineHealth.ofFailure(e) ?: return null
+        markReachable(id, false)
+        if (h.needsFix) updateStatus(id) { it.copy(trouble = h) }
+        return h
     }
 
     private fun rebuildMellows() {
@@ -223,7 +277,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         )
         for (m in ordered) {
             for (a in m.agents) {
-                if (seen.add(a.id.lowercase())) out += MachineAgent(m.machine.id, m.machine.label, a, m.reachable)
+                if (seen.add(a.id.lowercase())) out += MachineAgent(m.machine.id, m.name, a, m.reachable)
             }
         }
         _allMellows.value = out
@@ -300,7 +354,10 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             } catch (_: Exception) {
                 null
             }
-            val label = runCatching { probe.platforms().machine }.getOrNull()?.takeIf { it.isNotBlank() }
+            val label = runCatching { probe.platforms() }.getOrNull()
+                ?.let { p -> p.computer.ifBlank { p.machine } }
+                ?.takeIf { it.isNotBlank() }
+                ?.let { Machines.displayLabel(it, baseUrl) }
                 ?: Machines.labelFromUrl(baseUrl)
             val first = store.loadMachines().isEmpty()
             val saved = store.addMachine(baseUrl, token, effectivePrincipal, name, label, makeActive = first)
@@ -333,6 +390,8 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         _config.value = null
         _machines.value = emptyList()
         _allMellows.value = emptyList()
+        _everywhere.value = null
+        _everywhereOn.value = false
         _whoami.value = null
         _home.value = null
         _network.value = null
@@ -389,11 +448,99 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             flushOutbox()
         } catch (e: Exception) {
             if (c !== client) return
-            _homeError.value = e.friendly()
-            if (e is MeshException && e.kind == MeshException.Kind.NETWORK) markReachable(id, false)
+            val label = _machines.value.firstOrNull { it.machine.id == id }?.name.orEmpty()
+            // Which read failed is unknown: a missing route on an older hub
+            // or one bad endpoint is not the whole machine. Its Mellows list
+            // (every hub has one) tells whether the machine itself is in trouble.
+            val kind = (e as? MeshException)?.kind
+            val failure: Throwable? = if (kind == MeshException.Kind.NETWORK || kind == MeshException.Kind.UNAUTHORIZED) {
+                e
+            } else {
+                withContext(Dispatchers.IO) { runCatching { c.agents() } }.exceptionOrNull()
+            }
+            _homeError.value = when (failure?.let { markFailure(id, it) }) {
+                MachineHealth.ADDRESS_LOST -> "The address of $label no longer leads to your hub: the tunnel may have closed. Pair it again, or remove it."
+                MachineHealth.KEY_REFUSED -> "$label no longer knows this phone's key. Pair it again."
+                else -> e.friendly()
+            }
         }
         // While we are at it: how are the other machines?
-        scope.launch { refreshOtherMachines() }
+        scope.launch { if (_everywhereOn.value) refreshEverywhere() else refreshOtherMachines() }
+    }
+
+    /**
+     * Ask every paired machine, in parallel, for what its Plaza needs, and
+     * build the Everywhere view. A machine that fails only changes its own
+     * line: its Mellows stay listed from the phone's memory, asleep.
+     */
+    suspend fun refreshEverywhere() {
+        val statuses = _machines.value
+        if (statuses.isEmpty()) return
+        val homes = coroutineScope {
+            statuses.map { st ->
+                async(Dispatchers.IO) {
+                    val id = st.machine.id
+                    val meThere = st.machine.principal ?: me
+                    val result = run {
+                        runCatching {
+                            val c = clients[id] ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+                            coroutineScope {
+                                val who = async { runCatching { c.whoami() }.getOrNull() }
+                                val agents = async { c.agents() }
+                                val tasks = async { runCatching { c.tasks() }.getOrDefault(emptyList()) }
+                                val decisions = async { runCatching { c.decisions() }.getOrDefault(emptyList()) }
+                                val history = async { runCatching { c.history(null, 200) }.getOrDefault(emptyList()) }
+                                val net = async { runCatching { c.network() }.getOrNull() }
+                                val a = agents.await()
+                                val n = net.await()
+                                val w = who.await()
+                                Triple(
+                                    a,
+                                    n,
+                                    HomeModelBuilder.build(
+                                        HomeInputs(
+                                            me = w?.principal ?: meThere,
+                                            agents = a,
+                                            tasks = tasks.await(),
+                                            decisions = decisions.await(),
+                                            history = history.await(),
+                                            network = n,
+                                            readMarkers = store.readMarkers(),
+                                            nowMs = System.currentTimeMillis(),
+                                            hour = LocalTime.now().hour,
+                                        ),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    result.onSuccess { (a, _, _) -> store.saveAgentsCache(id, a) }
+                    withContext(Dispatchers.Main) {
+                        result
+                            .onSuccess { (a, n, _) ->
+                                updateStatus(id) { s ->
+                                    val name = n?.network?.name?.takeIf { it.isNotBlank() }
+                                    s.copy(agents = a, machine = if (name != null) s.machine.copy(networkName = name) else s.machine)
+                                }
+                                markReachable(id, true)
+                            }
+                            .onFailure { markFailure(id, it) }
+                    }
+                    val now = withContext(Dispatchers.Main) { _machines.value.firstOrNull { it.machine.id == id } ?: st }
+                    MachineHome(
+                        machineId = id,
+                        label = now.name,
+                        networkName = result.getOrNull()?.second?.network?.name ?: now.machine.networkName,
+                        health = now.health,
+                        home = result.getOrNull()?.third,
+                        cachedAgents = now.agents,
+                        me = meThere,
+                    )
+                }
+            }.awaitAll()
+        }
+        _everywhere.value = Everywhere.build(homes)
+        flushOutbox()
     }
 
     /** Ask every other paired machine for its Mellows (in parallel). */
@@ -413,9 +560,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                                 updateStatus(id) { it.copy(agents = a) }
                                 markReachable(id, true)
                             }
-                            .onFailure { e ->
-                                if (e is MeshException && e.kind == MeshException.Kind.NETWORK) markReachable(id, false)
-                            }
+                            .onFailure { e -> markFailure(id, e) }
                     }
                 }
             }.awaitAll()

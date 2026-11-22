@@ -348,7 +348,7 @@ fun CallScreen(machineId: String, agentId: String, onHangUp: () -> Unit, onOpenC
     }
     val reason = when {
         phase != CallPhase.AWAY -> null
-        machine?.reachable == false -> stringResource(R.string.call_away_resting_machine, machine.machine.label)
+        machine?.reachable == false -> stringResource(R.string.call_away_resting_machine, machine.name)
         else -> stringResource(R.string.call_away_asleep)
     }
 

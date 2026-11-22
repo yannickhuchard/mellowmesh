@@ -108,7 +108,10 @@ fun PlazaScreen(
         )
         MachineChip(onAddMachine)
         val model = home
-        if (reachable == false && (model == null || error != null)) {
+        val everywhereOn by app.repo.everywhereOn.collectAsStateWithLifecycle()
+        if (everywhereOn) {
+            EverywhereContent(onAddMachine = onAddMachine, onPlace = onPlace, onHelper = onHelper, onCall = onCall)
+        } else if (reachable == false && (model == null || error != null)) {
             OfflinePanel(onRetry = { scope.launch { app.repo.refreshHome() } }, onCalls = onCalls, onCall = onCall)
         } else if (model == null) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -353,18 +356,18 @@ private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (mach
             item {
                 MeshCard(Modifier.fillMaxWidth(), color = Mesh.AmberTint) {
                     Text(
-                        stringResource(R.string.machine_resting_other_answers, current.machine.label, other.machine.label),
+                        stringResource(R.string.machine_resting_other_answers, current.name, other.name),
                         style = MaterialTheme.typography.titleSmall,
                         color = Mesh.Ink,
                     )
                     Text(
-                        stringResource(R.string.machine_other_can_pick_up, other.machine.label),
+                        stringResource(R.string.machine_other_can_pick_up, other.name),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Mesh.Ink2,
                     )
                     Gap(8.dp)
                     InkButton(
-                        stringResource(R.string.machine_use, other.machine.label),
+                        stringResource(R.string.machine_use, other.name),
                         onClick = { app.repo.switchMachine(other.machine.id) },
                     )
                 }
@@ -436,6 +439,9 @@ private fun OfflineCheck(n: Int, text: String, detail: String?) {
 private fun MachineChip(onAddMachine: () -> Unit) {
     val app = LocalContext.current.meshApp
     val machines by app.repo.machines.collectAsStateWithLifecycle()
+    val everywhereOn by app.repo.everywhereOn.collectAsStateWithLifecycle()
+    val everywhere by app.repo.everywhere.collectAsStateWithLifecycle()
+    val allMellows by app.repo.allMellows.collectAsStateWithLifecycle()
     if (machines.isEmpty()) return
     val current = machines.firstOrNull { it.active } ?: return
     var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -443,41 +449,89 @@ private fun MachineChip(onAddMachine: () -> Unit) {
         Row(
             Modifier
                 .clip(CircleShape)
-                .background(Mesh.Card)
+                .background(if (everywhereOn) Mesh.Ink else Mesh.Card)
                 .clickable { open = true }
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            io.mellowmesh.app.ui.components.MachineDot(current.reachable)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                stringResource(R.string.machine_on, current.machine.label),
-                style = MaterialTheme.typography.labelLarge,
-                color = Mesh.Ink,
-            )
+            if (everywhereOn) {
+                Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                    for (m in machines.take(4)) io.mellowmesh.app.ui.components.MachineDot(m.health, size = 7.dp)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    stringResource(R.string.everywhere_chip, machines.size),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Mesh.Card,
+                )
+            } else {
+                io.mellowmesh.app.ui.components.MachineDot(current.health)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.machine_on, current.name),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Mesh.Ink,
+                )
+            }
         }
         androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (m in machines) {
+            // Every machine at once: offered from the second machine on.
+            if (machines.size >= 2) {
+                val count = everywhere?.helpers?.size ?: allMellows.size
+                val needs = everywhere?.needsYou ?: 0
+                val line = stringResource(R.string.everywhere_menu_line, count, machines.size)
                 androidx.compose.material3.DropdownMenuItem(
-                    leadingIcon = { io.mellowmesh.app.ui.components.MachineDot(m.reachable) },
+                    modifier = Modifier.background(if (everywhereOn) Mesh.IndigoTint else Mesh.Card),
+                    leadingIcon = {
+                        Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                            for (m in machines.take(4)) io.mellowmesh.app.ui.components.MachineDot(m.health, size = 7.dp)
+                        }
+                    },
                     text = {
                         Column {
-                            Text(m.machine.label, color = Mesh.Ink, style = MaterialTheme.typography.bodyLarge)
+                            Text(stringResource(R.string.everywhere), color = Mesh.Ink, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                stringResource(
-                                    when (m.reachable) {
-                                        true -> R.string.machine_answers
-                                        false -> R.string.machine_resting
-                                        null -> R.string.machine_unknown
-                                    },
-                                ) + " · " + stringResource(R.string.machine_mellows, m.agents.size),
+                                if (needs > 0) stringResource(R.string.everywhere_menu_needs, line, needs) else line,
                                 color = Mesh.Ink3,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     },
+                    trailingIcon = { if (everywhereOn) Text("✓", color = Mesh.Indigo) },
                     onClick = {
                         open = false
+                        app.repo.setEverywhere(true)
+                    },
+                )
+                androidx.compose.material3.HorizontalDivider(color = Mesh.Hairline)
+            }
+            for (m in machines) {
+                androidx.compose.material3.DropdownMenuItem(
+                    leadingIcon = { io.mellowmesh.app.ui.components.MachineDot(m.health) },
+                    text = {
+                        Column {
+                            Text(m.name, color = Mesh.Ink, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                when (m.health) {
+                                    io.mellowmesh.core.MachineHealth.ADDRESS_LOST -> stringResource(R.string.machine_address_lost_line)
+                                    io.mellowmesh.core.MachineHealth.KEY_REFUSED -> stringResource(R.string.machine_key_refused_line)
+                                    else -> stringResource(
+                                        when (m.health) {
+                                            io.mellowmesh.core.MachineHealth.ANSWERS -> R.string.machine_answers
+                                            io.mellowmesh.core.MachineHealth.RESTING -> R.string.machine_resting
+                                            else -> R.string.machine_unknown
+                                        },
+                                    ) + " · " + stringResource(R.string.machine_mellows, m.agents.size)
+                                },
+                                color = if (m.health.needsFix) Mesh.Amber else Mesh.Ink3,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    },
+                    trailingIcon = { if (!everywhereOn && m.active) Text("✓", color = Mesh.Indigo) },
+                    onClick = {
+                        open = false
+                        if (machines.size >= 2) app.repo.setEverywhere(false)
                         app.repo.switchMachine(m.machine.id)
                     },
                 )

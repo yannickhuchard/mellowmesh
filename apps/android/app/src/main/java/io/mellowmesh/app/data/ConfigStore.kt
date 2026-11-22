@@ -147,6 +147,14 @@ class ConfigStore(context: Context) {
     private fun newMachineId() = "m_" + java.util.UUID.randomUUID().toString().take(8)
     private fun agentsKey(machineId: String) = KEY_AGENTS_CACHE + "_" + machineId
 
+    /**
+     * The Plaza shows one machine (false) or every machine (true). Null:
+     * never chosen — Everywhere as soon as there are two machines.
+     */
+    var everywhere: Boolean?
+        get() = if (plain.contains(KEY_EVERYWHERE)) plain.getBoolean(KEY_EVERYWHERE, true) else null
+        set(v) = plain.edit().apply { if (v == null) remove(KEY_EVERYWHERE) else putBoolean(KEY_EVERYWHERE, v) }.apply()
+
     var tourDone: Boolean
         get() = plain.getBoolean(KEY_TOUR, false)
         set(v) = plain.edit().putBoolean(KEY_TOUR, v).apply()
@@ -232,6 +240,7 @@ class ConfigStore(context: Context) {
         private const val KEY_NETWORK_NAME = "network_name"
         private const val KEY_TOUR = "tour_done"
         private const val KEY_LADDER = "ladder"
+        private const val KEY_EVERYWHERE = "plaza_everywhere"
         private const val KEY_DIGEST_DAY = "digest_day"
         private const val KEY_DIGEST_COUNT = "digest_count"
         private const val KEY_READ_MARKERS = "read_markers"

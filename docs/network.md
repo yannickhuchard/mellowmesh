@@ -277,6 +277,15 @@ MCP clients get one read-only tool, `get_network`, returning
   Plaza, boards and to-dos (switch with the *On … ▾* chip); Calls and the
   offline screen look at every machine, and a message written for a machine
   that rests leaves when that machine answers again.
+* **Everywhere** (Android, from the second machine on, and the default
+  there): the Plaza shows every Mellow of every machine in one list, each
+  tagged with its machine (and its network when there are several), with
+  *Needs you* summed over all machines and one dot per machine. A machine
+  is *answering*, *resting*, *address lost* (something answers, not the hub:
+  a closed tunnel) or *key refused*; the last two get a card with *Pair
+  again* and *Remove*, and never empty the view. A Mellow reached through
+  two addresses of the same hub is listed once, and the other address says
+  *same as …*. Pick one machine in the chip to scope the Plaza to it again.
 * **Settings → Notes between AIs** (Android; `mellowmesh mail`; MCP
   `set_agent_mail_policy`): who invited AIs can write to — *any helper's
   mailbox* (default: the network organizes itself), *only these mailboxes*,

@@ -353,7 +353,7 @@ private fun AddedPanel(
                     io.mellowmesh.app.ui.components.MachineDot(m.reachable)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(m.machine.label, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                        Text(m.name, style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
                         Text(m.machine.baseUrl, style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3, maxLines = 1)
                     }
                     if (m.machine.label == label) {

@@ -370,13 +370,36 @@ object Machines {
     fun sameAddress(a: String, b: String): Boolean =
         a.trim().trimEnd('/').equals(b.trim().trimEnd('/'), ignoreCase = true)
 
+    /** Tunnel services whose addresses are long random names. */
+    private val TUNNELS = listOf(
+        ".trycloudflare.com", ".hostc.app", ".ngrok-free.app", ".ngrok.io", ".ngrok.app", ".loca.lt", ".serveo.net",
+    )
+
     /** A short name from an address: its host, without a long tunnel suffix. */
     fun labelFromUrl(url: String): String {
         val host = url.substringAfter("://").substringBefore('/').substringBefore(':')
         return when {
-            host.endsWith(".trycloudflare.com") -> "Tunnel " + host.substringBefore('.').take(14)
+            TUNNELS.any { host.endsWith(it, ignoreCase = true) } -> "Tunnel " + host.substringBefore('.').take(14)
             host.isBlank() -> "Machine"
             else -> host
+        }
+    }
+
+    /**
+     * The name to show for a machine: never the hub's internal `node://…`
+     * id. A node id names the computer unless it is the generic
+     * `localhost`; then (and for a blank or tunnel-host label) the address
+     * gives the name.
+     */
+    fun displayLabel(label: String, baseUrl: String): String {
+        val l = label.trim()
+        val name = if (l.startsWith("node://", ignoreCase = true)) l.substring(7).trim('/') else l
+        val tunnelHost = TUNNELS.any { name.endsWith(it, ignoreCase = true) }
+        return when {
+            tunnelHost -> labelFromUrl("https://$name")
+            name.isBlank() || name.equals("localhost", ignoreCase = true) -> labelFromUrl(baseUrl)
+            l.startsWith("node://", ignoreCase = true) -> name.replaceFirstChar { it.uppercase() }
+            else -> name
         }
     }
 
@@ -413,6 +436,8 @@ data class MellowCreated(
 @Serializable
 data class PlatformsSnapshot(
     val machine: String = "",
+    /** The computer's own name (newer hubs); [machine] is the hub's node id. */
+    val computer: String = "",
     @SerialName("looked_at") val lookedAt: String? = null,
     val platforms: List<PlatformInfo> = emptyList(),
 )

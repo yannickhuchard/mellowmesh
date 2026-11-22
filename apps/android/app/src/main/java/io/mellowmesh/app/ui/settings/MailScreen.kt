@@ -152,7 +152,7 @@ fun MailScreen(onBack: () -> Unit) {
                     ) {
                         MachineDot(it.reachable)
                         Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.mail_on_machine, it.machine.label), style = MaterialTheme.typography.labelLarge, color = Mesh.Ink)
+                        Text(stringResource(R.string.mail_on_machine, it.name), style = MaterialTheme.typography.labelLarge, color = Mesh.Ink)
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.mail_at_once), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink2)

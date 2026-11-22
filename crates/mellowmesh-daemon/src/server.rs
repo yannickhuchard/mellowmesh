@@ -232,11 +232,23 @@ async fn platforms_handler(
         .collect();
     axum::response::Json(serde_json::json!({
         "machine": state.node_id,
+        "computer": computer_name(),
         "looked_at": snap.looked_at,
         "headless_allowed": headless,
         "platforms": platforms,
     }))
     .into_response()
+}
+
+/// The computer's own name, so apps never show the hub's internal
+/// `node://…` id; empty when the system does not say.
+fn computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .ok()
+        .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
+        .map(|s| s.trim().chars().take(64).collect())
+        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]

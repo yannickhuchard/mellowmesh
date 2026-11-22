@@ -127,7 +127,7 @@ fun EmailScreen(onBack: () -> Unit) {
                     Spacer(Modifier.width(6.dp))
                     val on = v?.settings?.enabled == true
                     Text(
-                        stringResource(R.string.mail_on_machine, it.machine.label) + " · " +
+                        stringResource(R.string.mail_on_machine, it.name) + " · " +
                             if (on) stringResource(R.string.email_reading, v!!.settings.pollSeconds) else stringResource(R.string.email_off),
                         style = MaterialTheme.typography.labelLarge,
                         color = Mesh.Ink,

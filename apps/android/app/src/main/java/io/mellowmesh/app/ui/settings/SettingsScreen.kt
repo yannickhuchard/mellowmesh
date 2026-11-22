@@ -290,11 +290,11 @@ fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> U
         val last = machines.size <= 1
         AlertDialog(
             onDismissRequest = { askRemove = null },
-            title = { Text(stringResource(R.string.machine_remove_title, m.machine.label)) },
+            title = { Text(stringResource(R.string.machine_remove_title, m.name)) },
             text = {
                 Text(
                     if (last) stringResource(R.string.disconnect_confirm)
-                    else stringResource(R.string.machine_remove_confirm, m.machine.label),
+                    else stringResource(R.string.machine_remove_confirm, m.name),
                 )
             },
             confirmButton = {
@@ -312,7 +312,11 @@ fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> U
 @Composable
 private fun MachineRow(status: io.mellowmesh.app.data.MachineStatus, onUse: () -> Unit, onRemove: () -> Unit) {
     val m = status.machine
-    val stateText = when (status.reachable) {
+    val stateText = if (status.health == io.mellowmesh.core.MachineHealth.ADDRESS_LOST) {
+        stringResource(R.string.machine_address_lost_line)
+    } else if (status.health == io.mellowmesh.core.MachineHealth.KEY_REFUSED) {
+        stringResource(R.string.machine_key_refused_line)
+    } else when (status.reachable) {
         true -> stringResource(R.string.machine_answers)
         false -> status.lastAnswerMs?.let {
             stringResource(
@@ -326,11 +330,11 @@ private fun MachineRow(status: io.mellowmesh.app.data.MachineStatus, onUse: () -
         Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        io.mellowmesh.app.ui.components.MachineDot(status.reachable)
+        io.mellowmesh.app.ui.components.MachineDot(status.health)
         androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 8.dp))
         Column(Modifier.weight(1f)) {
             androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(m.label, style = MaterialTheme.typography.titleSmall, color = if (status.reachable == false) Mesh.Ink2 else Mesh.Ink)
+                Text(status.name,style = MaterialTheme.typography.titleSmall, color = if (status.reachable == false) Mesh.Ink2 else Mesh.Ink)
                 if (status.active) {
                     Text(
                         stringResource(R.string.machine_here),

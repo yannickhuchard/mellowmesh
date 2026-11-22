@@ -243,3 +243,15 @@ async fn the_platform_invite_also_gives_the_link() {
     assert!(inv["join_url"].as_str().unwrap().contains("/join/"));
     assert_eq!(inv["principal"], "agent://owner/chatgpt");
 }
+
+#[tokio::test]
+async fn the_hub_tells_apps_its_computer_name() {
+    let hub = spawn_hub(true).await;
+    let owner = hub.token(OWNER, &["**"], &["**"]);
+    let (s, p) = hub.get("/platforms", Some(&owner), false).await;
+    assert_eq!(s, 200, "{p}");
+    // Apps show this name instead of the hub's internal node id.
+    let computer = p["computer"].as_str().expect("computer is a string");
+    assert!(!computer.starts_with("node://"));
+    assert!(p["machine"].is_string());
+}

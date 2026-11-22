@@ -21,6 +21,29 @@ import io.mellowmesh.app.ui.theme.Mesh
 import io.mellowmesh.app.ui.theme.rememberReduceMotion
 
 /**
+ * A machine's health: the answering, resting and not-asked dots, plus an
+ * amber ring for an address that no longer leads to the hub and a rose dot
+ * for a refused key.
+ */
+@Composable
+fun MachineDot(health: io.mellowmesh.core.MachineHealth, size: Dp = 12.dp, modifier: Modifier = Modifier) {
+    when (health) {
+        io.mellowmesh.core.MachineHealth.ANSWERS -> MachineDot(true, size, modifier)
+        io.mellowmesh.core.MachineHealth.RESTING -> MachineDot(false, size, modifier)
+        io.mellowmesh.core.MachineHealth.UNKNOWN -> MachineDot(null, size, modifier)
+        io.mellowmesh.core.MachineHealth.ADDRESS_LOST -> Canvas(
+            modifier.size(size * 1.8f).semantics { contentDescription = "Address lost" },
+        ) {
+            drawCircle(Mesh.AmberTint, radius = size.toPx() / 2f)
+            drawCircle(Mesh.Amber, radius = size.toPx() / 2f, style = Stroke(width = 2.dp.toPx()))
+        }
+        io.mellowmesh.core.MachineHealth.KEY_REFUSED -> Canvas(
+            modifier.size(size * 1.8f).semantics { contentDescription = "Key refused" },
+        ) { drawCircle(Mesh.Rose, radius = size.toPx() / 2f) }
+    }
+}
+
+/**
  * A machine's state at a glance: green with a ring pulsing outward when it
  * answers, grey inside a still dashed ring when it rests, hollow when we
  * have not asked yet.
