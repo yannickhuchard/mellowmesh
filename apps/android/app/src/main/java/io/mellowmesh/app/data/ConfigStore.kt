@@ -35,35 +35,115 @@ class ConfigStore(context: Context) {
 
     private val plain: SharedPreferences = app.getSharedPreferences("mellowmesh_prefs", Context.MODE_PRIVATE)
 
-    fun loadConfig(): MeshConfig? {
-        val url = secure.getString(KEY_URL, null) ?: return null
-        return MeshConfig(
+    // ---- machines ------------------------------------------------------------------
+    // A network can be spread over several computers; the phone keeps a key
+    // for each one it was paired with. One of them is "in use" (Plaza,
+    // boards); the others stay reachable for calls and deferred messages.
+
+    private val machineList = kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.SavedMachine.serializer())
+
+    /** Every paired machine, oldest first (migrates the single-hub settings once). */
+    fun loadMachines(): List<io.mellowmesh.core.SavedMachine> {
+        val raw = secure.getString(KEY_MACHINES, null)
+        if (raw != null) {
+            return runCatching { MeshJson.decodeFromString(machineList, raw) }.getOrDefault(emptyList())
+        }
+        val url = secure.getString(KEY_URL, null) ?: return emptyList()
+        val first = io.mellowmesh.core.SavedMachine(
+            id = newMachineId(),
             baseUrl = url,
             token = secure.getString(KEY_TOKEN, null),
             principal = secure.getString(KEY_PRINCIPAL, null),
-            deviceName = deviceName(),
+            networkName = secure.getString(KEY_NETWORK_NAME, null),
+            label = io.mellowmesh.core.Machines.labelFromUrl(url),
+            addedAtMs = System.currentTimeMillis(),
         )
+        // The old single-hub cache belongs to that first machine.
+        val legacyAgents = secure.getString(KEY_AGENTS_CACHE, null)
+        val e = secure.edit()
+            .putString(KEY_MACHINES, MeshJson.encodeToString(machineList, listOf(first)))
+            .putString(KEY_ACTIVE_MACHINE, first.id)
+            .remove(KEY_URL).remove(KEY_TOKEN).remove(KEY_PRINCIPAL).remove(KEY_NETWORK_NAME)
+            .remove(KEY_AGENTS_CACHE)
+        if (legacyAgents != null) e.putString(agentsKey(first.id), legacyAgents)
+        e.commit()
+        return listOf(first)
     }
 
-    fun networkName(): String? = secure.getString(KEY_NETWORK_NAME, null)
-
-    fun saveConfig(baseUrl: String, token: String?, principal: String?, networkName: String?) {
-        secure.edit()
-            .putString(KEY_URL, baseUrl)
-            .putString(KEY_TOKEN, token)
-            .putString(KEY_PRINCIPAL, principal)
-            .putString(KEY_NETWORK_NAME, networkName)
-            .apply()
+    private fun saveMachines(list: List<io.mellowmesh.core.SavedMachine>) {
+        secure.edit().putString(KEY_MACHINES, MeshJson.encodeToString(machineList, list)).apply()
     }
 
-    fun updatePrincipal(principal: String?) {
-        secure.edit().putString(KEY_PRINCIPAL, principal).apply()
+    var activeMachineId: String?
+        get() = secure.getString(KEY_ACTIVE_MACHINE, null)
+            ?.takeIf { id -> loadMachines().any { it.id == id } }
+            ?: loadMachines().firstOrNull()?.id
+        set(v) = secure.edit().putString(KEY_ACTIVE_MACHINE, v).apply()
+
+    fun activeMachine(): io.mellowmesh.core.SavedMachine? {
+        val id = activeMachineId ?: return null
+        return loadMachines().firstOrNull { it.id == id }
+    }
+
+    fun configOf(m: io.mellowmesh.core.SavedMachine) = MeshConfig(
+        baseUrl = m.baseUrl,
+        token = m.token,
+        principal = m.principal,
+        deviceName = deviceName(),
+    )
+
+    /** The machine in use, as a client config. */
+    fun loadConfig(): MeshConfig? = activeMachine()?.let { configOf(it) }
+
+    fun networkName(): String? = activeMachine()?.networkName
+
+    /**
+     * Remember a machine just paired (or a fresh key for one already known)
+     * and put it in use. Returns it, with its stable id.
+     */
+    fun addMachine(
+        baseUrl: String,
+        token: String?,
+        principal: String?,
+        networkName: String?,
+        label: String,
+    ): io.mellowmesh.core.SavedMachine {
+        val incoming = io.mellowmesh.core.SavedMachine(
+            id = newMachineId(),
+            baseUrl = baseUrl,
+            token = token,
+            principal = principal,
+            networkName = networkName,
+            label = label,
+            addedAtMs = System.currentTimeMillis(),
+        )
+        val list = io.mellowmesh.core.Machines.upsert(loadMachines(), incoming)
+        saveMachines(list)
+        val saved = list.first { io.mellowmesh.core.Machines.sameAddress(it.baseUrl, baseUrl) }
+        activeMachineId = saved.id
+        return saved
+    }
+
+    /** Forget one machine (its key and caches). Returns the machines left. */
+    fun removeMachine(id: String): List<io.mellowmesh.core.SavedMachine> {
+        val left = loadMachines().filterNot { it.id == id }
+        if (left.isEmpty()) {
+            clearConfig()
+            return emptyList()
+        }
+        saveMachines(left)
+        secure.edit().remove(agentsKey(id)).apply()
+        if (secure.getString(KEY_ACTIVE_MACHINE, null) == id) activeMachineId = left.first().id
+        return left
     }
 
     fun clearConfig() {
         secure.edit().clear().apply()
         plain.edit().remove(KEY_READ_MARKERS).remove(KEY_DIGEST_COUNT).apply()
     }
+
+    private fun newMachineId() = "m_" + java.util.UUID.randomUUID().toString().take(8)
+    private fun agentsKey(machineId: String) = KEY_AGENTS_CACHE + "_" + machineId
 
     var tourDone: Boolean
         get() = plain.getBoolean(KEY_TOUR, false)
@@ -107,20 +187,20 @@ class ConfigStore(context: Context) {
      * and callable — while the network is out of reach. Kept with the
      * other secrets: who you work with is private.
      */
-    fun loadAgentsCache(): List<io.mellowmesh.core.AgentRegistration> = runCatching {
-        val raw = secure.getString(KEY_AGENTS_CACHE, null) ?: return emptyList()
+    fun loadAgentsCache(machineId: String): List<io.mellowmesh.core.AgentRegistration> = runCatching {
+        val raw = secure.getString(agentsKey(machineId), null) ?: return emptyList()
         io.mellowmesh.core.MeshJson.decodeFromString(
             kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.AgentRegistration.serializer()),
             raw,
         )
     }.getOrDefault(emptyList())
 
-    fun saveAgentsCache(agents: List<io.mellowmesh.core.AgentRegistration>) {
+    fun saveAgentsCache(machineId: String, agents: List<io.mellowmesh.core.AgentRegistration>) {
         val raw = io.mellowmesh.core.MeshJson.encodeToString(
             kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.AgentRegistration.serializer()),
             agents,
         )
-        secure.edit().putString(KEY_AGENTS_CACHE, raw).apply()
+        secure.edit().putString(agentsKey(machineId), raw).apply()
     }
 
     /** Messages waiting for the network, oldest first (encrypted at rest). */
@@ -155,5 +235,7 @@ class ConfigStore(context: Context) {
         private const val KEY_READ_MARKERS = "read_markers"
         private const val KEY_AGENTS_CACHE = "agents_cache"
         private const val KEY_OUTBOX = "outbox"
+        private const val KEY_MACHINES = "machines"
+        private const val KEY_ACTIVE_MACHINE = "active_machine"
     }
 }

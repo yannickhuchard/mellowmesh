@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +82,7 @@ fun PlazaScreen(
     onNetwork: () -> Unit,
     onSettings: () -> Unit,
     onCalls: () -> Unit,
-    onCall: (String) -> Unit,
+    onCall: (machineId: String, agentId: String) -> Unit,
 ) {
     val app = LocalContext.current.meshApp
     val reachable by app.repo.reachable.collectAsStateWithLifecycle()
@@ -104,6 +105,7 @@ fun PlazaScreen(
                 }
             },
         )
+        MachineChip()
         val model = home
         if (reachable == false && (model == null || error != null)) {
             OfflinePanel(onRetry = { scope.launch { app.repo.refreshHome() } }, onCalls = onCalls, onCall = onCall)
@@ -134,7 +136,7 @@ private fun PlazaContent(
     onRoadmap: () -> Unit,
     onNetwork: () -> Unit,
     onCalls: () -> Unit,
-    onCall: (String) -> Unit,
+    onCall: (machineId: String, agentId: String) -> Unit,
 ) {
     val mine = model.helpers.filter { it.isMine }
     val others = model.helpers.filter { !it.isMine }
@@ -291,10 +293,11 @@ fun HelperRow(h: HelperCard, onClick: () -> Unit) {
  * what they write waits on the phone and leaves when the network is back.
  */
 @Composable
-private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (String) -> Unit) {
+private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (machineId: String, agentId: String) -> Unit) {
     val app = LocalContext.current.meshApp
     val outbox by app.repo.outbox.collectAsStateWithLifecycle()
     val config by app.repo.config.collectAsStateWithLifecycle()
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
     val still = io.mellowmesh.app.ui.theme.rememberReduceMotion()
     val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "resting")
     val bob by t.animateFloat(
@@ -305,8 +308,10 @@ private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (Stri
         ),
         label = "bob",
     )
-    // Quietly try again every 20 seconds while this panel is shown.
+    // Quietly try again every 20 seconds while this panel is shown
+    // (refreshing the machine in use also asks the others).
     androidx.compose.runtime.LaunchedEffect(Unit) {
+        app.repo.refreshOtherMachines()
         while (true) {
             kotlinx.coroutines.delay(20_000)
             app.repo.refreshHome()
@@ -338,6 +343,30 @@ private fun OfflinePanel(onRetry: () -> Unit, onCalls: () -> Unit, onCall: (Stri
                     color = Mesh.Ink2,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
+            }
+        }
+        // Another machine of the network answers: say so, offer the switch.
+        val other = machines.firstOrNull { !it.active && it.reachable == true }
+        val current = machines.firstOrNull { it.active }
+        if (other != null && current != null) {
+            item {
+                MeshCard(Modifier.fillMaxWidth(), color = Mesh.AmberTint) {
+                    Text(
+                        stringResource(R.string.machine_resting_other_answers, current.machine.label, other.machine.label),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Mesh.Ink,
+                    )
+                    Text(
+                        stringResource(R.string.machine_other_can_pick_up, other.machine.label),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Mesh.Ink2,
+                    )
+                    Gap(8.dp)
+                    InkButton(
+                        stringResource(R.string.machine_use, other.machine.label),
+                        onClick = { app.repo.switchMachine(other.machine.id) },
+                    )
+                }
             }
         }
         item {
@@ -391,6 +420,65 @@ private fun OfflineCheck(n: Int, text: String, detail: String?) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Mesh.Ink2,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * "On Desktop ▾": which machine the Plaza, boards and to-dos come from.
+ * Shown only when the phone knows more than one machine; a breathing dot
+ * when it answers, a still grey one when it rests.
+ */
+@Composable
+private fun MachineChip() {
+    val app = LocalContext.current.meshApp
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
+    if (machines.size < 2) return
+    val current = machines.firstOrNull { it.active } ?: return
+    var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Box(Modifier.padding(start = 16.dp, bottom = 4.dp)) {
+        Row(
+            Modifier
+                .clip(CircleShape)
+                .background(Mesh.Card)
+                .clickable { open = true }
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            io.mellowmesh.app.ui.components.MachineDot(current.reachable)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.machine_on, current.machine.label),
+                style = MaterialTheme.typography.labelLarge,
+                color = Mesh.Ink,
+            )
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (m in machines) {
+                androidx.compose.material3.DropdownMenuItem(
+                    leadingIcon = { io.mellowmesh.app.ui.components.MachineDot(m.reachable) },
+                    text = {
+                        Column {
+                            Text(m.machine.label, color = Mesh.Ink, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                stringResource(
+                                    when (m.reachable) {
+                                        true -> R.string.machine_answers
+                                        false -> R.string.machine_resting
+                                        null -> R.string.machine_unknown
+                                    },
+                                ) + " · " + stringResource(R.string.machine_mellows, m.agents.size),
+                                color = Mesh.Ink3,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    },
+                    onClick = {
+                        open = false
+                        app.repo.switchMachine(m.machine.id)
+                    },
                 )
             }
         }

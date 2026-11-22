@@ -344,7 +344,52 @@ data class PendingMessage(
     val conversationId: String,
     val text: String,
     val createdAtMs: Long,
+    /** The machine it leaves through (null: the one in use when it was written). */
+    val machineId: String? = null,
 )
+
+/**
+ * One computer of the owner's network this phone was paired with. A
+ * network can be spread over several machines (peered hubs); the phone
+ * keeps a key for each, and pairing another one adds it.
+ */
+@Serializable
+data class SavedMachine(
+    val id: String,
+    val baseUrl: String,
+    val token: String? = null,
+    val principal: String? = null,
+    val networkName: String? = null,
+    /** What people call it: the hub's machine name, else the address's host. */
+    val label: String = "",
+    val addedAtMs: Long = 0,
+)
+
+object Machines {
+    /** "https://a.b:40000/" and "https://a.b:40000" are the same machine. */
+    fun sameAddress(a: String, b: String): Boolean =
+        a.trim().trimEnd('/').equals(b.trim().trimEnd('/'), ignoreCase = true)
+
+    /** A short name from an address: its host, without a long tunnel suffix. */
+    fun labelFromUrl(url: String): String {
+        val host = url.substringAfter("://").substringBefore('/').substringBefore(':')
+        return when {
+            host.endsWith(".trycloudflare.com") -> "Tunnel " + host.substringBefore('.').take(14)
+            host.isBlank() -> "Machine"
+            else -> host
+        }
+    }
+
+    /**
+     * Add [incoming] or replace the machine at the same address (a fresh key
+     * for it); every other machine is kept.
+     */
+    fun upsert(list: List<SavedMachine>, incoming: SavedMachine): List<SavedMachine> {
+        val i = list.indexOfFirst { sameAddress(it.baseUrl, incoming.baseUrl) }
+        return if (i < 0) list + incoming
+        else list.toMutableList().also { it[i] = incoming.copy(id = list[i].id, addedAtMs = list[i].addedAtMs) }
+    }
+}
 
 /** `POST /platforms/:id/connect` response: one sentence on what changed. */
 @Serializable

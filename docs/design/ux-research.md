@@ -269,6 +269,35 @@ most need to know *what to do*, and it forgot every Mellow it had met.
 | T9 | Your computer is off. Leave a message for a Mellow; then turn it on. | 3 min | Can say why it could not answer right away, and sees the message leave by itself. |
 | T10 | Call the Mellow that is free right now. | 30 s | Picks the reachable one at a glance, without reading labels. |
 
+*One network, many machines.* Observed on the owner's phone: Settings →
+Connection showed **one** hub address and a single *Disconnect this phone*.
+Yet the owner's MellowMesh is spread over several computers and networks
+(a desktop at home, a laptop, a server — peered together): that is the
+point of a mesh. Pairing the laptop replaced the desktop. The phone saw one
+machine and called the rest "unreachable".
+
+* **Machines, not a hub.** The phone keeps *every* machine it was paired
+  with, grouped under the network they share ("Yannick's mesh · 3
+  machines"). Pairing another one **adds** it ("Add a machine" — same QR /
+  code flow), never replaces. Each machine has its own key: removing one
+  phone key on one machine leaves the others working.
+* **One machine is "here", the others keep answering.** Boards, to-dos and
+  the Plaza show the machine you chose (a chip under the greeting: *On
+  Desktop ▾* → switch in one tap). But Calls and the offline screen look
+  at all of them: every Mellow, with the machine it lives on, free or
+  asleep machine by machine.
+* **A resting machine is not a resting network.** When the desktop is off
+  but the laptop answers, the phone says so and offers the switch ("Desktop
+  is resting — Laptop answers. Use Laptop"), instead of a dead end.
+* **Each machine shows its state at a glance**: a breathing green dot when
+  it answers, a still grey one when it rests, the address it was reached
+  at, and when it last answered.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T11 | Your laptop is paired. Add your desktop too, then call a Mellow that lives on the desktop. | 3 min | Both machines listed; the laptop was not replaced; the call reaches the desktop's Mellow. |
+| T12 | Your desktop is off. Keep working. | 1 min | Notices the laptop still answers and switches without help. |
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

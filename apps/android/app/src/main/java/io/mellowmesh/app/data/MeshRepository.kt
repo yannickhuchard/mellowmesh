@@ -12,12 +12,15 @@ import io.mellowmesh.core.HomeInputs
 import io.mellowmesh.core.HomeModel
 import io.mellowmesh.core.HomeModelBuilder
 import io.mellowmesh.core.LiveListener
+import io.mellowmesh.core.Machines
 import io.mellowmesh.core.MeshClient
 import io.mellowmesh.core.MeshConfig
 import io.mellowmesh.core.MeshException
 import io.mellowmesh.core.Message
 import io.mellowmesh.core.NetworkOverview
 import io.mellowmesh.core.NetworkPatch
+import io.mellowmesh.core.PendingMessage
+import io.mellowmesh.core.SavedMachine
 import io.mellowmesh.core.Space
 import io.mellowmesh.core.Task
 import io.mellowmesh.core.TaskGraph
@@ -30,19 +33,26 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.LocalTime
+import java.util.concurrent.ConcurrentHashMap
 
 /** Turn any failure into one plain sentence for the screen. */
 fun Throwable.friendly(): String = when (this) {
@@ -51,17 +61,51 @@ fun Throwable.friendly(): String = when (this) {
     else -> "Something went wrong. Try again."
 }
 
+/** One paired machine as the app sees it right now. */
+data class MachineStatus(
+    val machine: SavedMachine,
+    /** The machine the Plaza, boards and to-dos come from. */
+    val active: Boolean,
+    /** Did it answer the last time we asked? null = not asked yet. */
+    val reachable: Boolean?,
+    val agents: List<AgentRegistration>,
+    val lastAnswerMs: Long?,
+)
+
+/** A Mellow and the machine it lives on (for calls across machines). */
+data class MachineAgent(
+    val machineId: String,
+    val machineLabel: String,
+    val agent: AgentRegistration,
+    val machineReachable: Boolean?,
+)
+
 /**
- * The single source of truth of the app: wraps the core [MeshClient] (all
- * calls on Dispatchers.IO), keeps the home model, and runs the live
- * WebSocket while the app is in the foreground (with reconnect backoff).
+ * The single source of truth of the app. A network can be spread over
+ * several machines: the phone keeps a client per paired machine. One is
+ * "in use" (home model, boards, the live WebSocket while in the
+ * foreground); the others are checked regularly so their Mellows stay
+ * callable and messages written for them leave when they answer.
  */
 class MeshRepository(private val store: ConfigStore, private val scope: CoroutineScope) {
     @Volatile
     private var client: MeshClient? = null
 
+    @Volatile
+    private var activeId: String? = null
+
+    /** machine id → its client (rebuilt when its address or key changes). */
+    private val clients = ConcurrentHashMap<String, MeshClient>()
+
     private val _config = MutableStateFlow<MeshConfig?>(null)
     val config: StateFlow<MeshConfig?> = _config.asStateFlow()
+
+    private val _machines = MutableStateFlow<List<MachineStatus>>(emptyList())
+    val machines: StateFlow<List<MachineStatus>> = _machines.asStateFlow()
+
+    private val _allMellows = MutableStateFlow<List<MachineAgent>>(emptyList())
+    /** Every Mellow of every paired machine (each once), free machines first. */
+    val allMellows: StateFlow<List<MachineAgent>> = _allMellows.asStateFlow()
 
     private val _whoami = MutableStateFlow<WhoAmI?>(null)
     val whoami: StateFlow<WhoAmI?> = _whoami.asStateFlow()
@@ -76,56 +120,159 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     val network: StateFlow<NetworkOverview?> = _network.asStateFlow()
 
     private val _agents = MutableStateFlow<List<AgentRegistration>>(emptyList())
+    /** The Mellows of the machine in use. */
     val agents: StateFlow<List<AgentRegistration>> = _agents.asStateFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    /** Whether the hub answered the last time we asked: null = not asked yet. */
+    /** Whether the machine in use answered the last time we asked: null = not asked yet. */
     private val _reachable = MutableStateFlow<Boolean?>(null)
     val reachable: StateFlow<Boolean?> = _reachable.asStateFlow()
 
-    /** Messages written while the network was out of reach, oldest first. */
-    private val _outbox = MutableStateFlow<List<io.mellowmesh.core.PendingMessage>>(emptyList())
-    val outbox: StateFlow<List<io.mellowmesh.core.PendingMessage>> = _outbox.asStateFlow()
+    /** Messages written while their machine was out of reach, oldest first. */
+    private val _outbox = MutableStateFlow<List<PendingMessage>>(emptyList())
+    val outbox: StateFlow<List<PendingMessage>> = _outbox.asStateFlow()
     private val flushing = kotlinx.coroutines.sync.Mutex()
 
     private val _live = MutableSharedFlow<Message>(extraBufferCapacity = 256)
-    /** Every live message (pattern `**`, filtered by the hub to what this phone may read). */
+    /** Every live message of the machine in use (pattern `**`, filtered by the hub). */
     val live: SharedFlow<Message> = _live.asSharedFlow()
 
     private var liveJob: Job? = null
+    private var watchJob: Job? = null
     private var foreground = false
 
     init {
-        store.loadConfig()?.let { use(it) }
+        syncMachines()
+        activate(store.activeMachineId)
         // The Mellows met before stay on screen (and callable) offline.
-        _agents.value = store.loadAgentsCache()
+        _agents.value = activeId?.let { store.loadAgentsCache(it) }.orEmpty()
         _outbox.value = store.loadOutbox()
     }
 
     val isPaired: Boolean get() = client != null
 
-    /** The principal used as `from` (paired identity). */
+    /** The principal used as `from` on the machine in use. */
     val me: String get() = _config.value?.principal ?: _whoami.value?.principal ?: "human://me"
 
-    val directory: Directory get() = Directory.of(_agents.value)
+    /** Names of every Mellow this phone knows, on any machine. */
+    val directory: Directory
+        get() = Directory.of((_agents.value + _allMellows.value.map { it.agent }).distinctBy { it.id.lowercase() })
 
-    private fun use(cfg: MeshConfig) {
-        client = MeshClient(cfg)
-        _config.value = cfg
+    // ---- machines ------------------------------------------------------------------
+
+    /** Align the clients and statuses with the stored machines. */
+    private fun syncMachines() {
+        val saved = store.loadMachines()
+        val ids = saved.map { it.id }.toSet()
+        clients.keys.retainAll(ids)
+        for (m in saved) {
+            val c = clients[m.id]
+            if (c == null || c.config.baseUrl != m.baseUrl || c.config.token != m.token) {
+                clients[m.id] = MeshClient(store.configOf(m))
+            }
+        }
+        val active = store.activeMachineId
+        val before = _machines.value.associateBy { it.machine.id }
+        _machines.value = saved.map { m ->
+            val old = before[m.id]
+            MachineStatus(
+                machine = m,
+                active = m.id == active,
+                reachable = old?.reachable,
+                agents = old?.agents ?: store.loadAgentsCache(m.id),
+                lastAnswerMs = old?.lastAnswerMs,
+            )
+        }
+        rebuildMellows()
     }
 
-    private fun requireClient(): MeshClient =
-        client ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+    private fun activate(id: String?) {
+        val m = _machines.value.firstOrNull { it.machine.id == id }?.machine
+        activeId = m?.id
+        client = m?.let { clients[it.id] }
+        _config.value = m?.let { store.configOf(it) }
+        _machines.update { list -> list.map { it.copy(active = it.machine.id == activeId) } }
+        rebuildMellows()
+    }
 
-    private suspend fun <T> io(block: (MeshClient) -> T): T = withContext(Dispatchers.IO) { block(requireClient()) }
+    private fun updateStatus(id: String, change: (MachineStatus) -> MachineStatus) {
+        _machines.update { list -> list.map { if (it.machine.id == id) change(it) else it } }
+        rebuildMellows()
+    }
+
+    private fun markReachable(id: String, value: Boolean) {
+        updateStatus(id) {
+            it.copy(reachable = value, lastAnswerMs = if (value) System.currentTimeMillis() else it.lastAnswerMs)
+        }
+        if (id == activeId) _reachable.value = value
+    }
+
+    private fun rebuildMellows() {
+        val seen = HashSet<String>()
+        val out = mutableListOf<MachineAgent>()
+        val ordered = _machines.value.sortedWith(
+            compareByDescending<MachineStatus> { it.reachable == true }.thenByDescending { it.active },
+        )
+        for (m in ordered) {
+            for (a in m.agents) {
+                if (seen.add(a.id.lowercase())) out += MachineAgent(m.machine.id, m.machine.label, a, m.reachable)
+            }
+        }
+        _allMellows.value = out
+    }
+
+    /** The views that belong to one machine start again from its cache. */
+    private fun resetActiveViews() {
+        val id = activeId
+        _home.value = null
+        _homeError.value = null
+        _network.value = null
+        _whoami.value = null
+        _agents.value = id?.let { store.loadAgentsCache(it) }.orEmpty()
+        _reachable.value = _machines.value.firstOrNull { it.machine.id == id }?.reachable
+    }
+
+    /** Use another paired machine for the Plaza, boards and to-dos. */
+    fun switchMachine(id: String) {
+        if (id == activeId || _machines.value.none { it.machine.id == id }) return
+        store.activeMachineId = id
+        stopLive()
+        activate(id)
+        resetActiveViews()
+        if (foreground) startLive()
+        scope.launch { refreshHome() }
+    }
+
+    /** Forget one machine (its key on this phone). The others keep working. */
+    fun removeMachine(id: String) {
+        val wasActive = id == activeId
+        val left = store.removeMachine(id)
+        val keep = _outbox.value.filterNot { (it.machineId ?: activeId) == id }
+        _outbox.value = keep
+        store.saveOutbox(keep)
+        if (left.isEmpty()) {
+            disconnectAll()
+            return
+        }
+        syncMachines()
+        if (wasActive) {
+            stopLive()
+            activate(store.activeMachineId)
+            resetActiveViews()
+            if (foreground) startLive()
+            scope.launch { refreshHome() }
+        }
+    }
 
     // ---- pairing -----------------------------------------------------------------
 
     /**
-     * Check the hub and the key, then remember them. Returns who we are.
-     * Older hubs without `/whoami` are accepted when an authenticated read works.
+     * Check the machine and the key, then add it to the paired machines and
+     * put it in use (pairing never replaces another machine). Returns who we
+     * are there. Older hubs without `/whoami` are accepted when an
+     * authenticated read works.
      */
     suspend fun pair(baseUrl: String, token: String?, principal: String?, networkName: String?): WhoAmI =
         withContext(Dispatchers.IO) {
@@ -146,20 +293,35 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             } catch (_: Exception) {
                 null
             }
-            store.saveConfig(baseUrl, token, effectivePrincipal, name)
+            val label = runCatching { probe.platforms().machine }.getOrNull()?.takeIf { it.isNotBlank() }
+                ?: Machines.labelFromUrl(baseUrl)
+            val saved = store.addMachine(baseUrl, token, effectivePrincipal, name, label)
             withContext(Dispatchers.Main) {
-                use(MeshConfig(baseUrl, token, effectivePrincipal, store.loadConfig()?.deviceName ?: "Android"))
+                stopLive()
+                syncMachines()
+                activate(saved.id)
+                resetActiveViews()
+                markReachable(saved.id, true)
                 _whoami.value = who
                 if (foreground) startLive()
             }
             who
         }
 
+    /** Remove the machine in use from this phone. */
     fun disconnect() {
+        activeId?.let { removeMachine(it) } ?: disconnectAll()
+    }
+
+    private fun disconnectAll() {
         stopLive()
         client = null
+        activeId = null
+        clients.clear()
         store.clearConfig()
         _config.value = null
+        _machines.value = emptyList()
+        _allMellows.value = emptyList()
         _whoami.value = null
         _home.value = null
         _network.value = null
@@ -173,6 +335,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     /** Reload everything the Plaza needs in one round of parallel requests. */
     suspend fun refreshHome() {
         val c = client ?: return
+        val id = activeId ?: return
         try {
             val model = withContext(Dispatchers.IO) {
                 coroutineScope {
@@ -186,11 +349,13 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                     val n = net.await()
                     val a = agents.await()
                     withContext(Dispatchers.Main) {
+                        if (c !== client) return@withContext
                         if (w != null) _whoami.value = w
                         if (n != null) _network.value = n
                         _agents.value = a
+                        updateStatus(id) { it.copy(agents = a) }
                     }
-                    store.saveAgentsCache(a)
+                    store.saveAgentsCache(id, a)
                     HomeModelBuilder.build(
                         HomeInputs(
                             me = w?.principal ?: me,
@@ -206,42 +371,78 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                     )
                 }
             }
+            if (c !== client) return
             _home.value = model
             _homeError.value = null
-            _reachable.value = true
+            markReachable(id, true)
             flushOutbox()
         } catch (e: Exception) {
+            if (c !== client) return
             _homeError.value = e.friendly()
-            if (e is MeshException && e.kind == MeshException.Kind.NETWORK) _reachable.value = false
+            if (e is MeshException && e.kind == MeshException.Kind.NETWORK) markReachable(id, false)
         }
+        // While we are at it: how are the other machines?
+        scope.launch { refreshOtherMachines() }
+    }
+
+    /** Ask every other paired machine for its Mellows (in parallel). */
+    suspend fun refreshOtherMachines() {
+        val others = _machines.value.filter { !it.active }
+        if (others.isEmpty()) return
+        coroutineScope {
+            others.map { st ->
+                async(Dispatchers.IO) {
+                    val id = st.machine.id
+                    val c = clients[id] ?: return@async
+                    val result = runCatching { c.agents() }
+                    result.onSuccess { store.saveAgentsCache(id, it) }
+                    withContext(Dispatchers.Main) {
+                        result
+                            .onSuccess { a ->
+                                updateStatus(id) { it.copy(agents = a) }
+                                markReachable(id, true)
+                            }
+                            .onFailure { e ->
+                                if (e is MeshException && e.kind == MeshException.Kind.NETWORK) markReachable(id, false)
+                            }
+                    }
+                }
+            }.awaitAll()
+        }
+        flushOutbox()
     }
 
     // ---- deferred messages -------------------------------------------------------
 
     /**
-     * Send now, or — when the network is out of reach — keep the message on
-     * the phone and send it later. Returns true when it left now. Errors
-     * other than "cannot reach the hub" are thrown as usual.
-     * Returns the sent message, or null when it waits on the phone.
+     * Send now through [machineId] (default: the machine in use), or — when
+     * that machine is out of reach — keep the message on the phone and send
+     * it when it answers. Returns the sent message, or null when it waits.
+     * Errors other than "cannot reach it" are thrown as usual.
      */
-    suspend fun sendOrQueue(conversationId: String, text: String): ChatMessage? {
+    suspend fun sendOrQueue(conversationId: String, text: String, machineId: String? = null): ChatMessage? {
         val body = text.trim()
         require(body.isNotEmpty())
-        if (_reachable.value != false && _outbox.value.isEmpty()) {
+        val target = machineId ?: activeId
+            ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+        val reach = _machines.value.firstOrNull { it.machine.id == target }?.reachable
+        val waiting = _outbox.value.any { (it.machineId ?: activeId) == target }
+        if (reach != false && !waiting) {
             try {
-                val sent = send(conversationId, body)
-                _reachable.value = true
+                val sent = sendVia(target, conversationId, body)
+                markReachable(target, true)
                 return sent
             } catch (e: MeshException) {
                 if (e.kind != MeshException.Kind.NETWORK) throw e
-                _reachable.value = false
+                markReachable(target, false)
             }
         }
-        val pending = io.mellowmesh.core.PendingMessage(
+        val pending = PendingMessage(
             id = "pending_" + java.util.UUID.randomUUID().toString(),
             conversationId = conversationId,
             text = body,
             createdAtMs = System.currentTimeMillis(),
+            machineId = target,
         )
         val next = _outbox.value + pending
         _outbox.value = next
@@ -249,22 +450,43 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         return null
     }
 
-    /** Send what waited, in order; stop at the first "still out of reach". */
+    private suspend fun sendVia(machineId: String, conversationId: String, text: String): ChatMessage {
+        if (machineId == activeId) return send(conversationId, text)
+        val c = clients[machineId] ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+        val dir = directory
+        val meThere = _machines.value.firstOrNull { it.machine.id == machineId }?.machine?.principal ?: me
+        return withContext(Dispatchers.IO) { Chat.toChat(c.sendText(conversationId, text), meThere, dir) }
+    }
+
+    /**
+     * Send what waited, in order per machine; a machine still out of reach
+     * keeps its messages, the others' leave.
+     */
     suspend fun flushOutbox() {
-        if (client == null || _outbox.value.isEmpty()) return
+        if (_outbox.value.isEmpty()) return
         flushing.withLock {
-            while (true) {
-                val first = _outbox.value.firstOrNull() ?: break
-                try {
-                    send(first.conversationId, first.text)
-                } catch (e: MeshException) {
-                    if (e.kind == MeshException.Kind.NETWORK) {
-                        _reachable.value = false
-                        break
+            val blocked = HashSet<String>()
+            for (p in _outbox.value.toList()) {
+                val target = p.machineId ?: activeId ?: continue
+                if (target in blocked) continue
+                val c = clients[target]
+                if (c != null) {
+                    try {
+                        withContext(Dispatchers.IO) { c.sendText(p.conversationId, p.text) }
+                        markReachable(target, true)
+                    } catch (e: MeshException) {
+                        if (e.kind == MeshException.Kind.NETWORK) {
+                            markReachable(target, false)
+                            blocked += target
+                            continue
+                        }
+                        // Refused for good (e.g. not allowed): do not retry forever.
+                    } catch (_: Exception) {
+                        blocked += target
+                        continue
                     }
-                    // Refused for good (e.g. not allowed): do not retry forever.
                 }
-                val rest = _outbox.value.drop(1)
+                val rest = _outbox.value.filterNot { it.id == p.id }
                 _outbox.value = rest
                 store.saveOutbox(rest)
             }
@@ -294,6 +516,28 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     fun markRead(conversationId: String, upToMs: Long) = store.markRead(conversationId, upToMs)
 
+    /**
+     * Live messages of one machine matching [pattern], for as long as the
+     * flow is collected (a call to a Mellow on any machine).
+     */
+    fun liveFrom(machineId: String, pattern: String): Flow<Message> = callbackFlow {
+        val c = clients[machineId]
+        if (c == null) {
+            close()
+            return@callbackFlow
+        }
+        val sub = c.subscribe(pattern, object : LiveListener {
+            override fun onOpen() = markReachable(machineId, true)
+            override fun onMessage(message: Message) {
+                trySend(message)
+            }
+            override fun onClosed(error: Throwable?) {
+                close()
+            }
+        })
+        awaitClose { sub.close() }
+    }.flowOn(Dispatchers.IO)
+
     // ---- decisions, agents, tasks ------------------------------------------------
 
     suspend fun decisions(): List<Decision> = io { it.decisions() }
@@ -304,7 +548,10 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     suspend fun loadAgents(): List<AgentRegistration> {
         val a = io { it.agents() }
         _agents.value = a
-        store.saveAgentsCache(a)
+        activeId?.let { id ->
+            store.saveAgentsCache(id, a)
+            updateStatus(id) { it.copy(agents = a) }
+        }
         return a
     }
 
@@ -344,6 +591,11 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     suspend fun addTeamMember(teamId: String, member: TeamMember) = io { it.addTeamMember(teamId, member) }
     suspend fun removeTeamMember(teamId: String, principal: String) = io { it.removeTeamMember(teamId, principal) }
 
+    private fun requireClient(): MeshClient =
+        client ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+
+    private suspend fun <T> io(block: (MeshClient) -> T): T = withContext(Dispatchers.IO) { block(requireClient()) }
+
     // ---- live --------------------------------------------------------------------
 
     /** Called by the process lifecycle: the WebSocket runs only in the foreground. */
@@ -351,9 +603,23 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         foreground = value
         if (value) {
             startLive()
+            startWatching()
             scope.launch { refreshHome() }
         } else {
             stopLive()
+            watchJob?.cancel()
+            watchJob = null
+        }
+    }
+
+    /** Check the other machines every 30 s while the app is on screen. */
+    private fun startWatching() {
+        if (watchJob?.isActive == true) return
+        watchJob = scope.launch {
+            while (isActive) {
+                delay(30_000)
+                if (_machines.value.size > 1) refreshOtherMachines()
+            }
         }
     }
 
@@ -363,13 +629,14 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             val backoff = Backoff()
             while (isActive) {
                 val c = client ?: break
+                val id = activeId ?: break
                 val closed = CompletableDeferred<Throwable?>()
                 val sub = withContext(Dispatchers.IO) {
                     c.subscribe("**", object : LiveListener {
                         override fun onOpen() {
                             backoff.reset()
                             _connected.value = true
-                            _reachable.value = true
+                            markReachable(id, true)
                             scope.launch { flushOutbox() }
                         }
 

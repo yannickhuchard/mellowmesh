@@ -93,7 +93,8 @@ object Routes {
     const val SETTINGS = "settings"
     const val HELP = "help"
     const val CALLS = "calls"
-    fun call(id: String) = "call/" + Uri.encode(id)
+    fun call(machineId: String, id: String) = "call/" + Uri.encode(machineId) + "/" + Uri.encode(id)
+    const val ADD_MACHINE = "add-machine"
     fun conversation(id: String) = "conversation/" + Uri.encode(id)
     fun helper(id: String) = "helper/" + Uri.encode(id)
     fun board(scope: String) = "board/" + Uri.encode(scope)
@@ -115,7 +116,12 @@ fun AppRoot(
     if (config == null) {
         WelcomeScreen(pendingLink = pendingLink, onLinkConsumed = onLinkConsumed)
     } else {
-        MainScaffold(pendingRoute = pendingRoute, onRouteConsumed = onRouteConsumed)
+        MainScaffold(
+            pendingRoute = pendingRoute,
+            onRouteConsumed = onRouteConsumed,
+            pendingLink = pendingLink,
+            onLinkConsumed = onLinkConsumed,
+        )
     }
 }
 
@@ -137,7 +143,12 @@ private fun NavHostController.goTab(route: String) {
 }
 
 @Composable
-private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
+private fun MainScaffold(
+    pendingRoute: String?,
+    onRouteConsumed: () -> Unit,
+    pendingLink: String?,
+    onLinkConsumed: () -> Unit,
+) {
     val app = LocalContext.current.meshApp
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
@@ -150,6 +161,16 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         app.repo.refreshHome()
+    }
+
+    // A pairing link opened while already paired adds another machine.
+    var linkToAdd by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pendingLink) {
+        if (pendingLink != null) {
+            linkToAdd = pendingLink
+            onLinkConsumed()
+            nav.navigate(Routes.ADD_MACHINE) { launchSingleTop = true }
+        }
     }
 
     LaunchedEffect(pendingRoute) {
@@ -232,14 +253,21 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                         onNetwork = { nav.navigate(Routes.NETWORK) },
                         onSettings = { nav.navigate(Routes.SETTINGS) },
                         onCalls = { nav.navigate(Routes.CALLS) },
-                        onCall = { nav.navigate(Routes.call(it)) },
+                        onCall = { machine, id -> nav.navigate(Routes.call(machine, id)) },
                     )
                 }
                 composable(Routes.CALLS) {
-                    CallsScreen(onBack = { nav.popBackStack() }, onCall = { nav.navigate(Routes.call(it)) })
+                    CallsScreen(onBack = { nav.popBackStack() }, onCall = { machine, id -> nav.navigate(Routes.call(machine, id)) })
                 }
-                composable("call/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                composable(
+                    "call/{machine}/{id}",
+                    arguments = listOf(
+                        navArgument("machine") { type = NavType.StringType },
+                        navArgument("id") { type = NavType.StringType },
+                    ),
+                ) { entry ->
                     CallScreen(
+                        machineId = entry.arguments?.getString("machine").orEmpty(),
                         agentId = entry.arguments?.getString("id").orEmpty(),
                         onHangUp = { nav.popBackStack() },
                         onOpenChat = { id ->
@@ -323,7 +351,17 @@ private fun MainScaffold(pendingRoute: String?, onRouteConsumed: () -> Unit) {
                     )
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(onBack = { nav.popBackStack() })
+                    SettingsScreen(
+                        onBack = { nav.popBackStack() },
+                        onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
+                    )
+                }
+                composable(Routes.ADD_MACHINE) {
+                    io.mellowmesh.app.ui.welcome.AddMachineScreen(
+                        pendingLink = linkToAdd,
+                        onLinkConsumed = { linkToAdd = null },
+                        onDone = { nav.popBackStack() },
+                    )
                 }
                 composable(Routes.HELP) {
                     HelpScreen(onBack = { nav.popBackStack() })

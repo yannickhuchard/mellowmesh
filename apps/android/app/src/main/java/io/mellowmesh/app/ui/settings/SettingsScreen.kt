@@ -60,13 +60,14 @@ private fun moodFor(level: Level): Mood = when (level) {
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit) {
     val app = LocalContext.current.meshApp
     val config by app.repo.config.collectAsStateWithLifecycle()
     val whoami by app.repo.whoami.collectAsStateWithLifecycle()
     var ladder by remember { mutableStateOf(app.store.ladder) }
     var askAlarm by remember { mutableStateOf(false) }
-    var askDisconnect by remember { mutableStateOf(false) }
+    var askRemove by remember { mutableStateOf<io.mellowmesh.app.data.MachineStatus?>(null) }
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
 
     fun save(s: LadderSettings) {
         ladder = s
@@ -147,10 +148,46 @@ fun SettingsScreen(onBack: () -> Unit) {
                 TimeStepper("", ladder.digestMinute, ladder.digestEnabled) { save(ladder.copy(digestMinute = it)) }
             }
 
+            SectionTitle(stringResource(R.string.machines_title))
+            Text(
+                stringResource(
+                    R.string.machines_summary,
+                    config?.let { app.store.networkName() } ?: stringResource(R.string.your_network),
+                    machines.size,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Mesh.Ink2,
+            )
+            Gap(8.dp)
+            MeshCard(Modifier.fillMaxWidth()) {
+                machines.forEachIndexed { i, m ->
+                    MachineRow(
+                        status = m,
+                        onUse = { app.repo.switchMachine(m.machine.id) },
+                        onRemove = { askRemove = m },
+                    )
+                    if (i < machines.lastIndex) {
+                        androidx.compose.material3.HorizontalDivider(color = Mesh.Hairline)
+                    }
+                }
+            }
+            Gap(10.dp)
+            io.mellowmesh.app.ui.components.InkButton(
+                stringResource(R.string.add_machine),
+                onClick = onAddMachine,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.add_machine_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Ink3,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+
             SectionTitle(stringResource(R.string.connection))
             MeshCard(Modifier.fillMaxWidth()) {
                 val url = config?.baseUrl ?: ""
-                InfoLine(stringResource(R.string.hub), url)
+                InfoLine(stringResource(R.string.hub_in_use), url)
                 when (Pairing.safety(url)) {
                     UrlSafety.PUBLIC_PLAINTEXT -> Text(stringResource(R.string.warning_public_http), color = Mesh.Rose, style = MaterialTheme.typography.bodySmall)
                     UrlSafety.PRIVATE_LAN -> Text(stringResource(R.string.note_private_http), color = Mesh.Ink2, style = MaterialTheme.typography.bodySmall)
@@ -162,10 +199,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                 if (whoami?.isOwner == true) {
                     Gap(4.dp)
                     Text(stringResource(R.string.owner_yes), color = Mesh.Green, style = MaterialTheme.typography.labelLarge)
-                }
-                Gap()
-                OutlinedButton(onClick = { askDisconnect = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.disconnect), color = Mesh.Rose)
                 }
             }
             Gap(32.dp)
@@ -187,19 +220,74 @@ fun SettingsScreen(onBack: () -> Unit) {
         )
     }
 
-    if (askDisconnect) {
+    askRemove?.let { m ->
+        val last = machines.size <= 1
         AlertDialog(
-            onDismissRequest = { askDisconnect = false },
-            title = { Text(stringResource(R.string.disconnect)) },
-            text = { Text(stringResource(R.string.disconnect_confirm)) },
+            onDismissRequest = { askRemove = null },
+            title = { Text(stringResource(R.string.machine_remove_title, m.machine.label)) },
+            text = {
+                Text(
+                    if (last) stringResource(R.string.disconnect_confirm)
+                    else stringResource(R.string.machine_remove_confirm, m.machine.label),
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    askDisconnect = false
-                    app.repo.disconnect()
-                }) { Text(stringResource(R.string.disconnect), color = Mesh.Rose) }
+                    askRemove = null
+                    app.repo.removeMachine(m.machine.id)
+                }) { Text(stringResource(R.string.machine_remove), color = Mesh.Rose) }
             },
-            dismissButton = { TextButton(onClick = { askDisconnect = false }) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { askRemove = null }) { Text(stringResource(R.string.cancel)) } },
         )
+    }
+}
+
+/** One paired machine: state, name, where it was reached, and its actions. */
+@Composable
+private fun MachineRow(status: io.mellowmesh.app.data.MachineStatus, onUse: () -> Unit, onRemove: () -> Unit) {
+    val m = status.machine
+    val stateText = when (status.reachable) {
+        true -> stringResource(R.string.machine_answers)
+        false -> status.lastAnswerMs?.let {
+            stringResource(
+                R.string.machine_resting_since,
+                android.text.format.DateUtils.getRelativeTimeSpanString(it).toString(),
+            )
+        } ?: stringResource(R.string.machine_resting)
+        null -> stringResource(R.string.machine_unknown)
+    }
+    androidx.compose.foundation.layout.Row(
+        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        io.mellowmesh.app.ui.components.MachineDot(status.reachable)
+        androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 8.dp))
+        Column(Modifier.weight(1f)) {
+            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(m.label, style = MaterialTheme.typography.titleSmall, color = if (status.reachable == false) Mesh.Ink2 else Mesh.Ink)
+                if (status.active) {
+                    Text(
+                        stringResource(R.string.machine_here),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Mesh.Indigo,
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .background(Mesh.IndigoTint, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Text(
+                stateText + " · " + stringResource(R.string.machine_mellows, status.agents.size),
+                style = MaterialTheme.typography.bodySmall,
+                color = Mesh.Ink2,
+            )
+            Text(m.baseUrl, style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3, maxLines = 1)
+        }
+        if (!status.active) {
+            TextButton(onClick = onUse) { Text(stringResource(R.string.machine_use_short), color = Mesh.Ink) }
+        }
+        TextButton(onClick = onRemove) { Text(stringResource(R.string.machine_remove), color = Mesh.Rose) }
     }
 }
 

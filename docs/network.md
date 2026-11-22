@@ -175,8 +175,9 @@ owner may pair or manage devices.
 
 ## HTTP API
 
-All bodies are JSON. Admin = the owner (or a local token-less caller in open
-mode, as for tokens).
+All bodies are JSON. Admin = the owner's own token. A local caller without
+a token may read and publish in open mode, but is never the owner (`401`;
+`403` for another principal's token).
 
 | Method & path | Who | Body / response |
 | :--- | :--- | :--- |
@@ -269,3 +270,10 @@ MCP clients get one read-only tool, `get_network`, returning
   who can come in and lets the owner switch it.
 * **Teams**: a team is a meeting room with a member row (people as initials,
   helpers as clay blobs with the "AI" tag) and its team room chat.
+* **Settings → Your machines** (Android): a network can be spread over
+  several computers (peered hubs). The phone keeps a key for each machine
+  it was paired with; **Add a machine** pairs another one (same QR or short
+  code) and never replaces the first. One machine is *in use* for the
+  Plaza, boards and to-dos (switch with the *On … ▾* chip); Calls and the
+  offline screen look at every machine, and a message written for a machine
+  that rests leaves when that machine answers again.

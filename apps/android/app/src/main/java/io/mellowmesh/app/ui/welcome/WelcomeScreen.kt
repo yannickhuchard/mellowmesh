@@ -81,6 +81,8 @@ data class PairingState(
     /** Set when the address is plain http over the internet and needs an explicit OK. */
     val confirmPublicHttp: Boolean = false,
     val safety: UrlSafety? = null,
+    /** Set once a machine was paired (used when adding one more). */
+    val paired: Boolean = false,
 )
 
 class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
@@ -169,6 +171,7 @@ class PairingViewModel(private val app: MellowMeshApp) : ViewModel() {
             try {
                 app.repo.pair(url, token, principal, name)
                 app.store.tourDone = true
+                _state.update { it.copy(paired = true) }
                 // The root switches to the Plaza as soon as the config is stored.
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.friendly()) }
@@ -209,6 +212,40 @@ fun WelcomeScreen(pendingLink: String?, onLinkConsumed: () -> Unit) {
 }
 
 /** Mello's three-step tour: a mall of helpers · talk like you text · you stay in charge. */
+/**
+ * Pair one more machine of the same (or another) network. Same three ways
+ * as the first time; it adds the machine and never replaces another one.
+ */
+@Composable
+fun AddMachineScreen(pendingLink: String?, onLinkConsumed: () -> Unit, onDone: () -> Unit) {
+    val vm = meshViewModel(key = "add-machine") { PairingViewModel(it) }
+    val state by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingLink) {
+        if (pendingLink != null) {
+            vm.submitLink(pendingLink)
+            onLinkConsumed()
+        }
+    }
+    LaunchedEffect(state.paired) {
+        if (state.paired) onDone()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Mesh.Paper)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding(),
+    ) {
+        io.mellowmesh.app.ui.components.BackHeader(
+            title = stringResource(R.string.add_machine_title),
+            subtitle = stringResource(R.string.add_machine_subtitle),
+            onBack = onDone,
+        )
+        Box(Modifier.weight(1f)) { ConnectPanel(state.copy(tourDone = true), vm) }
+    }
+}
+
 @Composable
 fun TourPager(onDone: () -> Unit, modifier: Modifier = Modifier) {
     var step by remember { mutableIntStateOf(0) }

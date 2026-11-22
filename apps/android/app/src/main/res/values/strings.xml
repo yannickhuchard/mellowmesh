@@ -287,4 +287,28 @@
     <string name="say_something">Say something…</string>
     <string name="open_conversation">Open conversation</string>
     <string name="message_left">Message kept for %1$s. It leaves when you are back.</string>
+    <!-- One network, many machines -->
+    <string name="machines_title">Your machines</string>
+    <string name="machines_summary">%1$s · %2$d machines. This phone has its own key on each.</string>
+    <string name="add_machine">+ Add a machine</string>
+    <string name="add_machine_hint">Same QR code or short code as the first time. It adds the machine and never replaces another one.</string>
+    <string name="add_machine_title">Add a machine</string>
+    <string name="add_machine_subtitle">Another computer of your network</string>
+    <string name="hub_in_use">Machine in use</string>
+    <string name="machine_here">HERE</string>
+    <string name="machine_answers">Answers</string>
+    <string name="machine_resting">Resting</string>
+    <string name="machine_resting_since">Resting · last answered %1$s</string>
+    <string name="machine_unknown">Not checked yet</string>
+    <string name="machine_mellows">%1$d Mellows</string>
+    <string name="machine_use_short">Use</string>
+    <string name="machine_use">Use %1$s</string>
+    <string name="machine_on">On %1$s ▾</string>
+    <string name="machine_remove">Remove</string>
+    <string name="machine_remove_title">Remove %1$s from this phone?</string>
+    <string name="machine_remove_confirm">This phone forgets %1$s and its key. Your other machines keep working. To come back, pair it again.</string>
+    <string name="machine_resting_other_answers">%1$s is resting. %2$s answers.</string>
+    <string name="machine_other_can_pick_up">Your Mellows on %1$s can pick up now.</string>
+    <string name="call_on_machine">on %1$s</string>
+    <string name="call_away_resting_machine">%1$s is resting. Leave a message: it leaves when that machine answers again.</string>
 </resources>

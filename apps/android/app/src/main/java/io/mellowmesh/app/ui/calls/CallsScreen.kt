@@ -186,26 +186,36 @@ fun CallOrb(agentId: String, state: OrbState, size: Dp, modifier: Modifier = Mod
     }
 }
 
-/** Who can pick up right now: the network answers and the Mellow is not asleep. */
+/**
+ * Who can pick up right now: the machine the Mellow lives on answers, and
+ * the Mellow is not asleep (moods are known for the machine in use).
+ */
 @Composable
-private fun rememberReachability(): (String) -> Boolean {
+private fun rememberReachability(): (io.mellowmesh.app.data.MachineAgent) -> Boolean {
     val app = LocalContext.current.meshApp
-    val reachable by app.repo.reachable.collectAsStateWithLifecycle()
     val home by app.repo.home.collectAsStateWithLifecycle()
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
+    val active = machines.firstOrNull { it.active }?.machine?.id
     val moods = home?.helpers.orEmpty().associate { it.id.lowercase() to it.mood }
-    return { id -> reachable == true && moods[id.lowercase()] != Mood.ASLEEP }
+    return { m ->
+        m.machineReachable == true && (m.machineId != active || moods[m.agent.id.lowercase()] != Mood.ASLEEP)
+    }
 }
 
 /** Calls: a night dial of every Mellow this phone knows, online or not. */
 @Composable
-fun CallsScreen(onBack: () -> Unit, onCall: (String) -> Unit) {
+fun CallsScreen(onBack: () -> Unit, onCall: (machineId: String, agentId: String) -> Unit) {
     val app = LocalContext.current.meshApp
-    val agents by app.repo.agents.collectAsStateWithLifecycle()
-    val reachable by app.repo.reachable.collectAsStateWithLifecycle()
+    val mellows by app.repo.allMellows.collectAsStateWithLifecycle()
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
     val outbox by app.repo.outbox.collectAsStateWithLifecycle()
     val canPickUp = rememberReachability()
     val dir = app.repo.directory
-    val sorted = agents.sortedWith(compareByDescending<io.mellowmesh.core.AgentRegistration> { canPickUp(it.id) }.thenBy { dir.nameOf(it.id).lowercase() })
+    val sorted = mellows.sortedWith(
+        compareByDescending<io.mellowmesh.app.data.MachineAgent> { canPickUp(it) }.thenBy { dir.nameOf(it.agent.id).lowercase() },
+    )
+    val manyMachines = machines.size > 1
+    val noneAnswers = machines.isNotEmpty() && machines.all { it.reachable == false }
 
     Column(
         Modifier
@@ -222,7 +232,7 @@ fun CallsScreen(onBack: () -> Unit, onCall: (String) -> Unit) {
             Text(stringResource(R.string.calls_title), color = Night.Ink, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(4.dp))
             Text(stringResource(R.string.calls_intro), color = Night.Ink2, style = MaterialTheme.typography.bodyMedium)
-            if (reachable == false) {
+            if (noneAnswers) {
                 Spacer(Modifier.height(12.dp))
                 Text(
                     stringResource(R.string.calls_resting),
@@ -251,21 +261,29 @@ fun CallsScreen(onBack: () -> Unit, onCall: (String) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(sorted, key = { it.id }) { a ->
-                val free = canPickUp(a.id)
+            items(sorted, key = { it.machineId + "/" + it.agent.id }) { m ->
+                val free = canPickUp(m)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clip(RoundedCornerShape(24.dp)).clickable { onCall(a.id) }.padding(8.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(24.dp)).clickable { onCall(m.machineId, m.agent.id) }.padding(8.dp),
                 ) {
-                    CallOrb(a.id, if (free) OrbState.FREE else OrbState.AWAY, 116.dp)
+                    CallOrb(m.agent.id, if (free) OrbState.FREE else OrbState.AWAY, 116.dp)
                     Spacer(Modifier.height(6.dp))
-                    Text(dir.nameOf(a.id), color = if (free) Night.Ink else Night.Ink2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(dir.nameOf(m.agent.id), color = if (free) Night.Ink else Night.Ink2, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(
                         stringResource(if (free) R.string.call_free else R.string.call_away),
                         color = if (free) Night.Free else Night.Ink3,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    if (manyMachines) {
+                        Text(
+                            stringResource(R.string.call_on_machine, m.machineLabel),
+                            color = Night.Ink3,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
@@ -276,13 +294,22 @@ private enum class CallPhase { CALLING, CONNECTED, AWAY }
 
 /** One call: it rings, then a Mellow picks up — or is away and takes a message. */
 @Composable
-fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Unit) {
+fun CallScreen(machineId: String, agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Unit) {
     val app = LocalContext.current.meshApp
     val scope = rememberCoroutineScope()
     val canPickUp = rememberReachability()
     val name = app.repo.directory.nameOf(agentId)
     val conversationId = Conversations.agentConversationId(agentId)
-    val reachable by app.repo.reachable.collectAsStateWithLifecycle()
+    val machines by app.repo.machines.collectAsStateWithLifecycle()
+    val machine = machines.firstOrNull { it.machine.id == machineId }
+    val mellows by app.repo.allMellows.collectAsStateWithLifecycle()
+    val here = mellows.firstOrNull { it.machineId == machineId && it.agent.id.equals(agentId, ignoreCase = true) }
+        ?: io.mellowmesh.app.data.MachineAgent(
+            machineId,
+            machine?.machine?.label.orEmpty(),
+            io.mellowmesh.core.AgentRegistration(id = agentId, name = name),
+            machine?.reachable,
+        )
     var phase by remember { mutableStateOf(CallPhase.CALLING) }
     var input by remember { mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
@@ -292,7 +319,7 @@ fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Un
 
     LaunchedEffect(agentId) {
         if (!still) delay(1600)
-        phase = if (canPickUp(agentId) && conversationId != null) CallPhase.CONNECTED else CallPhase.AWAY
+        phase = if (canPickUp(here) && conversationId != null) CallPhase.CONNECTED else CallPhase.AWAY
         if (phase == CallPhase.CONNECTED && !still) {
             burst.snapTo(0f)
             burst.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
@@ -301,7 +328,7 @@ fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Un
     // The Mellow's words arrive live while the call is open.
     LaunchedEffect(conversationId) {
         val ref = conversationId?.let { Conversations.parseId(it) } ?: return@LaunchedEffect
-        app.repo.live.collect { msg ->
+        app.repo.liveFrom(machineId, Conversations.historyPattern(ref)).collect { msg ->
             if (Conversations.isChatTopic(ref, msg.topic) && !msg.from.equals(app.repo.me, ignoreCase = true)) {
                 lines.add(false to msg.body)
                 if (phase == CallPhase.AWAY) phase = CallPhase.CONNECTED
@@ -321,7 +348,7 @@ fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Un
     }
     val reason = when {
         phase != CallPhase.AWAY -> null
-        reachable == false -> stringResource(R.string.call_away_resting)
+        machine?.reachable == false -> stringResource(R.string.call_away_resting_machine, machine.machine.label)
         else -> stringResource(R.string.call_away_asleep)
     }
 
@@ -406,7 +433,7 @@ fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Un
                             lines.add(true to text)
                             scope.launch {
                                 note = try {
-                                    if (app.repo.sendOrQueue(conversationId, text) != null) null
+                                    if (app.repo.sendOrQueue(conversationId, text, machineId) != null) null
                                     else app.getString(R.string.message_left, name)
                                 } catch (e: Exception) {
                                     e.friendly()
@@ -432,9 +459,9 @@ fun CallScreen(agentId: String, onHangUp: () -> Unit, onOpenChat: (String) -> Un
 
 /** The quick-access strip on the Plaza: a row of Mellows to call. */
 @Composable
-fun CallStrip(onOpenCalls: () -> Unit, onCall: (String) -> Unit, modifier: Modifier = Modifier) {
+fun CallStrip(onOpenCalls: () -> Unit, onCall: (machineId: String, agentId: String) -> Unit, modifier: Modifier = Modifier) {
     val app = LocalContext.current.meshApp
-    val agents by app.repo.agents.collectAsStateWithLifecycle()
+    val agents by app.repo.allMellows.collectAsStateWithLifecycle()
     val canPickUp = rememberReachability()
     val dir = app.repo.directory
     Column(
@@ -454,14 +481,14 @@ fun CallStrip(onOpenCalls: () -> Unit, onCall: (String) -> Unit, modifier: Modif
             Text(stringResource(R.string.calls_empty), color = Night.Ink2, style = MaterialTheme.typography.bodySmall)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            for (a in agents.sortedByDescending { canPickUp(it.id) }.take(4)) {
-                val free = canPickUp(a.id)
+            for (m in agents.sortedByDescending { canPickUp(it) }.take(4)) {
+                val free = canPickUp(m)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(68.dp).clip(RoundedCornerShape(16.dp)).clickable { onCall(a.id) },
+                    modifier = Modifier.width(68.dp).clip(RoundedCornerShape(16.dp)).clickable { onCall(m.machineId, m.agent.id) },
                 ) {
-                    CallOrb(a.id, if (free) OrbState.FREE else OrbState.AWAY, 60.dp)
-                    Text(dir.nameOf(a.id), color = Night.Ink, fontSize = 12.sp, maxLines = 1, fontWeight = FontWeight.SemiBold)
+                    CallOrb(m.agent.id, if (free) OrbState.FREE else OrbState.AWAY, 60.dp)
+                    Text(dir.nameOf(m.agent.id), color = Night.Ink, fontSize = 12.sp, maxLines = 1, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
