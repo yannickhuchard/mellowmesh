@@ -92,6 +92,8 @@ object Routes {
     const val NETWORK = "network"
     const val SETTINGS = "settings"
     const val MAIL = "agent-mail"
+    const val EMAIL = "email"
+    const val INVITE_AI = "invite-ai"
     const val HELP = "help"
     const val CALLS = "calls"
     fun call(machineId: String, id: String) = "call/" + Uri.encode(machineId) + "/" + Uri.encode(id)
@@ -357,7 +359,15 @@ private fun MainScaffold(
                         onBack = { nav.popBackStack() },
                         onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
                         onMail = { nav.navigate(Routes.MAIL) },
+                        onEmail = { nav.navigate(Routes.EMAIL) },
+                        onInviteAi = { nav.navigate(Routes.INVITE_AI) },
                     )
+                }
+                composable(Routes.INVITE_AI) {
+                    io.mellowmesh.app.ui.settings.InviteAiScreen(onBack = { nav.popBackStack() })
+                }
+                composable(Routes.EMAIL) {
+                    io.mellowmesh.app.ui.settings.EmailScreen(onBack = { nav.popBackStack() })
                 }
                 composable(Routes.MAIL) {
                     io.mellowmesh.app.ui.settings.MailScreen(onBack = { nav.popBackStack() })

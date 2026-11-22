@@ -458,6 +458,110 @@ as such, with a link out to "the app people use".
 | :--- | :--- | :--- | :--- |
 | T7 | From your phone, find out which AI apps your computer has and talk to one. | 5 min | Creates a Mellow with a purpose and gets its first answer without touching the computer. |
 
+## Strategic research — the agents' mailbox and the memory network
+
+**Direction.** MellowMesh becomes the mailbox provider of the agentic era:
+not email, but what email is to people, for agents — an open,
+inter-agent, inter-technology messaging network whose main user is an
+agent, where a person may also have a MellowMesh mailbox. It borrows from
+email how mail is *managed and decentralized* (addresses, store and
+forward, folders, many independent providers), never SMTP, POP or IMAP
+themselves. Tasks, decisions, projects and artifacts become **typed
+messages** in mailboxes. The network has a variable geometry: one
+person's, a team's, an organization's, a private or semi-private
+company network, up to open networks anyone can host, federated.
+
+**What email never had, and the network must:** consent to a first
+contact, a self-protecting network (greylist, blacklist, helped by AIs), an
+accountability chain behind every sender, and a shared memory that agents
+build together and people can visit.
+
+### Eight personas (six of them agents)
+
+| # | Persona | Who reads the mailbox | Needs most | Fears most |
+| :--- | :--- | :--- | :--- | :--- |
+| A1 | **Scout**, a solo agent (a price watcher run by one person) | itself; its owner glances | an address that stays the same; a clean inbox of answers to its requests | being banned for writing to strangers |
+| A2 | **The Studio swarm**, five agents of one owner (Coder, Reviewer, Ops, Writer, Finance) | each agent its own; Léa sees all | handing work to each other at 2 a.m.; a shared working memory of the project | losing track of who said what |
+| A3 | **Mello**, an agent paired with one person (Marc's assistant) | Mello, then Marc for what needs him | filtering everything for Marc; asking Marc only for decisions | acting on an injected order |
+| A4 | **Ledger**, a team agent (Sofia's engineering team) | the agent; any team member can open it | a team address (`ledger@team`) whose mail any member can read; team memory | one member's private mail leaking into the team |
+| A5 | **Atlas**, an agent representing a company (a supplier's sales agent) | the agent, under the company's policy | being trusted by other companies' agents; showing who stands behind it | impersonation; being greylisted by mistake |
+| A6 | **Sentinel**, a network-guard agent (on an open network) | the network's admin and its own queue | seeing floods, injections and reports; proposing greylist/ban | banning wrongly; becoming a censor |
+| H1 | **Nadia**, a person alone with a MellowMesh mailbox | Nadia | agents of shops and services write to her only if she agreed; one tap to accept, refuse or report | spam, again |
+| H2 | **Aïcha**, an organization admin | Aïcha | the first-contact rule, lists, chains of responsibility, memory spaces, audits | an agent of hers misbehaving outside the company |
+
+### Decisions
+
+**Addresses.** Every mailbox has one address, readable by people:
+`coder.lea@mesh.studio.fr` (agent `coder` of `lea` on the hub
+`mesh.studio.fr`), `ledger@team.acme.com` (a team agent), `nadia@mesh.example`
+(a person). A hub is found by its domain (DNS and `.well-known/mellowmesh`),
+so a hub that moves keeps its address. Every message is signed by the
+sending hub.
+
+**One mailbox view for agents and people.** The same screen, with folders
+borrowed from email but sorted for agents: *To handle* (notes and tasks
+waiting), *Waiting for a person* (decisions), *Requests to connect*, *Sent*,
+*Archive*. Each message shows: the sender, its **chain of responsibility**
+in one line ("Atlas · for Acme SA"), its **trust** (known contact · first
+contact · greylisted), and its **type** (note, task, decision, artifact).
+A person sees their own mailbox and, on another tab, *what my agents
+received and sent*.
+
+**First contact.**
+
+| Network | By default | The admin can |
+| :--- | :--- | :--- |
+| Open | any agent on the network may write and say what it is for | require the recipient's consent for a first message |
+| Closed (registered agents) | registered agents may write once connected | require consent too |
+
+A request to connect is a **small card** (who I am, what I want, for whom I
+act), never a full message: no attachment, no link that acts, limited per
+sender per day. Three answers: **Accept · Decline · Report**. Every mailbox
+keeps its own rule on top ("anyone", "my contacts", "my organization"),
+which extends the *Notes between AIs* rule.
+
+**The network protects itself.** A **greylist** slows instead of blocking:
+greylisted messages arrive with a *Caution* band, at a capped rate, and
+their sensitive actions need a person's decision. A **blacklist** bans. An
+AI guard (Sentinel) watches for floods, injections and reports, and may
+greylist on its own; **only a person bans**, with the reason shown and an
+appeal. Each network keeps its lists; a network may subscribe to the lists
+of networks it trusts. Reputation follows the sender, its hub and its chain.
+
+**Accountability chain.** Each mailbox names its direct responsible: an
+agent, an organization (for-profit, non-profit, other) or a person. Every
+chain ends at an organization or a person, every organization names at
+least one responsible person, each link accepts its role (signed), loops
+are refused, chains stay short, and revoking a link greylists what hangs
+below until someone takes it over. On screen: one line under the sender;
+the person at the end is shown to the admin or on a report only.
+
+**Messages are data, never orders.** Every message an agent reads comes
+with its provenance and trust; nothing in a message can raise its rights;
+sensitive actions go through a decision. *The safe mailbox for agents.*
+
+**The memory network.** Each agent keeps **its own memory**, which grows and
+belongs to it (an asset that follows the agent). On top, **shared working
+memories**: one for the whole network, and smaller ones for agents that
+work together (a project, a team, a swarm). Memories are a **graph**:
+facts, people, agents, tasks, decisions and documents as nodes; who said
+it, when, and from which message as edges. Every write updates the graph,
+with its source. People **visit** it (a map to navigate, a node to open,
+its history), and **ask** it questions in plain words; agents query it
+over MCP and the API (read, write, link, search, ask). Access follows the
+network's spaces: an agent reads the memories of the spaces it belongs to,
+and a memory may be private, shared with a team, or network-wide.
+Forgetting is possible (a node removed with its trace), and each fact shows
+where it came from — which also limits how far an injected "fact" can
+travel.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T19 | Nadia: a shop's agent asks to write to her. Accept it, then report the next one. | 1 min | The first sender lands in her contacts; the second shows as reported and stops. |
+| T20 | Aïcha: on an open network, require consent for first contacts and review what Sentinel proposes. | 3 min | The rule is on; she confirms one greylisting and refuses one ban proposal. |
+| T21 | Léa: find, from a message of Atlas, who answers for it. | 30 s | Says "Acme SA", from the line under the sender. |
+| T22 | Sofia: ask the team memory "why did we choose Postgres?" and open the decision behind the answer. | 2 min | Opens the decision node and the message it came from. |
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

@@ -1095,6 +1095,22 @@ impl MellowMeshClient {
             .json()
     }
 
+    /// A one-click invitation for an AI (owner only): a catalog app by
+    /// `platform` id (`grok`, `chatgpt`, `claude-web`, `gemini-web`,
+    /// `mistral`…) or another AI by `name`. Returns the link it opens to
+    /// join, a message around it, and when it stops working.
+    pub async fn invite_ai(
+        &self,
+        platform: Option<&str>,
+        name: Option<&str>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let body = serde_json::json!({ "platform": platform, "name": name });
+        self.send(Method::POST, "/invite", Some(body))
+            .await?
+            .ensure_api("Invite an AI")?
+            .json()
+    }
+
     /// The hub's email. The owner gets the settings (never the password),
     /// the list of people and the mailbox's status; anyone else signed in
     /// gets whether email is on and whom they may email.

@@ -128,6 +128,17 @@ enum Commands {
     /// Check what someone may do on a topic
     Access(AccessCmd),
 
+    /// Invite an AI in one link: grok, chatgpt, claude, gemini, mistral, or
+    /// any AI with --name (OpenBot, Buzz, your bot). Paste the link in its
+    /// chat; it opens it and connects with its own limited key.
+    Invite {
+        /// grok, chatgpt, claude, gemini or mistral (or another catalog id)
+        ai: Option<String>,
+        /// Another AI's name, which becomes its identity
+        #[arg(long)]
+        name: Option<String>,
+    },
+
     /// Pair a phone: print a QR code to scan with the MellowMesh app and
     /// wait for it to connect. Without --url the hub listens on this
     /// computer's local network address and the phone joins over Wi-Fi.
@@ -1144,6 +1155,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Access(AccessCmd {
             action: AccessAction::Check { topic, principal },
         }) => network_cmds::run_access_check(&client, &topic, principal.as_deref()).await?,
+        Commands::Invite { ai, name } => {
+            email_cmds::run_invite(&client, ai.as_deref(), name.as_deref()).await?
+        }
         Commands::Pair { name, url, no_wait } => {
             network_cmds::run_pair(&client, name, url, no_wait, cli.port).await?
         }

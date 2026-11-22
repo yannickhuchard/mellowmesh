@@ -147,11 +147,13 @@ fn is_helper_id(state: &AppState, id: &str) -> bool {
 }
 
 /// The name of an invited AI (a catalog platform's own principal).
-fn invited_ai_name(state: &AppState, principal: &str) -> Option<&'static str> {
+fn invited_ai_name(state: &AppState, principal: &str) -> Option<String> {
     crate::platforms::CATALOG
         .iter()
         .find(|spec| crate::mellows::platform_agent_id(&state.owner, spec.id) == principal)
-        .map(|spec| spec.name)
+        .map(|spec| spec.name.to_string())
+        // An AI invited by name (OpenBot, Buzz…) is an invited AI too.
+        .or_else(|| crate::invite::guest_name(state, principal))
 }
 
 /// Whether `principal` is an invited AI (a connected app's own key).

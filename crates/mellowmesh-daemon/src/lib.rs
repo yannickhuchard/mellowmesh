@@ -5,6 +5,7 @@ pub mod connect;
 pub mod email;
 pub mod guard;
 pub mod handlers;
+pub mod invite;
 pub mod mail_policy;
 pub mod mellows;
 pub mod metrics;

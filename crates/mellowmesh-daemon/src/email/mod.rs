@@ -901,6 +901,9 @@ async fn in_thread(
             deliver_note(state, s, person, mail, &agent_id, &inbox, &text).await
         }
         ThreadKind::Topic { topic } => {
+            if !person_may_write(state, person, &topic) {
+                return answer(state, s, mail, person, NOT_ALLOWED.into(), ThreadKind::Info).await;
+            }
             let msg = Message {
                 id: String::new(),
                 topic: topic.clone(),
@@ -1029,6 +1032,40 @@ async fn run(
     }
 }
 
+/// Whether `person` may write on `topic` by their own access: the owner
+/// may; anyone else, only where one of their live keys (and the network's
+/// spaces) would let them over HTTP. Email never gives more than that.
+fn person_may_write(state: &AppState, person: &str, topic: &str) -> bool {
+    if person == state.owner {
+        return true;
+    }
+    use mellowmesh_core::network::WriteAccess;
+    state
+        .store
+        .list_tokens()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| t.principal == person && !t.revoked)
+        .any(|t| {
+            let ctx = AuthContext {
+                principal: Some(AuthPrincipal {
+                    id: t.principal,
+                    token_id: t.id,
+                    kind: "human".to_string(),
+                    read_scopes: t.read_scopes,
+                    write_scopes: t.write_scopes,
+                    token_hash: t.token_hash,
+                }),
+                remote: true,
+                trusted_local: false,
+            };
+            ctx.access(state, topic).write == WriteAccess::Allowed
+        })
+}
+
+const NOT_ALLOWED: &str =
+    "Your access on this hub does not let you write there, so nothing was done. Ask the hub's owner.";
+
 async fn deliver_note(
     state: &AppState,
     s: &Settings,
@@ -1038,6 +1075,9 @@ async fn deliver_note(
     inbox: &str,
     text: &str,
 ) {
+    if !person_may_write(state, person, inbox) {
+        return answer(state, s, mail, person, NOT_ALLOWED.into(), ThreadKind::Info).await;
+    }
     let note_id = format!("msg_{}", ulid::Ulid::new().to_string().to_lowercase());
     let body = format!(
         "{text}\n\n(Sent by email. Publish your answer with parent_id \"{note_id}\" and it is emailed back.)"
@@ -1168,8 +1208,12 @@ async fn add_task(
     details: &str,
 ) -> Result<String, String> {
     let title: String = title.chars().take(MAX_SUBJECT).collect();
+    let task_id = format!("task_{}", ulid::Ulid::new().to_string().to_lowercase());
+    if !person_may_write(state, person, &format!("_task.{task_id}.created")) {
+        return Err(NOT_ALLOWED.into());
+    }
     let task: mellowmesh_core::task::Task = serde_json::from_value(serde_json::json!({
-        "id": format!("task_{}", ulid::Ulid::new().to_string().to_lowercase()),
+        "id": task_id,
         "title": title,
         "description": if details.trim().is_empty() { None } else { Some(details.trim()) },
         "created_by": person,

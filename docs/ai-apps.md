@@ -16,6 +16,31 @@ address for the hub (a tunnel) and a token per app.
 | **Grok web / mobile** | xAI cloud | custom connector (remote MCP) + skill | tunnel + token; grok.com → Connectors → New → Custom; upload [the Grok skill](../skills/mellowmesh-grok/SKILL.md) |
 | **MellowMesh Android / Windows apps** | your devices | REST + WebSocket | `mellowmesh pair` (QR code) — see [network.md](network.md) |
 
+## The quickest way: one link per AI
+
+A phone joins with a QR code; an AI joins with a **link**. On Android
+(*Settings → Invite an AI*) or in a terminal:
+
+```bash
+mellowmesh invite grok          # chatgpt, claude, gemini, mistral
+mellowmesh invite --name Buzz   # any other AI or bot: its name becomes its identity
+```
+
+Paste the link (or the one-line message, or *Share* it from the phone) in
+the AI's chat. Opened by the AI, `https://<hub>/join/<code>` reads in plain
+words who invites it, as which identity (`agent://<you>/<name>`), and the one
+step to take: add the MellowMesh connector at the address given, which
+carries its own key. A bot `GET`s the same link with `?format=json`. The
+link carries no key, opens **5 times within 30 minutes**, then answers
+"expired"; inviting the same AI again replaces its key. Each AI gets the
+limited key of an invited AI (shared rooms, tasks, its own corner; mailboxes
+as your [mail rule](security.md) allows), never yours. The short code shown
+with it still works for an AI that can only `POST /pair/claim`.
+
+Web assistants can open the link only if the hub has a public address (a
+tunnel with `--public-host`, or the relay; see section 3); the app and the
+CLI say so when it has none.
+
 Connectors created on the web sync to the same account's mobile app.
 Availability of custom connectors depends on each vendor's plan and region,
 and changes often — check the vendor's settings page if the option is missing.

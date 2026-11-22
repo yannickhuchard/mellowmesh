@@ -115,12 +115,14 @@ pub struct AuthContext {
 /// proven by decryption + the inner Authorization header), not the outer
 /// header, so the middleware lets it through to its own handler.
 fn is_open_path(path: &str) -> bool {
-    matches!(
-        path,
-        // `/pair/claim` authenticates by possession of a single-use,
-        // short-lived claim code, checked by its own handler.
-        "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request" | "/pair/claim"
-    )
+    // `/join/<code>`: a one-click invitation, proven by its long random code.
+    path.starts_with("/join/")
+        || matches!(
+            path,
+            // `/pair/claim` authenticates by possession of a single-use,
+            // short-lived claim code, checked by its own handler.
+            "/health" | "/" | "/ui" | "/favicon.ico" | "/e2e/request" | "/pair/claim"
+        )
 }
 
 /// Endpoints a token-less visitor (a remote caller, or any caller under

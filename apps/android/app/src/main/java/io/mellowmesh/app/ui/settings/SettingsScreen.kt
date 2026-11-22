@@ -60,7 +60,7 @@ private fun moodFor(level: Level): Mood = when (level) {
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> Unit, onEmail: () -> Unit, onInviteAi: () -> Unit) {
     val app = LocalContext.current.meshApp
     val config by app.repo.config.collectAsStateWithLifecycle()
     val whoami by app.repo.whoami.collectAsStateWithLifecycle()
@@ -184,6 +184,28 @@ fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> U
                 modifier = Modifier.padding(top = 6.dp),
             )
 
+            SectionTitle(stringResource(R.string.invite_title))
+            MeshCard(Modifier.fillMaxWidth(), contentPadding = 4.dp) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable(onClick = onInviteAi)
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.invite_row_title), style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                        Text(
+                            stringResource(if (whoami?.isOwner == false) R.string.mail_settings_owner_only else R.string.invite_row),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Mesh.Ink2,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleLarge, color = Mesh.Ink3)
+                }
+            }
+
             SectionTitle(stringResource(R.string.mail_title))
             MeshCard(Modifier.fillMaxWidth(), contentPadding = 4.dp) {
                 Row(
@@ -198,6 +220,28 @@ fun SettingsScreen(onBack: () -> Unit, onAddMachine: () -> Unit, onMail: () -> U
                         Text(stringResource(R.string.mail_question), style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
                         Text(
                             stringResource(if (whoami?.isOwner == false) R.string.mail_settings_owner_only else R.string.mail_settings_row),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Mesh.Ink2,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleLarge, color = Mesh.Ink3)
+                }
+            }
+
+            SectionTitle(stringResource(R.string.email_title))
+            MeshCard(Modifier.fillMaxWidth(), contentPadding = 4.dp) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable(onClick = onEmail)
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.email_settings_title), style = MaterialTheme.typography.titleSmall, color = Mesh.Ink)
+                        Text(
+                            stringResource(if (whoami?.isOwner == false) R.string.mail_settings_owner_only else R.string.email_settings_row),
                             style = MaterialTheme.typography.bodySmall,
                             color = Mesh.Ink2,
                         )

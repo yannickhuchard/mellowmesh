@@ -606,6 +606,17 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     suspend fun agentMail(): io.mellowmesh.core.MailPolicyView = io { it.agentMail() }
 
+    suspend fun email(): io.mellowmesh.core.EmailView = io { it.email() }
+
+    suspend fun inviteAi(request: io.mellowmesh.core.InviteRequest): io.mellowmesh.core.InviteLink = io { it.inviteAi(request) }
+
+    suspend fun setEmail(patch: io.mellowmesh.core.EmailPatch): io.mellowmesh.core.EmailView = io { it.setEmail(patch) }
+
+    suspend fun checkEmail(): io.mellowmesh.core.EmailCheck = io { it.checkEmail() }
+
+    suspend fun setEmailPerson(change: io.mellowmesh.core.EmailPersonChange): io.mellowmesh.core.EmailView =
+        io { it.setEmailPerson(change) }
+
     suspend fun setAgentMail(change: io.mellowmesh.core.MailChange): io.mellowmesh.core.MailPolicyView =
         io { it.setAgentMail(change) }
 

@@ -146,6 +146,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/platforms/:id/mellows", post(create_mellow_handler))
         .route("/platforms/:id/connect", post(connect_platform_handler))
         .route("/platforms/:id/invite", post(invite_platform_handler))
+        .route("/invite", post(crate::invite::post_invite))
+        .route("/join/:code", get(crate::invite::get_join))
         .route("/mellows", get(list_mellows_handler))
         .route("/mellows/next", get(mellow_next_handler))
         .route("/mellows/reply", post(mellow_reply_handler))
@@ -374,7 +376,7 @@ async fn connect_platform_handler(
 
 /// Where a web assistant reaches this hub: the relay hub URL, else a public
 /// (tunnel) host, else the LAN listener, else loopback.
-fn invite_base_url(state: &AppState) -> String {
+pub(crate) fn invite_base_url(state: &AppState) -> String {
     if let (Ok(relay), Ok(Some(hub))) = (
         std::env::var("MELLOWMESH_RELAY_URL"),
         state.store.get_config("relay_hub_id"),
@@ -420,47 +422,20 @@ async fn invite_platform_handler(
         )
             .into_response();
     };
-    let store = state.store.clone();
-    let owner = state.owner.clone();
-    let issued = tokio::task::spawn_blocking(move || {
-        crate::connect::issue_platform_token(&store, &owner, spec)
-    })
+    // One invitation for every way in: the one-click link, and the short
+    // code for an AI that can only POST it.
+    let principal = crate::mellows::platform_agent_id(&state.owner, spec.id);
+    match crate::invite::create(
+        &state,
+        principal,
+        spec.name.to_string(),
+        spec.id.to_string(),
+    )
     .await
-    .map_err(|e| e.to_string())
-    .and_then(|r| r);
-    state.caches.clear_tokens();
-    let (principal, token) = match issued {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                axum::response::Json(
-                    serde_json::json!({ "error": format!("No invitation could be made: {e}") }),
-                ),
-            )
-                .into_response()
-        }
-    };
-    let url = invite_base_url(&state);
-    let network = state
-        .store
-        .get_network()
-        .map(|n| n.name)
-        .unwrap_or_default();
-    let link = mellowmesh_core::pairing::pairing_link(&url, &token, &network, &principal);
-    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
-    let code = state
-        .access
-        .pairing
-        .register_claim_code(&link, expires_at, None);
-    axum::response::Json(serde_json::json!({
-        "code": code,
-        "url": url,
-        "network": network,
-        "principal": principal,
-        "expires_at": expires_at,
-    }))
-    .into_response()
+    {
+        Ok(inv) => axum::response::Json(inv).into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 /// `GET /mellows`: the Mellows bound to platforms on this machine.

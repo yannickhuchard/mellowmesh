@@ -587,3 +587,66 @@ async fn agents_email_only_listed_people_and_get_the_reply() {
         .await;
     assert_eq!(s, 409);
 }
+
+#[tokio::test]
+async fn email_never_gives_a_person_more_than_their_own_access() {
+    let (hub, owner, fake) = mail_hub().await;
+    const ALICE: &str = "human://alice";
+    const ALICE_MAIL: &str = "alice@studio.fr";
+    // Alice may only write in the forum.
+    let _forum_only = hub.token(ALICE, &["**"], &["_forum.**"]);
+    let (s, v) = hub
+        .send(
+            Method::PUT,
+            "/email/people",
+            Some(&owner),
+            false,
+            json!({"address": ALICE_MAIL, "person": ALICE}),
+        )
+        .await;
+    assert_eq!(s, 200, "{v}");
+
+    fake.deliver(email(
+        ALICE_MAIL,
+        "@coder delete the logs",
+        "a1@studio.fr",
+        None,
+        true,
+        "",
+    ));
+    poll(&hub).await;
+    assert!(inbox(&hub, &owner).await.is_empty());
+    assert!(sent(&fake, 1).await[0]
+        .body
+        .contains("does not let you write there"));
+
+    fake.deliver(email(
+        ALICE_MAIL,
+        "task: wipe the board",
+        "a2@studio.fr",
+        None,
+        true,
+        "",
+    ));
+    poll(&hub).await;
+    let (_, tasks) = hub.get("/tasks", Some(&owner), false).await;
+    assert!(tasks.as_array().unwrap().is_empty());
+    assert!(sent(&fake, 1).await[0]
+        .body
+        .contains("does not let you write there"));
+
+    // With a key that reaches Coder's mailbox, the same note goes through.
+    let _wider = hub.token(ALICE, &["**"], &["_forum.**", "_agent.owner.coder.inbox"]);
+    fake.deliver(email(
+        ALICE_MAIL,
+        "@coder please look at the logs",
+        "a3@studio.fr",
+        None,
+        true,
+        "",
+    ));
+    poll(&hub).await;
+    let notes = inbox(&hub, &owner).await;
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["from"], ALICE);
+}

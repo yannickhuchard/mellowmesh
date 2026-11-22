@@ -472,3 +472,131 @@ data class MailChange(
     @SerialName("for") val forAi: String? = null,
     val rule: MailRule? = null,
 )
+
+
+// ---- the hub's own mailbox (email) ------------------------------------------
+
+/** A mail server: host, port, and `tls`, `starttls` or `none`. */
+@Serializable
+data class EmailServer(val host: String = "", val port: Int = 0, val security: String = "tls")
+
+/** The hub's mailbox and what it does with it (never the password). */
+@Serializable
+data class EmailSettings(
+    val enabled: Boolean = false,
+    val address: String = "",
+    val username: String = "",
+    val imap: EmailServer = EmailServer(),
+    val smtp: EmailServer = EmailServer(),
+    val folder: String = "INBOX",
+    @SerialName("poll_seconds") val pollSeconds: Int = 30,
+    @SerialName("notify_decisions") val notifyDecisions: Boolean = true,
+    @SerialName("notify_mentions") val notifyMentions: Boolean = false,
+    @SerialName("trust_provider") val trustProvider: Boolean = true,
+)
+
+/** An address allowed to give commands by email, and whose it is. */
+@Serializable
+data class EmailPerson(val address: String, val person: String = "")
+
+@Serializable
+data class EmailStatus(
+    @SerialName("last_check") val lastCheck: String? = null,
+    @SerialName("last_error") val lastError: String? = null,
+    val received: Long = 0,
+    val ignored: Long = 0,
+    val sent: Long = 0,
+)
+
+/** `GET /email` as the owner sees it. */
+@Serializable
+data class EmailView(
+    val settings: EmailSettings = EmailSettings(),
+    @SerialName("password_set") val passwordSet: Boolean = false,
+    @SerialName("password_from_env") val passwordFromEnv: Boolean = false,
+    val people: List<EmailPerson> = emptyList(),
+    val status: EmailStatus = EmailStatus(),
+) {
+    /** The hub has an address and an app password. */
+    val configured: Boolean get() = settings.address.isNotBlank() && passwordSet
+}
+
+/** `PUT /email`: only the fields to change (nulls are left out). */
+@Serializable
+data class EmailPatch(
+    val enabled: Boolean? = null,
+    val address: String? = null,
+    val username: String? = null,
+    val imap: EmailServer? = null,
+    val smtp: EmailServer? = null,
+    @SerialName("poll_seconds") val pollSeconds: Int? = null,
+    @SerialName("notify_decisions") val notifyDecisions: Boolean? = null,
+    @SerialName("notify_mentions") val notifyMentions: Boolean? = null,
+    @SerialName("trust_provider") val trustProvider: Boolean? = null,
+    val password: String? = null,
+    @SerialName("forget_password") val forgetPassword: Boolean? = null,
+    @SerialName("owner_address") val ownerAddress: String? = null,
+)
+
+/** `PUT /email/people`: allow an address ([person] null = the owner), or remove it. */
+@Serializable
+data class EmailPersonChange(val address: String, val person: String? = null, val remove: Boolean = false)
+
+@Serializable
+data class EmailStep(val ok: Boolean = false, val detail: String = "")
+
+/** `POST /email/check`: the inbox opens; a test email was sent. */
+@Serializable
+data class EmailCheck(val inbox: EmailStep = EmailStep(), val send: EmailStep = EmailStep())
+
+/** A plausible single email address (the hub checks it again). */
+fun looksLikeEmail(address: String): Boolean {
+    val a = address.trim()
+    val at = a.indexOf('@')
+    if (at <= 0 || at != a.lastIndexOf('@') || a.any { it.isWhitespace() || it in "<>,;\"()[]\\" }) return false
+    val domain = a.substring(at + 1)
+    return domain.contains('.') && !domain.startsWith('.') && !domain.endsWith('.')
+}
+
+
+// ---- inviting an AI in one link ----------------------------------------------
+
+/** `POST /invite`: a known AI app ([platform]) or another AI by [name]. */
+@Serializable
+data class InviteRequest(val platform: String? = null, val name: String? = null)
+
+/** A one-click invitation: the link an AI opens to join, and a message around it. */
+@Serializable
+data class InviteLink(
+    @SerialName("join_url") val joinUrl: String = "",
+    val message: String = "",
+    /** The short code, for an AI that can only POST `/pair/claim`. */
+    val code: String = "",
+    val principal: String = "",
+    val name: String = "",
+    val network: String = "",
+    @SerialName("expires_at") val expiresAt: String = "",
+    /** How many times the link opens before it stops. */
+    val opens: Int = 0,
+    /** False when the hub has no public address: web assistants cannot open it. */
+    @SerialName("reachable_from_web") val reachableFromWeb: Boolean = true,
+)
+
+/** The AIs offered as one-tap invitations (catalog ids on the hub). */
+object InviteCatalog {
+    data class Entry(val platform: String, val name: String)
+
+    val web: List<Entry> = listOf(
+        Entry("grok", "Grok"),
+        Entry("chatgpt", "ChatGPT"),
+        Entry("claude-web", "Claude"),
+        Entry("gemini-web", "Gemini"),
+        Entry("mistral", "Mistral"),
+    )
+
+    /** A name the hub can turn into an identity: letters or digits, 1–40 characters. */
+    fun validName(name: String): Boolean {
+        val n = name.trim()
+        return n.length in 1..40 && n.any { it.isLetterOrDigit() } && n.none { it.isISOControl() }
+    }
+}

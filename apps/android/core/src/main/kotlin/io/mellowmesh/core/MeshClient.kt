@@ -297,6 +297,24 @@ class MeshClient(
     fun setAgentMail(change: MailChange): MailPolicyView =
         decode(MailPolicyView.serializer(), send("PUT", "agent-mail", encode(MailChange.serializer(), change)))
 
+    /** A one-click invitation for an AI: the link it opens to join (owner only). */
+    fun inviteAi(request: InviteRequest): InviteLink =
+        decode(InviteLink.serializer(), send("POST", "invite", encode(InviteRequest.serializer(), request)))
+
+    /** The hub's own mailbox (owner: settings, people, status). */
+    fun email(): EmailView = get("email", EmailView.serializer())
+
+    /** Change the hub's email (owner only); returns the new view. */
+    fun setEmail(patch: EmailPatch): EmailView =
+        decode(EmailView.serializer(), send("PUT", "email", encode(EmailPatch.serializer(), patch)))
+
+    /** Open the hub's inbox and send the owner a test email (owner only). */
+    fun checkEmail(): EmailCheck = decode(EmailCheck.serializer(), send("POST", "email/check", "{}"))
+
+    /** Allow or remove an address that may give commands by email (owner only). */
+    fun setEmailPerson(change: EmailPersonChange): EmailView =
+        decode(EmailView.serializer(), send("PUT", "email/people", encode(EmailPersonChange.serializer(), change)))
+
     /** AI platforms the hub spotted on its own machine (owner only). */
     fun platforms(): PlatformsSnapshot = get("platforms", PlatformsSnapshot.serializer())
 

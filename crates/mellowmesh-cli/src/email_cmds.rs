@@ -281,9 +281,63 @@ pub async fn run_send(
     Ok(())
 }
 
+/// The catalog id for the short names people type.
+pub fn invite_platform(ai: &str) -> String {
+    match ai.trim().to_lowercase().as_str() {
+        "claude" | "claude.ai" => "claude-web".into(),
+        "gemini" => "gemini-web".into(),
+        "le-chat" | "lechat" | "le chat" => "mistral".into(),
+        "grokbot" => "grok".into(),
+        other => other.to_string(),
+    }
+}
+
+/// `mellowmesh invite`: a one-click link for an AI.
+pub async fn run_invite(
+    client: &MellowMeshClient,
+    ai: Option<&str>,
+    name: Option<&str>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        ai.is_some() || name.is_some(),
+        "Say which AI: mellowmesh invite grok (chatgpt, claude, gemini, mistral), or --name Buzz"
+    );
+    let platform = ai.map(invite_platform);
+    let v = as_local_human(client)
+        .invite_ai(platform.as_deref(), name)
+        .await?;
+    println!("{}'s link (paste it in its chat):", text(&v["name"]));
+    println!();
+    println!("  {}", text(&v["join_url"]));
+    println!();
+    println!("Or this message: {}", text(&v["message"]));
+    println!(
+        "It opens {} times, until {}. It gives {} its own limited key, never yours.",
+        v["opens"].as_u64().unwrap_or(0),
+        text(&v["expires_at"]),
+        text(&v["principal"])
+    );
+    if !v["reachable_from_web"].as_bool().unwrap_or(true) {
+        println!();
+        println!("Your hub has no public address: web assistants cannot open this link (a bot on");
+        println!(
+            "the same network can). Start the hub with --public-host <tunnel name> or the relay."
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_ai_names_map_to_the_catalog() {
+        assert_eq!(invite_platform("Claude"), "claude-web");
+        assert_eq!(invite_platform("gemini"), "gemini-web");
+        assert_eq!(invite_platform("GrokBot"), "grok");
+        assert_eq!(invite_platform("chatgpt"), "chatgpt");
+    }
 
     #[test]
     fn servers_are_host_port_and_security() {

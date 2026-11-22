@@ -64,6 +64,8 @@ pub struct AccessState {
     pub(crate) mail_policy: RwLock<Option<Arc<crate::mail_policy::MailPolicy>>>,
     /// The hub's mailbox (see [`crate::email`]).
     pub(crate) email: crate::email::Runtime,
+    /// Outstanding one-click invitation links (see [`crate::invite`]).
+    pub(crate) joins: crate::invite::Joins,
 }
 
 impl Default for AccessState {
@@ -94,6 +96,7 @@ impl AccessState {
             pairing: Default::default(),
             mail_policy: RwLock::new(None),
             email: Default::default(),
+            joins: Default::default(),
         }
     }
 
