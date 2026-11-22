@@ -359,6 +359,15 @@ class MeshClient(
 
     fun tasks(): List<Task> = get("tasks", ListSerializer(Task.serializer()))
 
+    /** `POST /tasks`: the hub stamps the creator and the lifecycle; returns the task as stored. */
+    fun createTask(task: Task): Task {
+        require(task.title.isNotBlank() && task.title.length <= 200) { "invalid task title" }
+        require(task.id.isEmpty() || (task.id.length <= 128 && task.id.all { it.isLetterOrDigit() || it == '_' || it == '-' })) {
+            "invalid task id"
+        }
+        return decode(Task.serializer(), send("POST", "tasks", encode(Task.serializer(), task)))
+    }
+
     /** `PATCH /tasks/:id`; returns the updated task when the hub sends it back. */
     fun updateTask(taskId: String, patch: TaskPatch): Task? {
         val u = base.newBuilder().addPathSegment("tasks").addPathSegment(taskId).build()

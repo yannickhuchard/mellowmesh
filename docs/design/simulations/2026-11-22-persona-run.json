@@ -1,0 +1,221 @@
+{
+  "date": "2026-11-22",
+  "how": "Real hubs (mellowmeshd, --require-auth) started by a script; Mellows act through each hub's MCP endpoint; the phone is the Android client code (core module) reading every machine as the app does. Screens are not driven.",
+  "runs": [
+    {
+      "name": "chats",
+      "hubs": 3,
+      "tasks": [
+        "T26",
+        "T27",
+        "T28",
+        "T29"
+      ],
+      "phone": {
+        "first_open_everyone": "Coder,Ops,Writer,Reviewer",
+        "first_open_conversations": "0",
+        "segments": "Léa's mesh:3,Platform team:1",
+        "after_talk_conversations": "Coder@lap: Re: Can we ship the login page tonight? | Ops@desk: Re: Is production healthy?",
+        "group": "Coding crew: Coder@lap,Reviewer@team,Ops@desk",
+        "group_networks": "Léa's mesh,Platform team",
+        "team_only": "Reviewer",
+        "all_again": "4"
+      },
+      "checks_passed": "9/9"
+    },
+    {
+      "name": "journeys-and-doors",
+      "hubs": 5,
+      "tasks": [
+        "T30",
+        "T31"
+      ],
+      "seconds": 35.2,
+      "phone": {
+        "t30_read_ms": "152",
+        "t30_stations": "Visit flat 1 rue des Lilas [done, Scout] > Report to Nadia, visit 1 [done, Writer] > Visit flat 2 avenue Jaures [done, Scout] > Report to Nadia, visit 2 [done, Writer] > Visit flat 3 rue Oberkampf [done, Scout] > Report to Nadia, visit 3 [done, Writer] > Take the flat on rue Oberkampf? [needs_you, Scout] > Book the movers for the 14th [next, Movers]",
+        "t30_line": "Take the flat on rue Oberkampf? — needs you",
+        "t30_next": "Book the movers for the 14th · Movers",
+        "t30_networks": "movers & co,nadia's home",
+        "t30_repeat": "Visit flat > Report to Nadia x3",
+        "t30_needs_you": "true",
+        "step_done_after_answer_ms": "880",
+        "after_answer_line": "Next: Book the movers for the 14th · Movers",
+        "arrived_ms": "1997",
+        "arrived_line": "Arrived",
+        "routine": "Visit flat (scout) > Report to Nadia (writer)",
+        "routine_created_ms": "16",
+        "routine_round_done_ms": "1144",
+        "repeat_after_round": "Visit flat > Report to Nadia x4",
+        "stations_after_round": "10",
+        "t31_networks": "Aïcha's home:you run it | Acme Corp:you run it | Chess club:member",
+        "t31_admin_via": "Office server",
+        "t31_invite_network": "Acme Corp",
+        "t31_invite_link_on_company_hub": "true",
+        "t31_member_admin_offered": "Chess club:no"
+      },
+      "checks": [
+        {
+          "check": "MCP create_task puts the steps on the journey (topic journey.move-house)",
+          "pass": true
+        },
+        {
+          "check": "MCP create_decision links the question to its step",
+          "pass": true
+        },
+        {
+          "check": "the movers put their step on the same journey, on their network",
+          "pass": true
+        },
+        {
+          "check": "the Android client runs the journeys",
+          "pass": true
+        },
+        {
+          "check": "the next station is the movers' step, with its Mellow",
+          "pass": true
+        },
+        {
+          "check": "the journey spans her network and the movers'",
+          "pass": true
+        },
+        {
+          "check": "the question on a step puts it first (\"needs you\")",
+          "pass": true
+        },
+        {
+          "check": "what repeated three times shows",
+          "pass": true
+        },
+        {
+          "check": "her answer finishes the step (the chime would play)",
+          "pass": true
+        },
+        {
+          "check": "the movers' Mellow takes its step on the other network; the journey arrives",
+          "pass": true
+        },
+        {
+          "check": "the routine is the repeating round with the same Mellows",
+          "pass": true
+        },
+        {
+          "check": "one tap ran one more round, done by the Mellows themselves",
+          "pass": true
+        },
+        {
+          "check": "three networks, each with her role",
+          "pass": true
+        },
+        {
+          "check": "the company is administered through the company's own machine",
+          "pass": true
+        },
+        {
+          "check": "the invitation names the company network",
+          "pass": true
+        },
+        {
+          "check": "no admin offered where she is a member",
+          "pass": true
+        }
+      ],
+      "checks_passed": "16/16"
+    }
+  ],
+  "before_after": [
+    {
+      "task": "T26",
+      "persona": "Marc",
+      "goal": "say hello to the Mellow he was just given",
+      "before": {
+        "taps": 3,
+        "switches": 0,
+        "done": "via Shops (Chats empty)"
+      },
+      "after": {
+        "taps": 2,
+        "switches": 0,
+        "done": "Chats > the Mellow"
+      }
+    },
+    {
+      "task": "T27",
+      "persona": "Léa",
+      "goal": "write to Coder (Laptop) then Ops (Desktop)",
+      "before": {
+        "taps": 10,
+        "switches": 2,
+        "done": "yes"
+      },
+      "after": {
+        "taps": 4,
+        "switches": 0,
+        "done": "yes, both answered"
+      }
+    },
+    {
+      "task": "T28",
+      "persona": "Karim",
+      "goal": "a group of three Mellows from two networks",
+      "before": {
+        "taps": null,
+        "switches": null,
+        "done": "impossible"
+      },
+      "after": {
+        "taps": 6,
+        "switches": 0,
+        "done": "yes"
+      }
+    },
+    {
+      "task": "T29",
+      "persona": "Sofia",
+      "goal": "only the team network, then all",
+      "before": {
+        "taps": 6,
+        "switches": 2,
+        "done": "one machine at a time"
+      },
+      "after": {
+        "taps": 2,
+        "switches": 0,
+        "done": "yes"
+      }
+    },
+    {
+      "task": "T30",
+      "persona": "Nadia",
+      "goal": "on Move house, what comes next and which Mellow helps",
+      "before": {
+        "taps": 12,
+        "switches": 1,
+        "done": "no: no path, no \"next\" anywhere"
+      },
+      "after": {
+        "taps": 2,
+        "switches": 0,
+        "done": "yes: dotted next station and its Mellow"
+      }
+    },
+    {
+      "task": "T31",
+      "persona": "Aïcha",
+      "goal": "invite to the company network, not home",
+      "before": {
+        "taps": 5,
+        "switches": 1,
+        "done": "risky: no screen named the network"
+      },
+      "after": {
+        "taps": 3,
+        "switches": 0,
+        "done": "yes: the button names Acme Corp"
+      }
+    }
+  ],
+  "found_and_fixed": [
+    "A finished step reached the hub in under a second but the phone read every machine only every 30 s: live task and decision events on the machine in use now refresh within about 1.2 s."
+  ]
+}

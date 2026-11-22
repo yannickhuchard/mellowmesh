@@ -309,6 +309,10 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                     "team": {
                         "type": "string",
                         "description": "Team id (slug) the task belongs to"
+                    },
+                    "journey": {
+                        "type": "string",
+                        "description": "The journey this step belongs to, by name (e.g. \"Move house\", \"Onboarding Acme\"). The person follows a journey as a path of steps; use the same name for every step of it."
                     }
                 },
                 "required": ["title", "topics", "capabilities"]
@@ -400,6 +404,10 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                             ]
                         },
                         "description": "Options to present: plain label strings, or {label, outcome} objects. Use outcome approve/reject (e.g. [{\"label\": \"Ship it\", \"outcome\": \"approve\"}, {\"label\": \"Hold\", \"outcome\": \"reject\"}]) so the decision resolves to approved/rejected; plain strings only ever resolve to answered."
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Optional: the task this decision is about. The person then sees the question on that step of its journey."
                     }
                 },
                 "required": ["title", "question", "created_by", "decider", "options"]
@@ -691,7 +699,8 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                         "description": "Team id; empty string clears it"
                     },
                     "title": { "type": "string", "description": "New title" },
-                    "description": { "type": "string", "description": "New description" }
+                    "description": { "type": "string", "description": "New description" },
+                    "journey": { "type": "string", "description": "Put the task on a journey (by name); empty string takes it off" }
                 },
                 "required": ["task_id"]
             }
@@ -1005,6 +1014,10 @@ pub async fn handle_tool_call(
                 .and_then(|t| t.as_str())
                 .filter(|t| !t.is_empty())
                 .map(|s| s.to_string());
+            let mut topics: Vec<String> = topics;
+            if let Some(j) = args.get("journey").and_then(|j| j.as_str()) {
+                mellowmesh_core::task::set_journey(&mut topics, j);
+            }
 
             let task = mellowmesh_core::task::Task {
                 id: format!("task_{}", ulid::Ulid::new().to_string().to_lowercase()),
@@ -1056,6 +1069,8 @@ pub async fn handle_tool_call(
                 team: text("team"),
                 title: text("title"),
                 description: text("description"),
+                journey: text("journey"),
+                link_decision: None,
             };
             let task = client.update_task(task_id, &update).await?;
             json_block(&task)
@@ -1238,6 +1253,22 @@ pub async fn handle_tool_call(
                 responded_by: None,
             };
             client.create_decision(&decision).await?;
+            if let Some(task_id) = args
+                .get("task_id")
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.is_empty())
+            {
+                let link = mellowmesh_core::task::TaskUpdate {
+                    link_decision: Some(decision.id.clone()),
+                    ..Default::default()
+                };
+                if let Err(e) = client.update_task(task_id, &link).await {
+                    return text_block(format!(
+                        "Decision request proposed with ID: {} (not linked to task {task_id}: {e})",
+                        decision.id
+                    ));
+                }
+            }
             text_block(format!(
                 "Decision request proposed with ID: {}",
                 decision.id

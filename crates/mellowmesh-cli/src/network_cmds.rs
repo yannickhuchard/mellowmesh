@@ -608,6 +608,7 @@ pub async fn run_task_update(
         team: args.team,
         title: args.title,
         description: args.description,
+        ..Default::default()
     };
     let t = as_local_human(client).update_task(id, &update).await?;
     println!(

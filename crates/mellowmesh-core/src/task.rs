@@ -73,6 +73,64 @@ pub struct TaskUpdate {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Put the task on a journey (its name; empty takes it off): the task's
+    /// `journey.<slug>` topic is replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub journey: Option<String>,
+    /// Link a decision to the task (once): the person sees it on the
+    /// task's step of the journey.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_decision: Option<String>,
+}
+
+/// Prefix of the topic that places a task on a journey.
+pub const JOURNEY_PREFIX: &str = "journey.";
+
+/// The slug of a journey name: lowercase letters and digits, words joined
+/// by `-`, at most 48 characters. `None` when nothing usable is left.
+pub fn journey_slug(name: &str) -> Option<String> {
+    let mut out = String::new();
+    for c in name.trim().chars().flat_map(char::to_lowercase) {
+        let c = fold_accent(c);
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+        if out.chars().count() >= 48 {
+            break;
+        }
+    }
+    let slug = out.trim_end_matches('-').to_string();
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// The plain letter behind a common accented one (journey slugs stay ASCII).
+fn fold_accent(c: char) -> char {
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'ç' => 'c',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'ñ' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+        'ù' | 'ú' | 'û' | 'ü' => 'u',
+        'ý' | 'ÿ' => 'y',
+        _ => c,
+    }
+}
+
+/// The topic placing a task on the journey `name`.
+pub fn journey_topic(name: &str) -> Option<String> {
+    journey_slug(name).map(|s| format!("{JOURNEY_PREFIX}{s}"))
+}
+
+/// Replace the journey of `topics` with `name` (empty: no journey).
+pub fn set_journey(topics: &mut Vec<String>, name: &str) {
+    topics.retain(|t| !t.starts_with(JOURNEY_PREFIX));
+    if let Some(t) = journey_topic(name) {
+        topics.push(t);
+    }
 }
 
 /// Task status values.
@@ -424,6 +482,25 @@ pub fn build_graph(
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn journey_names_become_plain_topics() {
+        assert_eq!(
+            journey_slug("  Move house! ").as_deref(),
+            Some("move-house")
+        );
+        assert_eq!(
+            journey_slug("Déménagement à Lyon").as_deref(),
+            Some("demenagement-a-lyon")
+        );
+        assert_eq!(journey_slug("¿?").as_deref(), None);
+        assert!(journey_slug(&"x".repeat(200)).unwrap().len() <= 48);
+        let mut topics = vec!["work".to_string(), "journey.old".to_string()];
+        set_journey(&mut topics, "Onboarding Acme");
+        assert_eq!(topics, vec!["work", "journey.onboarding-acme"]);
+        set_journey(&mut topics, "");
+        assert_eq!(topics, vec!["work"]);
+    }
 
     fn t(id: &str, st: &str, deps: &[&str]) -> Task {
         Task {

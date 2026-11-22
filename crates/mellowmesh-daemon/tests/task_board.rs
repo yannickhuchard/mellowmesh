@@ -175,6 +175,87 @@ async fn transitions_and_permissions() {
 }
 
 #[tokio::test]
+async fn a_task_joins_a_journey_and_carries_its_decisions() {
+    let hub = spawn_hub(true).await;
+    let coder = hub.token(CODER, &["**"], &["**"]);
+    let stranger = hub.token(STRANGER, &["**"], &["**"]);
+    let (s, _) = create(&hub, &coder, task_body("visit1", &["work"])).await;
+    assert_eq!(s, 200);
+
+    // A journey is a topic the hub writes from the name.
+    let (s, t) = patch(
+        &hub,
+        &coder,
+        "visit1",
+        json!({ "journey": "Déménagement à Lyon" }),
+    )
+    .await;
+    assert_eq!(s, 200, "{t}");
+    assert_eq!(t["topics"], json!(["work", "journey.demenagement-a-lyon"]));
+    let (s, t) = patch(&hub, &coder, "visit1", json!({ "journey": "Move house" })).await;
+    assert_eq!(s, 200);
+    assert_eq!(t["topics"], json!(["work", "journey.move-house"]));
+    assert_eq!(
+        patch(&hub, &coder, "visit1", json!({ "journey": "?!" }))
+            .await
+            .0,
+        400
+    );
+
+    // A decision about the step is linked to it, once; unknown ones are refused.
+    let (s, d) = hub
+        .send(
+            Method::POST,
+            "/decisions",
+            Some(&coder),
+            false,
+            json!({
+                "id": "", "title": "Take the flat?", "question": "Rue Oberkampf, 3 rooms",
+                "created_by": CODER, "required_decider": OWNER, "status": "requested",
+                "options": [{"id": "option_0", "label": "Yes", "pros": [], "cons": []}],
+                "response_option_id": null, "response_timestamp": null, "responded_by": null
+            }),
+        )
+        .await;
+    assert_eq!(s, 200, "{d}");
+    let did = d["id"].as_str().unwrap().to_string();
+    for _ in 0..2 {
+        let (s, t) = patch(&hub, &coder, "visit1", json!({ "link_decision": did })).await;
+        assert_eq!(s, 200, "{t}");
+        assert_eq!(t["decisions"], json!([did]));
+    }
+    assert_eq!(
+        patch(
+            &hub,
+            &coder,
+            "visit1",
+            json!({ "link_decision": "decision_nope" })
+        )
+        .await
+        .0,
+        404
+    );
+    assert_eq!(
+        patch(&hub, &stranger, "visit1", json!({ "journey": "" }))
+            .await
+            .0,
+        403
+    );
+
+    // The list says the same (the store kept topics and decisions).
+    let (_, all) = hub.get("/tasks", Some(&coder), false).await;
+    let t = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "visit1")
+        .unwrap()
+        .clone();
+    assert_eq!(t["topics"], json!(["work", "journey.move-house"]));
+    assert_eq!(t["decisions"], json!([did]));
+}
+
+#[tokio::test]
 async fn dependencies_are_validated() {
     let hub = spawn_hub(true).await;
     let owner = hub.token(OWNER, &["**"], &["**"]);

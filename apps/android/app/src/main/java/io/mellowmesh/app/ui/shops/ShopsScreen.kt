@@ -44,7 +44,13 @@ import androidx.compose.runtime.setValue
 
 /** Window-shopping for helpers, by floor (Popular · Study · Writing · Money · Work · Everything). */
 @Composable
-fun ShopsScreen(onHelp: () -> Unit, onChat: (String) -> Unit, onHelper: (String) -> Unit, onMake: () -> Unit = {}) {
+fun ShopsScreen(
+    onHelp: () -> Unit,
+    onChat: (String) -> Unit,
+    onHelper: (String) -> Unit,
+    onMake: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
+) {
     val app = LocalContext.current.meshApp
     val agents by app.repo.agents.collectAsStateWithLifecycle()
     val home by app.repo.home.collectAsStateWithLifecycle()
@@ -61,7 +67,15 @@ fun ShopsScreen(onHelp: () -> Unit, onChat: (String) -> Unit, onHelper: (String)
     val moods = home?.helpers.orEmpty().associate { it.id to it.mood }
 
     Column(Modifier.fillMaxSize().background(Mesh.Paper)) {
-        TabHeader(title = stringResource(R.string.shops_title), onHelp = onHelp, subtitle = stringResource(R.string.shops_intro))
+        if (onBack != null) {
+            io.mellowmesh.app.ui.components.BackHeader(
+                title = stringResource(R.string.shops_title),
+                onBack = onBack,
+                subtitle = stringResource(R.string.shops_intro),
+            )
+        } else {
+            TabHeader(title = stringResource(R.string.shops_title), onHelp = onHelp, subtitle = stringResource(R.string.shops_intro))
+        }
         error?.let { ErrorNote(it, modifier = Modifier.padding(horizontal = 16.dp)) }
         if (agents.isEmpty()) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {

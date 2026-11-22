@@ -168,6 +168,26 @@ class ConfigStore(context: Context) {
         ).apply()
     }
 
+    fun loadRoutines(): List<io.mellowmesh.core.Routine> = runCatching {
+        val raw = plain.getString(KEY_ROUTINES, null) ?: return emptyList()
+        MeshJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.Routine.serializer()), raw)
+    }.getOrDefault(emptyList())
+
+    fun saveRoutines(list: List<io.mellowmesh.core.Routine>) {
+        plain.edit().putString(
+            KEY_ROUTINES,
+            MeshJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(io.mellowmesh.core.Routine.serializer()), list),
+        ).apply()
+    }
+
+    /** Last count of finished steps per journey (the step-done chime plays once). */
+    var journeyDone: Map<String, Int>
+        get() = runCatching {
+            val raw = plain.getString(KEY_JOURNEY_DONE, null) ?: return emptyMap()
+            MeshJson.decodeFromString(kotlinx.serialization.serializer<Map<String, Int>>(), raw)
+        }.getOrDefault(emptyMap())
+        set(v) = plain.edit().putString(KEY_JOURNEY_DONE, MeshJson.encodeToString(kotlinx.serialization.serializer<Map<String, Int>>(), v)).apply()
+
     /** Soft sounds for sent, received, joined (on by default; silent when the phone is). */
     var sounds: Boolean
         get() = plain.getBoolean(KEY_SOUNDS, true)
@@ -261,6 +281,8 @@ class ConfigStore(context: Context) {
         private const val KEY_EVERYWHERE = "plaza_everywhere"
         private const val KEY_GROUPS = "mellow_groups"
         private const val KEY_SOUNDS = "sounds"
+        private const val KEY_ROUTINES = "routines"
+        private const val KEY_JOURNEY_DONE = "journey_done"
         private const val KEY_DIGEST_DAY = "digest_day"
         private const val KEY_DIGEST_COUNT = "digest_count"
         private const val KEY_READ_MARKERS = "read_markers"

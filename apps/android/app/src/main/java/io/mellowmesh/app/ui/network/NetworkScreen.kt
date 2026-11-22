@@ -48,6 +48,7 @@ import androidx.lifecycle.viewModelScope
 import io.mellowmesh.app.MellowMeshApp
 import io.mellowmesh.app.R
 import io.mellowmesh.app.data.friendly
+import io.mellowmesh.app.meshApp
 import io.mellowmesh.app.ui.components.AccessIcon
 import io.mellowmesh.app.ui.components.BackHeader
 import io.mellowmesh.app.ui.components.ErrorNote
@@ -258,7 +259,30 @@ fun NetworkScreen(
     }
 
     Column(Modifier.fillMaxSize().background(Mesh.Paper)) {
-        BackHeader(title = stringResource(R.string.network_title), onBack = onBack)
+        // Scoped administration: the header always says which network (and
+        // which machine) is being changed, in that network's colour.
+        val app = androidx.compose.ui.platform.LocalContext.current.meshApp
+        val machines by app.repo.machines.collectAsStateWithLifecycle()
+        val everywhere by app.repo.everywhere.collectAsStateWithLifecycle()
+        val active = machines.firstOrNull { it.active }
+        val netName = overview?.network?.name?.takeIf { it.isNotBlank() } ?: active?.machine?.networkName
+        val slot = everywhere?.let { ew ->
+            io.mellowmesh.core.ChatSpace.build(ew, emptyList(), emptyList()).segments
+                .firstOrNull { it.key == io.mellowmesh.core.ChatSpace.segmentKey(netName, active?.name ?: "") }?.slot
+        }
+        BackHeader(
+            title = netName ?: stringResource(R.string.network_title),
+            onBack = onBack,
+            subtitle = stringResource(R.string.networks_changing, netName ?: (active?.name ?: ""), active?.name ?: ""),
+            leading = {
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(slot?.let { io.mellowmesh.app.ui.chats.segmentColor(it) } ?: Mesh.Ink3),
+                )
+            },
+        )
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

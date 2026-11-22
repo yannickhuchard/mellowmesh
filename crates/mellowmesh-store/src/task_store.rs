@@ -127,7 +127,7 @@ impl Store {
             "UPDATE tasks SET title = ?2, description = ?3, status = ?4, priority = ?5,
                 assigned_to = ?6, claimed_by = ?7, claim_expires_at = ?8, depends_on = ?9,
                 team = ?10, claimed_at = ?11, started_at = ?12, completed_at = ?13,
-                blocked_from = ?14
+                blocked_from = ?14, topics = ?16, decisions = ?17
              WHERE id = ?1 AND status = ?15",
             params![
                 task.id,
@@ -144,7 +144,9 @@ impl Store {
                 task.started_at,
                 task.completed_at,
                 task.blocked_from,
-                expected_status
+                expected_status,
+                serde_json::to_string(&task.topics)?,
+                serde_json::to_string(&task.decisions)?
             ],
         )?;
         Ok(n > 0)

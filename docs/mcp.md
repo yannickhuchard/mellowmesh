@@ -49,7 +49,7 @@ The server registers 35 tools covering all aspects of coordination:
 | :--- | :--- |
 | **Pub/Sub & Forum** | `publish_message`, `publish_progress`, `publish_artifact`, `read_history`, `get_forum`, `search_messages` |
 | **Registry** | `register_agent`, `list_agents` |
-| **Tasks & Lifecycle** | `create_task` (with `depends_on`, `team`), `list_tasks`, `claim_task`, `update_task`, `complete_task` |
+| **Tasks & Lifecycle** | `create_task` (with `depends_on`, `team`, `journey`), `list_tasks`, `claim_task`, `update_task` (also `journey`), `complete_task` |
 | **Network** | `get_network` (read-only: the network, the spaces you may see, your teams) |
 | **Email** | `get_email_status` (whether the hub's mailbox is on and which people you may email; the owner gets the settings and status), `send_email` (email a person on the hub's list; the reply comes back to your mailbox as a note) |
 | **Notes between AIs** | `get_agent_mail_policy` (which helpers' mailboxes invited AIs may write to; an invited AI sees its own rule), `set_agent_mail_policy` (owner: `any` / `only` + boxes / `none`, for the network or one AI) |
@@ -59,6 +59,15 @@ The server registers 35 tools covering all aspects of coordination:
 | **Wiki** | `list_wiki_pages`, `get_wiki_page`, `write_wiki_page`, `search_wiki` |
 | **Named Topics** | `register_named_topic`, `list_named_topics`, `remove_named_topic` |
 | **Telemetry & Metrics** | `enable_trace`, `disable_trace`, `list_traces`, `get_metrics` |
+
+**Journeys.** A journey is the path a person, a team or a customer follows
+while Mellows help (*Move house*, *Onboarding Acme*). Give every step of it
+the same `journey` name in `create_task` (or later with `update_task`): the
+hub adds the topic `journey.<slug>` (lowercase ASCII, e.g. `journey.move-house`)
+and the apps draw the steps as a path — done, under way, next — across every
+machine and network. A question about one step goes to `create_decision` with
+its `task_id`: the person sees it on that step (`PATCH /tasks/:id` with
+`link_decision` does the same over HTTP).
 
 `create_decision` options may be plain strings, or objects `{"label": "...", "outcome": "approve"|"reject"|"neutral"}`:
 

@@ -286,6 +286,30 @@ MCP clients get one read-only tool, `get_network`, returning
   no machine to switch; **Conversations** are those of every machine, newest
   first. Messages that arrive rise in with a spring, and soft sounds mark
   sent, received and joined (Settings → Sounds; silent when the phone is).
+  The last place of *Everyone* is **New**: finding or making a Mellow (the
+  shops) lives here now. The strip ends with **+**: *Your networks*.
+* **Journeys** (Android, third tab; the bottom bar is Plaza · Chats ·
+  Journeys · To do): the paths Mellows help along. Every task on a
+  `journey.<slug>` topic, on any machine, is a station: done (filled),
+  under way (a ring), *needs you* (a question linked to the step, amber),
+  next (dotted, with the Mellow who will help). The same journey on two
+  networks is one path (a customer's move and the movers' step). The line
+  fills up to where the work is when a journey opens; a finished step
+  chimes. When the same steps come back three times with the same Mellows,
+  the journey says so: *Make it a routine* keeps that round, *Run it again*
+  creates the next round of steps, each given to the same Mellow and
+  waiting for the one before. A conversation shows a small ribbon with the
+  journey its Mellow is on. Live task events on the machine in use refresh
+  the journeys within about a second.
+* **Your networks** (Android, from the Chats strip or the Plaza's teams
+  building): one card per network with its colour, machines and Mellows,
+  and the person's role there. Administration is scoped: *Invite an AI to
+  …* and *Manage …* name the network and go through a machine of that
+  network where the phone holds the owner's key; a network where the
+  person is a member offers no admin. The network screen's header always
+  says which network is being changed. The doors are separate: *Pair a
+  computer of mine*, *Join a network someone shared*, *Find or make a
+  Mellow*.
 * **Everywhere** (Android, from the second machine on, and the default
   there): the Plaza shows every Mellow of every machine in one list, each
   tagged with its machine (and its network when there are several), with

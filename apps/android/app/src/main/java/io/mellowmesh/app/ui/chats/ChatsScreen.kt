@@ -99,7 +99,7 @@ fun segmentColor(slot: Int): Color = Mesh.accent(Accent.entries[slot % Accent.en
  * talk — never an empty Chats), then the conversations of every machine.
  */
 @Composable
-fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () -> Unit = {}) {
+fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () -> Unit = {}, onNetworks: () -> Unit = {}) {
     val app = LocalContext.current.meshApp
     val everywhere by app.repo.everywhere.collectAsStateWithLifecycle()
     val conversations by app.repo.allConversations.collectAsStateWithLifecycle()
@@ -178,9 +178,9 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (model.segments.size > 1 && group == null) {
+            if (group == null) {
                 item(key = "segments") {
-                    SegmentStrip(model.segments, model.total, segment) { segment = it }
+                    SegmentStrip(model.segments, model.total, segment, onMore = onNetworks) { segment = it }
                 }
             }
 
@@ -190,7 +190,7 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
                     openGroup = null
                 }) }
             } else {
-                item(key = "groups-title") { Label(stringResource(R.string.chats_your_groups)) }
+                item(key = "groups-title") { SectionLabel(stringResource(R.string.chats_your_groups)) }
                 item(key = "groups") {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         model.groups.forEachIndexed { i, g ->
@@ -210,7 +210,7 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
 
             item(key = "everyone-title") {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Label(stringResource(if (group == null) R.string.chats_everyone else R.string.chats_in_group), Modifier.weight(1f))
+                    SectionLabel(stringResource(if (group == null) R.string.chats_everyone else R.string.chats_in_group), Modifier.weight(1f))
                     if (group == null) Text(stringResource(R.string.chats_hold_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3)
                 }
             }
@@ -229,11 +229,12 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
                                 )
                             }
                         }
+                        if (group == null) NewMellowBlob(onFindHelpers)
                     }
                 }
             }
 
-            item(key = "conv-title") { Label(stringResource(R.string.chats_conversations)) }
+            item(key = "conv-title") { SectionLabel(stringResource(R.string.chats_conversations)) }
             if (convs.isEmpty()) {
                 item(key = "conv-empty") {
                     Text(stringResource(R.string.chats_no_conversation_yet), color = Mesh.Ink2, style = MaterialTheme.typography.bodyMedium)
@@ -284,25 +285,42 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
 }
 
 @Composable
-private fun Label(text: String, modifier: Modifier = Modifier) {
+internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(text.uppercase(), style = MaterialTheme.typography.labelMedium, color = Mesh.Ink3, modifier = modifier.padding(top = 4.dp))
 }
 
 /** All · each network segment with its colour and count. */
 @Composable
-private fun SegmentStrip(segments: List<NetworkSegment>, total: Int, selected: String?, onPick: (String?) -> Unit) {
+internal fun SegmentStrip(
+    segments: List<NetworkSegment>,
+    total: Int,
+    selected: String?,
+    onMore: (() -> Unit)? = null,
+    onPick: (String?) -> Unit,
+) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Chip(stringResource(R.string.everywhere_all, total), null, selected == null) { onPick(null) }
-        for (s in segments) {
-            Chip("${s.name} ${s.mellows}", segmentColor(s.slot).takeIf { s.live } ?: Mesh.Ink3, selected == s.key) {
-                onPick(if (selected == s.key) null else s.key)
+        // One network: nothing to filter, only the door to the networks.
+        if (segments.size > 1) {
+            SegmentChip(stringResource(R.string.everywhere_all, total), null, selected == null) { onPick(null) }
+            for (s in segments) {
+                SegmentChip("${s.name} ${s.mellows}", segmentColor(s.slot).takeIf { s.live } ?: Mesh.Ink3, selected == s.key) {
+                    onPick(if (selected == s.key) null else s.key)
+                }
             }
+        }
+        if (onMore != null) {
+            SegmentChip(
+                if (segments.size > 1) "+" else stringResource(R.string.networks_open, segments.firstOrNull()?.name ?: ""),
+                null,
+                false,
+                onClick = onMore,
+            )
         }
     }
 }
 
 @Composable
-private fun Chip(text: String, dot: Color?, selected: Boolean, onClick: () -> Unit) {
+internal fun SegmentChip(text: String, dot: Color?, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .clip(RoundedCornerShape(16.dp))
@@ -409,6 +427,26 @@ private fun RosterBlob(h: PlacedHelper, dot: Color?, onTalk: () -> Unit, onHold:
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
+    }
+}
+
+/** The last place of the roster: find or make a new Mellow (the shops live here now). */
+@Composable
+private fun NewMellowBlob(onClick: () -> Unit) {
+    Column(
+        Modifier
+            .width(66.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(50.dp).clip(CircleShape).border(2.dp, Mesh.Hairline, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Text("+", style = MaterialTheme.typography.headlineSmall, color = Mesh.Ink3) }
+        Gap(4.dp)
+        Text(stringResource(R.string.chats_new_mellow), style = MaterialTheme.typography.labelMedium, color = Mesh.Ink2, maxLines = 1)
     }
 }
 

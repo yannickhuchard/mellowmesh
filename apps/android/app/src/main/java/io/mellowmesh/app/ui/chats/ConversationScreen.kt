@@ -216,6 +216,7 @@ fun ConversationScreen(
     onBack: () -> Unit,
     onTeam: (String) -> Unit,
     onHelper: (String) -> Unit,
+    onOpenJourney: ((String) -> Unit)? = null,
 ) {
     val vm = meshViewModel(key = "conv-$conversationId") { ConversationViewModel(it, conversationId) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -261,6 +262,35 @@ fun ConversationScreen(
                 ) { ConversationAvatar(summary, Mood.IDLE, 40.dp) }
             },
         )
+        // The journey this Mellow is helping along right now, as a small ribbon.
+        val tasks by app.repo.allTasks.collectAsStateWithLifecycle()
+        val pending by app.repo.pendingDecisions.collectAsStateWithLifecycle()
+        val agentId = ref?.agentId
+        val onJourney = remember(tasks, pending, agentId) {
+            if (agentId == null) null else io.mellowmesh.core.Journeys.build(tasks, pending, emptyMap()).firstOrNull { j ->
+                j.stations.any { it.who.equals(agentId, ignoreCase = true) && it.state != io.mellowmesh.core.StationState.DONE }
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = onJourney != null && onOpenJourney != null) {
+            val j = onJourney ?: return@AnimatedVisibility
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .background(Mesh.GreenTint)
+                    .clickable { onOpenJourney?.invoke(j.slug) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.journeys_ribbon, j.name, j.done + 1, j.stations.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Mesh.Ink,
+                    maxLines = 1,
+                )
+            }
+        }
         Box(Modifier.weight(1f)) {
             if (!state.loading && state.messages.isEmpty() && state.error == null) {
                 Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {

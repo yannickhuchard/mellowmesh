@@ -15,6 +15,8 @@ import io.mellowmesh.core.ChatSpace
 import io.mellowmesh.core.Everywhere
 import io.mellowmesh.core.MellowGroup
 import io.mellowmesh.core.PlacedConversation
+import io.mellowmesh.core.PlacedTask
+import io.mellowmesh.core.Routine
 import io.mellowmesh.core.EverywhereModel
 import io.mellowmesh.core.LiveListener
 import io.mellowmesh.core.MachineHealth
@@ -215,6 +217,9 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     }
 
     val isPaired: Boolean get() = client != null
+
+    /** The id of the machine in use. */
+    val activeMachine: String? get() = activeId
 
     /** The principal used as `from` on the machine in use. */
     val me: String get() = _config.value?.principal ?: _whoami.value?.principal ?: "human://me"
@@ -509,6 +514,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     suspend fun refreshEverywhere() {
         val statuses = _machines.value
         if (statuses.isEmpty()) return
+        val gathered = ConcurrentHashMap<String, Gathered>()
         val homes = coroutineScope {
             statuses.map { st ->
                 async(Dispatchers.IO) {
@@ -527,6 +533,9 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                                 val a = agents.await()
                                 val n = net.await()
                                 val w = who.await()
+                                val ts = tasks.await()
+                                val ds = decisions.await()
+                                gathered[id] = Gathered(ts, ds.filter { it.isPending }.map { it.id }.toSet(), w?.isOwner == true)
                                 Triple(
                                     a,
                                     n,
@@ -534,8 +543,8 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                                         HomeInputs(
                                             me = w?.principal ?: meThere,
                                             agents = a,
-                                            tasks = tasks.await(),
-                                            decisions = decisions.await(),
+                                            tasks = ts,
+                                            decisions = ds,
                                             history = history.await(),
                                             network = n,
                                             readMarkers = store.readMarkers(),
@@ -577,8 +586,79 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             val key = ChatSpace.segmentKey(h.networkName, h.label)
             h.home?.conversations.orEmpty().map { PlacedConversation(it, h.machineId, key) }
         }
+        // Journeys: the steps of every machine; a machine that did not answer
+        // keeps the steps it showed last time.
+        val keyOf = homes.associate { it.machineId to ChatSpace.segmentKey(it.networkName, it.label) }
+        val previous = _allTasks.value.groupBy { it.machineId }
+        _allTasks.value = homes.flatMap { h ->
+            gathered[h.machineId]?.tasks?.map { PlacedTask(it, h.machineId, keyOf.getValue(h.machineId)) }
+                ?: previous[h.machineId].orEmpty()
+        }
+        _pendingDecisions.value = gathered.values.flatMap { it.pending }.toSet() +
+            homes.filter { !gathered.containsKey(it.machineId) }.flatMap { h -> _pendingDecisionsOn[h.machineId].orEmpty() }
+        gathered.forEach { (id, g) -> _pendingDecisionsOn[id] = g.pending }
+        _ownerOn.value = _ownerOn.value + gathered.mapValues { it.value.owner }
         flushOutbox()
     }
+
+    @Volatile
+    private var refreshSoon: Job? = null
+
+    /** One refresh of every machine shortly after live task events (a burst counts once). */
+    private fun soonRefresh() {
+        if (refreshSoon?.isActive == true) return
+        refreshSoon = scope.launch {
+            delay(1_200)
+            withContext(Dispatchers.Main) { refreshEverywhere() }
+        }
+    }
+
+    private class Gathered(val tasks: List<Task>, val pending: Set<String>, val owner: Boolean)
+
+    private val _allTasks = MutableStateFlow<List<PlacedTask>>(emptyList())
+    /** The tasks of every machine (Journeys are drawn from them). */
+    val allTasks: StateFlow<List<PlacedTask>> = _allTasks.asStateFlow()
+
+    private val _pendingDecisions = MutableStateFlow<Set<String>>(emptySet())
+    /** Ids of the decisions still waiting for the person, on every machine. */
+    val pendingDecisions: StateFlow<Set<String>> = _pendingDecisions.asStateFlow()
+    private val _pendingDecisionsOn = ConcurrentHashMap<String, Set<String>>()
+
+    private val _ownerOn = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    /** machine id → this phone holds the owner's key there (it may administer that network). */
+    val ownerOn: StateFlow<Map<String, Boolean>> = _ownerOn.asStateFlow()
+
+    // ---- journeys ------------------------------------------------------------------
+
+    private val _routines = MutableStateFlow(store.loadRoutines())
+    /** Repeating parts the person kept, to run again in one tap. */
+    val routines: StateFlow<List<Routine>> = _routines.asStateFlow()
+
+    fun keepRoutine(routine: Routine) {
+        val list = _routines.value.filterNot { it.journey == routine.journey } + routine
+        _routines.value = list
+        store.saveRoutines(list)
+    }
+
+    fun dropRoutine(journey: String) {
+        val list = _routines.value.filterNot { it.journey == journey }
+        _routines.value = list
+        store.saveRoutines(list)
+    }
+
+    /** Create [tasks] (steps of a journey) on [machineId], in order; returns how many were made. */
+    suspend fun addSteps(machineId: String, tasks: List<Task>): Int = withContext(Dispatchers.IO) {
+        val c = clients[machineId] ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+        var made = 0
+        for (t in tasks) {
+            c.createTask(t)
+            made++
+        }
+        made
+    }.also { refreshEverywhere() }
+
+    /** A new id for a task made on the phone (the hub accepts letters, digits, `_`). */
+    fun newTaskId(): String = "task_" + java.util.UUID.randomUUID().toString().replace("-", "").take(26)
 
     /** Ask every other paired machine for its Mellows (in parallel). */
     suspend fun refreshOtherMachines() {
@@ -870,6 +950,10 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
                         override fun onMessage(message: Message) {
                             _live.tryEmit(message)
+                            // A step moved or a question came: the journeys and
+                            // what needs the person follow within a second or two.
+                            val t = message.topic
+                            if (t.startsWith("_task.") || t.startsWith("_decision.")) soonRefresh()
                         }
 
                         override fun onClosed(error: Throwable?) {

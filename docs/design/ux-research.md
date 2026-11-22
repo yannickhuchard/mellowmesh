@@ -741,6 +741,36 @@ only the segments they administer.
 | T30 | Nadia: on the *Move house* journey, say what step comes next and which Mellow helps. | 30 s | Reads the dotted next station and its Mellow. |
 | T31 | Aïcha: invite a colleague to the company network, not her home one. | 1 min | Starts from the company segment card; the screen names it. |
 
+### Persona run — what improved (2026-11-22)
+
+Two runs against real hubs (eight `mellowmeshd` in all, with keys), the
+Mellows acting on their own through each hub's MCP endpoint, the phone
+played by the Android client code reading every machine as the app does.
+The data is kept in [`simulations/2026-11-22-persona-run.json`](simulations/2026-11-22-persona-run.json).
+Taps and machine switches are counted from the navigation code
+(before = the app before this redesign); they were not timed on a device.
+
+| # | Persona · goal | Before | After | Run on real hubs |
+| :--- | :--- | :--- | :--- | :--- |
+| T26 | Marc · say hello to his new Mellow | 3 taps, through Shops (Chats empty) | 2 taps: Chats → the Mellow | all four Mellows listed before any conversation |
+| T27 | Léa · Coder (Laptop), then Ops (Desktop) | ≈10 taps, 2 machine switches | 4 taps, no switch | both answered, each on its own machine |
+| T28 | Karim · a group across two networks | impossible | 6 taps | *Coding crew* holds three Mellows from three machines |
+| T29 | Sofia · the team only, then all | ≈6 taps, 2 switches | 2 taps | Reviewer alone, then the four |
+| T30 | Nadia · what comes next on *Move house*, who helps | ≈12 taps over three boards and two machines; no path, no "next" anywhere | 2 taps: Journeys → the journey | next = *Book the movers for the 14th · Movers* (the movers' network); the question on *Take the flat?* came first; *Visit flat → Report to Nadia ×3* shown as a repeat |
+| T31 | Aïcha · invite to the company, not home | ≈5 taps; no screen named the network | 3 taps: Chats strip **+** → *Invite an AI to Acme Corp* | admin offered through the company's own machine; the invitation names *Acme Corp*; none offered in the club where she is a member |
+
+Beyond the tasks, the run measured the path moving by itself: Nadia's
+answer finished its step in 0.9 s; the movers' Mellow took its step on the
+other network and the journey arrived 2.0 s later; *Run it again* created
+the next round in 16 ms and the Mellows finished it in 1.1 s (the repeat
+then reads ×4). All checks passed (Chats 9/9, Journeys and doors 16/16).
+
+**What the run found.** A finished step reached the hub in under a second,
+but the phone read every machine only every 30 seconds, so the step-done
+chime could come half a minute late. Live task and decision events on the
+machine in use now refresh the journeys within about 1.2 s (other
+machines stay on the 30-second rhythm).
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

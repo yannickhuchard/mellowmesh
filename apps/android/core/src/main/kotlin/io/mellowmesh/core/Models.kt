@@ -133,6 +133,8 @@ data class TaskPatch(
     val team: String? = null,
     val title: String? = null,
     val description: String? = null,
+    /** Put the task on a journey by name ("" takes it off). */
+    val journey: String? = null,
 )
 
 // ---- network, spaces, teams (docs/network.md) ------------------------------

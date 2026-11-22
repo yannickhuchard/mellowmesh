@@ -412,6 +412,33 @@ pub async fn update_task(
     if let Some(d) = patch.description {
         task.description = (!d.is_empty()).then_some(d);
     }
+    if let Some(j) = patch.journey {
+        if !j.trim().is_empty() && mellowmesh_core::task::journey_slug(&j).is_none() {
+            return Err(bad_request("A journey name needs letters or digits"));
+        }
+        mellowmesh_core::task::set_journey(&mut task.topics, &j);
+    }
+    if let Some(d) = patch.link_decision.map(|d| d.trim().to_string()) {
+        if !valid_task_id(&d) {
+            return Err(bad_request("Invalid decision id"));
+        }
+        let store = state.store.clone();
+        let id = d.clone();
+        let known = tokio::task::spawn_blocking(move || store.get_decision(&id))
+            .await
+            .map_err(|e| internal("Decision lookup failed", e))?
+            .map_err(|e| internal("Decision lookup failed", e))?
+            .is_some();
+        if !known {
+            return Err((StatusCode::NOT_FOUND, format!("Decision {d} not found")));
+        }
+        if !task.decisions.contains(&d) {
+            if task.decisions.len() >= 64 {
+                return Err(bad_request("A task links at most 64 decisions"));
+            }
+            task.decisions.push(d);
+        }
+    }
 
     if task == current {
         return Ok(Json(task));

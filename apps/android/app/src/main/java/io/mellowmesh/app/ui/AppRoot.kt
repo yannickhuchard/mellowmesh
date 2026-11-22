@@ -26,7 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -66,6 +66,11 @@ import io.mellowmesh.app.ui.chats.ConversationScreen
 import io.mellowmesh.app.ui.components.CountBadge
 import io.mellowmesh.app.ui.components.HelperBlob
 import io.mellowmesh.app.ui.components.MeshCard
+import io.mellowmesh.app.ui.components.SoundFx
+import io.mellowmesh.app.ui.journeys.JourneyScreen
+import io.mellowmesh.app.ui.journeys.JourneysScreen
+import io.mellowmesh.app.ui.network.NetworksScreen
+import io.mellowmesh.core.Journeys
 import io.mellowmesh.app.ui.help.HelpScreen
 import io.mellowmesh.app.ui.helper.HelperScreen
 import io.mellowmesh.app.ui.network.NetworkScreen
@@ -87,6 +92,9 @@ import kotlinx.coroutines.delay
 object Routes {
     const val PLAZA = "plaza"
     const val CHATS = "chats"
+    const val JOURNEYS = "journeys"
+    fun journey(slug: String) = "journey/" + Uri.encode(slug)
+    const val NETWORKS = "networks"
     const val TODO = "todo"
     const val SHOPS = "shops"
     const val NETWORK = "network"
@@ -130,11 +138,12 @@ fun AppRoot(
 
 private data class Tab(val route: String, val label: Int, val icon: ImageVector)
 
+/** Four places: home, talking, the paths Mellows help along, what waits for you. Shops live inside Chats. */
 private val Tabs = listOf(
     Tab(Routes.PLAZA, R.string.tab_plaza, Icons.Filled.Home),
     Tab(Routes.CHATS, R.string.tab_chats, Icons.Filled.Email),
+    Tab(Routes.JOURNEYS, R.string.tab_journeys, Icons.Filled.Place),
     Tab(Routes.TODO, R.string.tab_todo, Icons.Filled.CheckCircle),
-    Tab(Routes.SHOPS, R.string.tab_shops, Icons.Filled.ShoppingCart),
 )
 
 private fun NavHostController.goTab(route: String) {
@@ -196,6 +205,30 @@ private fun MainScaffold(
         }
     }
 
+    // Journeys and the sounds of the flow: a chime when a step of a journey
+    // is done, a rising pair when something new needs the person.
+    val allTasks by app.repo.allTasks.collectAsStateWithLifecycle()
+    val pending by app.repo.pendingDecisions.collectAsStateWithLifecycle()
+    val everywhere by app.repo.everywhere.collectAsStateWithLifecycle()
+    val journeys = remember(allTasks, pending) { Journeys.build(allTasks, pending, emptyMap()) }
+    val context = LocalContext.current
+    LaunchedEffect(journeys) {
+        if (allTasks.isEmpty()) return@LaunchedEffect
+        val before = app.store.journeyDone
+        val now = journeys.associate { it.slug to it.done }
+        if (now.any { (slug, done) -> before[slug]?.let { done > it } == true }) {
+            SoundFx.play(context, SoundFx.Cue.STEP_DONE)
+        }
+        if (now != before) app.store.journeyDone = now
+    }
+    val needsYouNow = maxOf(everywhere?.needsYou ?: 0, home?.needsYou ?: 0)
+    var needsYouHeard by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(needsYouNow) {
+        val heard = needsYouHeard
+        if (heard != null && needsYouNow > heard) SoundFx.play(context, SoundFx.Cue.NEEDS_YOU)
+        needsYouHeard = needsYouNow
+    }
+
     val showBar = Tabs.any { it.route == current }
     Scaffold(
         containerColor = Mesh.Paper,
@@ -204,8 +237,9 @@ private fun MainScaffold(
                 NavigationBar(containerColor = Mesh.Card) {
                     Tabs.forEach { tab ->
                         val badge = when (tab.route) {
-                            Routes.TODO -> home?.needsYou ?: 0
+                            Routes.TODO -> needsYouNow
                             Routes.CHATS -> home?.conversations?.sumOf { it.unread } ?: 0
+                            Routes.JOURNEYS -> journeys.count { it.needsYou }
                             else -> 0
                         }
                         NavigationBarItem(
@@ -244,16 +278,16 @@ private fun MainScaffold(
                         onPlace = { place ->
                             when (place) {
                                 Place.TODO_DESK -> nav.goTab(Routes.TODO)
-                                Place.SHOPS -> nav.goTab(Routes.SHOPS)
+                                Place.SHOPS -> nav.navigate(Routes.SHOPS)
                                 Place.HELP_DESK -> nav.navigate(Routes.HELP)
-                                Place.TEAMS -> nav.navigate(Routes.NETWORK)
+                                Place.TEAMS -> nav.navigate(Routes.NETWORKS)
                                 else -> nav.goTab(Routes.CHATS)
                             }
                         },
                         onHelper = { nav.navigate(Routes.helper(it)) },
                         onBoard = { nav.navigate(Routes.board("all")) },
                         onRoadmap = { nav.navigate(Routes.roadmap("all")) },
-                        onNetwork = { nav.navigate(Routes.NETWORK) },
+                        onNetwork = { nav.navigate(Routes.NETWORKS) },
                         onSettings = { nav.navigate(Routes.SETTINGS) },
                         onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
                         onCalls = { nav.navigate(Routes.CALLS) },
@@ -284,7 +318,37 @@ private fun MainScaffold(
                     ChatsScreen(
                         onHelp = help,
                         onOpen = { nav.navigate(Routes.conversation(it)) },
-                        onFindHelpers = { nav.goTab(Routes.SHOPS) },
+                        onFindHelpers = { nav.navigate(Routes.SHOPS) },
+                        onNetworks = { nav.navigate(Routes.NETWORKS) },
+                    )
+                }
+                composable(Routes.JOURNEYS) {
+                    JourneysScreen(onHelp = help, onOpen = { nav.navigate(Routes.journey(it)) })
+                }
+                composable("journey/{slug}", arguments = listOf(navArgument("slug") { type = NavType.StringType })) { entry ->
+                    JourneyScreen(
+                        slug = entry.arguments?.getString("slug").orEmpty(),
+                        onBack = { nav.popBackStack() },
+                        onTalk = { machine, id ->
+                            app.repo.switchMachine(machine)
+                            nav.navigate(Routes.conversation(id))
+                        },
+                        onTodo = { nav.goTab(Routes.TODO) },
+                    )
+                }
+                composable(Routes.NETWORKS) {
+                    NetworksScreen(
+                        onBack = { nav.popBackStack() },
+                        onManage = { machine ->
+                            app.repo.switchMachine(machine)
+                            nav.navigate(Routes.NETWORK)
+                        },
+                        onInviteAi = { machine ->
+                            app.repo.switchMachine(machine)
+                            nav.navigate(Routes.INVITE_AI)
+                        },
+                        onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
+                        onShops = { nav.navigate(Routes.SHOPS) },
                     )
                 }
                 composable(Routes.TODO) {
@@ -300,6 +364,7 @@ private fun MainScaffold(
                         onChat = { nav.navigate(Routes.conversation(it)) },
                         onHelper = { nav.navigate(Routes.helper(it)) },
                         onMake = { nav.navigate(Routes.NETWORK) },
+                        onBack = { nav.popBackStack() },
                     )
                 }
                 composable(
@@ -311,6 +376,7 @@ private fun MainScaffold(
                         onBack = { nav.popBackStack() },
                         onTeam = { nav.navigate(Routes.team(it)) },
                         onHelper = { nav.navigate(Routes.helper(it)) },
+                        onOpenJourney = { nav.navigate(Routes.journey(it)) },
                     )
                 }
                 composable("helper/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
