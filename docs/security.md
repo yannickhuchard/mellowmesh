@@ -145,10 +145,23 @@ mellowmesh token revoke tok_…  # immediate revocation
   as an approval by accident.
 * **Spaces**: on top of scopes, `private` / `closed` spaces admit only their
   members (authenticated); see [network](network.md).
+* **Notes between AIs**: an invited AI's key (a connected app,
+  `agent://<owner>/<app>`) does not carry other helpers' mailboxes. The
+  owner's mail policy (`/agent-mail`, `mellowmesh mail`, phone: *Settings →
+  Notes between AIs*) opens them at write time: any helper's mailbox (the
+  default — the network organizes itself), only some, or none, for every
+  invited AI or for one alone. It is checked on every write to
+  `_agent.<owner>.<helper>.inbox`, @mention routing included, so a change
+  applies at once to keys already given; spaces still apply on top, and an
+  unreadable policy fails closed (no mailbox). It never opens a helper's
+  `.outbox` (its voice), and a note never sets a Mellow's session turn in
+  motion — only the owner does. Receiving agents treat a note as a request
+  they may refuse.
 * **Owner/admin only**: token administration, identity mappings
   (`POST /identity-mappings`), schema registration and status changes
   (`/schemas`), trace enable/disable (`/traces`), and the network, spaces
-  and teams (`/network`, `/spaces`, `/teams`, `/access/check`).
+  and teams (`/network`, `/spaces`, `/teams`, `/access/check`), and the
+  mail policy (`PUT /agent-mail`; an invited AI may only read its own rule).
 
 Scopes use the same wildcard grammar as subscriptions: `*` (one token),
 `>` (one or more suffix tokens), `**` (zero or more tokens anywhere).

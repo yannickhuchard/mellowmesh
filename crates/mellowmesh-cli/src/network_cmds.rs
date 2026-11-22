@@ -718,6 +718,112 @@ pub fn render_board(graph: &TaskGraph, width: usize) -> String {
     out
 }
 
+// --- mail: who invited AIs may write to -----------------------------------
+
+fn rule_words(rule: &serde_json::Value, names: &dyn Fn(&str) -> String) -> String {
+    match rule["mode"].as_str().unwrap_or("any") {
+        "only" => {
+            let boxes: Vec<String> = rule["boxes"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|b| b.as_str()).map(names).collect())
+                .unwrap_or_default();
+            if boxes.is_empty() {
+                "only these mailboxes: (none ticked)".to_string()
+            } else {
+                format!("only these mailboxes: {}", boxes.join(", "))
+            }
+        }
+        "none" => "no mailbox (shared rooms and tasks only)".to_string(),
+        _ => "any helper's mailbox".to_string(),
+    }
+}
+
+/// Find an entry of `list` (`[{id, name}]`) by id, last id segment or name.
+fn resolve(list: &serde_json::Value, wanted: &str) -> Option<String> {
+    let w = wanted.trim().to_ascii_lowercase();
+    list.as_array()?.iter().find_map(|e| {
+        let id = e["id"].as_str()?;
+        let name = e["name"].as_str().unwrap_or("").to_ascii_lowercase();
+        let last = id.rsplit('/').next().unwrap_or(id).to_ascii_lowercase();
+        (id.eq_ignore_ascii_case(&w) || last == w || name == w).then(|| id.to_string())
+    })
+}
+
+pub async fn run_mail_show(client: &MellowMeshClient) -> anyhow::Result<()> {
+    let v = as_local_human(client).get_agent_mail().await?;
+    let mailboxes = v["mailboxes"].clone();
+    let names = move |id: &str| -> String {
+        mailboxes
+            .as_array()
+            .and_then(|a| a.iter().find(|m| m["id"] == id))
+            .and_then(|m| m["name"].as_str())
+            .map(sanitize_line)
+            .unwrap_or_else(|| sanitize_line(id))
+    };
+    println!(
+        "Invited AIs can write to: {}",
+        rule_words(&v["network"], &names)
+    );
+    if let Some(list) = v["invited"].as_array() {
+        for ai in list {
+            let id = ai["id"].as_str().unwrap_or_default();
+            let name = sanitize_line(ai["name"].as_str().unwrap_or(id));
+            match v["per_ai"].get(id) {
+                Some(rule) => println!("  {name:<16} own rule: {}", rule_words(rule, &names)),
+                None => println!("  {name:<16} network rule"),
+            }
+        }
+    }
+    println!();
+    println!("A helper is free to refuse or ignore a note from another AI.");
+    println!("No AI can ever speak as another: outboxes stay their own.");
+    Ok(())
+}
+
+pub async fn run_mail_set(
+    client: &MellowMeshClient,
+    mode: Option<String>,
+    boxes: Vec<String>,
+    for_ai: Option<String>,
+) -> anyhow::Result<()> {
+    let admin = as_local_human(client);
+    let view = admin.get_agent_mail().await?;
+    let for_ai = match for_ai {
+        Some(f) => Some(resolve(&view["invited"], &f).ok_or_else(|| {
+            anyhow::anyhow!("'{f}' is not an invited AI here (see `mellowmesh mail show`)")
+        })?),
+        None => None,
+    };
+    let rule = match mode.as_deref() {
+        None | Some("network") | Some("follow") => {
+            anyhow::ensure!(
+                for_ai.is_some(),
+                "Give a rule: any, only or none (or --for <ai> network)"
+            );
+            None
+        }
+        Some(m @ ("any" | "only" | "none")) => Some(m.to_string()),
+        Some(other) => anyhow::bail!("Unknown rule '{other}': any, only or none"),
+    };
+    let mut ids = Vec::new();
+    for b in &boxes {
+        ids.push(resolve(&view["mailboxes"], b).ok_or_else(|| {
+            anyhow::anyhow!("'{b}' is not one of your helpers (see `mellowmesh agents`)")
+        })?);
+    }
+    anyhow::ensure!(
+        rule.as_deref() == Some("only") || ids.is_empty(),
+        "--box goes with the rule `only`"
+    );
+    admin
+        .set_agent_mail(
+            for_ai.as_deref(),
+            rule.as_deref().map(|m| (m, ids.as_slice())),
+        )
+        .await?;
+    run_mail_show(client).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

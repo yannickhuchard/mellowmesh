@@ -419,3 +419,56 @@ data class PlatformsSnapshot(
 
 /** A `payload` helper: the JSON object, or null. */
 internal fun JsonElement?.asObjectOrNull(): JsonObject? = this as? JsonObject
+
+// ---- notes between AIs (who invited AIs may write to) ------------------------
+
+/** Which helpers' mailboxes a rule opens. */
+enum class MailMode(val wire: String) {
+    ANY("any"), ONLY("only"), NONE("none");
+
+    companion object {
+        fun of(wire: String): MailMode = entries.firstOrNull { it.wire == wire } ?: ANY
+    }
+}
+
+/** One rule: `any`, `only` (the helpers in [boxes]) or `none`. */
+@Serializable
+data class MailRule(
+    val mode: String = MailMode.ANY.wire,
+    val boxes: List<String> = emptyList(),
+) {
+    val kind: MailMode get() = MailMode.of(mode)
+
+    companion object {
+        fun of(kind: MailMode, boxes: Collection<String> = emptyList()): MailRule =
+            MailRule(kind.wire, if (kind == MailMode.ONLY) boxes.distinct().sorted() else emptyList())
+    }
+}
+
+/** An invited AI or a helper's mailbox: its id and name. */
+@Serializable
+data class MailParty(val id: String, val name: String = "")
+
+/** `GET /agent-mail` as the owner sees it. */
+@Serializable
+data class MailPolicyView(
+    val network: MailRule = MailRule(),
+    @SerialName("per_ai") val perAi: Map<String, MailRule> = emptyMap(),
+    val invited: List<MailParty> = emptyList(),
+    val mailboxes: List<MailParty> = emptyList(),
+) {
+    /** The rule [ai] follows, and whether it is its own. */
+    fun ruleFor(ai: String): Pair<MailRule, Boolean> =
+        perAi[ai]?.let { it to true } ?: (network to false)
+
+    fun nameOf(id: String): String =
+        (mailboxes + invited).firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }
+            ?: id.substringAfterLast('/')
+}
+
+/** `PUT /agent-mail`: the network rule (no [forAi]) or one AI's ([rule] null = follow the network). */
+@Serializable
+data class MailChange(
+    @SerialName("for") val forAi: String? = null,
+    val rule: MailRule? = null,
+)

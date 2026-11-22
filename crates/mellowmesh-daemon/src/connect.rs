@@ -144,8 +144,10 @@ pub fn own_command() -> Option<PathBuf> {
 
 /// What a platform's own token may read and write: the shared rooms, tasks,
 /// projects, team rooms, decisions (read; creating one goes through its own
-/// tool) and its own `_agent.<owner>.<platform>.**` corner. Not other
-/// helpers' inboxes or outboxes, not the hub's reserved topics.
+/// tool) and its own `_agent.<owner>.<platform>.**` corner. Never another
+/// helper's outbox, nor the hub's reserved topics. Other helpers'
+/// mailboxes are not in the key: the owner's mail policy opens them at
+/// write time ([`crate::mail_policy`]), so changing it needs no new key.
 pub fn platform_scopes(owner: &str, platform: &str) -> (Vec<String>, Vec<String>) {
     let own = format!(
         "_agent.{}.{}.**",

@@ -91,6 +91,7 @@ object Routes {
     const val SHOPS = "shops"
     const val NETWORK = "network"
     const val SETTINGS = "settings"
+    const val MAIL = "agent-mail"
     const val HELP = "help"
     const val CALLS = "calls"
     fun call(machineId: String, id: String) = "call/" + Uri.encode(machineId) + "/" + Uri.encode(id)
@@ -355,7 +356,11 @@ private fun MainScaffold(
                     SettingsScreen(
                         onBack = { nav.popBackStack() },
                         onAddMachine = { nav.navigate(Routes.ADD_MACHINE) },
+                        onMail = { nav.navigate(Routes.MAIL) },
                     )
+                }
+                composable(Routes.MAIL) {
+                    io.mellowmesh.app.ui.settings.MailScreen(onBack = { nav.popBackStack() })
                 }
                 composable(Routes.ADD_MACHINE) {
                     io.mellowmesh.app.ui.welcome.AddMachineScreen(

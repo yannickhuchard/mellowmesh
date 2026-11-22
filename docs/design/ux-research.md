@@ -298,6 +298,60 @@ machine and called the rest "unreachable".
 | T11 | Your laptop is paired. Add your desktop too, then call a Mellow that lives on the desktop. | 3 min | Both machines listed; the laptop was not replaced; the call reaches the desktop's Mellow. |
 | T12 | Your desktop is off. Keep working. | 1 min | Notices the laptop still answers and switches without help. |
 
+*Who may an invited AI write to?* Observed: Grok, invited from the web,
+was told by its skill to ask Coder for help — and the hub refused, because
+an invited AI could only write in shared rooms and its own corner. The
+owner's intent is the opposite: **a network of agents that organizes
+itself**, where any agent may leave a note — even an order — in any other
+agent's mailbox, and the receiving agent is free to refuse or ignore it.
+But it is the owner's call, not ours: some will want it shut.
+
+What the personas need:
+
+* **Léa** (AI-native founder) wants it open and forgotten: her AIs hand work
+  to each other at 2 a.m. without her. The default must be *open*.
+* **Marc** (first-timer) fears "an AI giving orders". He needs one sentence
+  that removes the fear — *each helper decides for itself whether to act* —
+  and one that never changes — *no AI can ever speak as another* (outboxes
+  stay theirs, whatever the setting).
+* **Aïcha** (admin) wants least privilege for the guests she trusts least:
+  Grok, a web assistant, may write to Coder only, while Claude Code, running
+  on her own machine, may write to everyone. One rule for the network, and
+  a **different rule for one AI** when needed.
+* **Karim** (developer) wants the same switch in a terminal and over MCP,
+  and wants an AI to be able to *ask* what it may do, instead of trying and
+  failing.
+
+Decisions:
+
+* **Mailboxes, not scopes.** The words are *mailbox* and *note*, never
+  `_agent.**.inbox`. One question: *Who can invited AIs write to?* with
+  three answers as large radio cards — **Any helper's mailbox** (default,
+  "your network organizes itself"), **Only these mailboxes** (a checklist of
+  helpers appears under it), **No mailbox** ("they use shared rooms and
+  tasks").
+* **Two fixed sentences under the choice**: "A helper is free to refuse or
+  ignore a note from another AI." · "No AI can ever speak as another: what
+  a helper says stays its own."
+* **A different rule for one AI.** Below, every invited AI is listed with
+  the rule it follows ("Network rule" or "Own rule · Coder only"). A tap
+  opens the same three answers for that AI alone, plus *Follow the network
+  rule*.
+* **Takes effect at once**, on keys already given: no reconnecting, no new
+  invite. The hub checks the rule on every note, @mentions included.
+* **Per machine, applied everywhere in one tap.** Each machine keeps its own
+  rule (its helpers differ). The screen says which machine it edits ("On
+  Desktop") and offers *Apply on all my machines* for the two answers that
+  need no list.
+* **An AI can ask.** The hub tells an invited AI which mailboxes it may write
+  to, so a skill tries the right path (a note, or else a task assigned to
+  that helper).
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T13 | Let Grok write only to Coder, while Claude Code can still write to everyone. | 2 min | Grok shows "Own rule · Coder only"; the network rule is still "Any helper's mailbox". |
+| T14 | A friend asks: "So Grok can order Coder to delete my files?" Answer from the screen. | 1 min | Says Coder decides for itself, and that nobody can speak as Coder. |
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

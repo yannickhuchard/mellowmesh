@@ -216,6 +216,11 @@ pub fn handle_publish(
                         if mention_uri.starts_with("agent://") {
                             let path = mention_uri.replace("agent://", "").replace("/", ".");
                             let inbox_topic = format!("_agent.{path}.inbox");
+                            // An invited AI's mention reaches a mailbox only
+                            // where the owner's mail policy lets it write.
+                            if !crate::mail_policy::may_route(&state, &msg.from, &inbox_topic) {
+                                continue;
+                            }
 
                             let mut routed_msg = msg.clone();
                             routed_msg.id =

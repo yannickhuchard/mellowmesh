@@ -60,6 +60,8 @@ pub struct AccessState {
     pub remote_marker: String,
     /// Pairing: device-token lifetime and the runtime LAN listener.
     pub pairing: crate::pairing::PairingState,
+    /// Who invited AIs may write to (cached; see [`crate::mail_policy`]).
+    pub(crate) mail_policy: RwLock<Option<Arc<crate::mail_policy::MailPolicy>>>,
 }
 
 impl Default for AccessState {
@@ -88,6 +90,7 @@ impl AccessState {
             public_hosts: RwLock::new(hosts),
             remote_marker: mellowmesh_core::auth::generate_token(),
             pairing: Default::default(),
+            mail_policy: RwLock::new(None),
         }
     }
 
@@ -200,7 +203,21 @@ impl AuthContext {
 
     /// Evaluate the rules for this caller on `topic`.
     pub fn access(&self, state: &AppState, topic: &str) -> AccessDecision {
-        snapshot(state).evaluate(&self.caller(), topic)
+        let snap = snapshot(state);
+        // An invited AI writing to a helper's mailbox: the owner's mail
+        // policy stands in for a token scope (spaces still apply).
+        if let (Some(p), Some(extra)) = (
+            &self.principal,
+            crate::mail_policy::grant(state, self, topic),
+        ) {
+            let mut write = p.write_scopes.clone();
+            write.push(extra);
+            return snap.evaluate(
+                &Caller::token(&p.id, &p.kind, &p.read_scopes, &write),
+                topic,
+            );
+        }
+        snap.evaluate(&self.caller(), topic)
     }
 
     /// Whether the caller may read `topic`.

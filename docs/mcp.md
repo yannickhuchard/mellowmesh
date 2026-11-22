@@ -33,7 +33,7 @@ Spawn `mellowmesh mcp` as a background stdio subprocess. The server communicates
 
 ## Remote MCP (Streamable HTTP)
 
-The daemon also serves the same 31 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
+The daemon also serves the same 33 tools over HTTP at `POST /mcp` — and therefore, through the relay, at:
 
 ```text
 https://<relay>/hub/<hub_id>/mcp
@@ -43,7 +43,7 @@ Any client speaking the Streamable HTTP MCP transport (Claude Mobile/web connect
 
 ## Exposed MCP Tools
 
-The server registers 31 tools covering all aspects of coordination:
+The server registers 33 tools covering all aspects of coordination:
 
 | Category | Tools |
 | :--- | :--- |
@@ -51,6 +51,7 @@ The server registers 31 tools covering all aspects of coordination:
 | **Registry** | `register_agent`, `list_agents` |
 | **Tasks & Lifecycle** | `create_task` (with `depends_on`, `team`), `list_tasks`, `claim_task`, `update_task`, `complete_task` |
 | **Network** | `get_network` (read-only: the network, the spaces you may see, your teams) |
+| **Notes between AIs** | `get_agent_mail_policy` (which helpers' mailboxes invited AIs may write to; an invited AI sees its own rule), `set_agent_mail_policy` (owner: `any` / `only` + boxes / `none`, for the network or one AI) |
 | **Hosting Mellows** | `mellow_wait` (wait for the next message addressed to one of the owner's Mellows of your platform — calling it is what marks the session as hosting), `mellow_reply` (answer as that Mellow). Loop on the two to host; see the skill, section 1b. |
 | **Human Consensus** | `create_decision`, `list_decisions` |
 | **Semantic Context** | `store_topic_summary`, `get_context` |

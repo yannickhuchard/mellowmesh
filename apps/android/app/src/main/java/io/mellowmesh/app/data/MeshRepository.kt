@@ -602,6 +602,30 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
     suspend fun addTeamMember(teamId: String, member: TeamMember) = io { it.addTeamMember(teamId, member) }
     suspend fun removeTeamMember(teamId: String, principal: String) = io { it.removeTeamMember(teamId, principal) }
 
+    // ---- notes between AIs ---------------------------------------------------------
+
+    suspend fun agentMail(): io.mellowmesh.core.MailPolicyView = io { it.agentMail() }
+
+    suspend fun setAgentMail(change: io.mellowmesh.core.MailChange): io.mellowmesh.core.MailPolicyView =
+        io { it.setAgentMail(change) }
+
+    /**
+     * Set the same network rule on every other machine (each keeps its own
+     * per-AI rules). Returns the names of the machines it could not reach.
+     */
+    suspend fun setNetworkMailEverywhere(rule: io.mellowmesh.core.MailRule): List<String> {
+        val others = _machines.value.filter { !it.active }
+        return coroutineScope {
+            others.map { st ->
+                async(Dispatchers.IO) {
+                    val c = clients[st.machine.id] ?: return@async st.machine.label
+                    runCatching { c.setAgentMail(io.mellowmesh.core.MailChange(rule = rule)) }
+                        .fold({ null }, { st.machine.label })
+                }
+            }.awaitAll().filterNotNull()
+        }
+    }
+
     private fun requireClient(): MeshClient =
         client ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
 

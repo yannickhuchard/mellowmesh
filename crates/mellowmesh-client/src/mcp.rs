@@ -725,6 +725,24 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
             "description": "Read the hub's network: its name and default access, the spaces you may see (topic patterns with private/closed/open access) and the teams you belong to. Read-only.",
             "inputSchema": { "type": "object", "properties": {} }
         }),
+        serde_json::json!({
+            "name": "get_agent_mail_policy",
+            "description": "Which helpers' mailboxes (_agent.<owner>.<helper>.inbox) invited AIs may write to. An invited AI gets its own rule: may_write is \"any\" or a list of helper ids; anywhere else, create a task and assign it to that helper. The owner gets the whole policy, the invited AIs and the mailboxes. A note is only a note: the helper that receives it decides whether to act.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "set_agent_mail_policy",
+            "description": "Owner only. Set who invited AIs may write to: mode any (default, the network organizes itself), only (the helpers in boxes) or none. Without for, it sets the network rule; with for (an invited AI, agent://<owner>/<app>), that AI's own rule; follow_network: true gives that AI the network rule again. Takes effect at once. Nobody can ever write in another helper's outbox.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mode": { "type": "string", "enum": ["any", "only", "none"] },
+                    "boxes": { "type": "array", "items": { "type": "string" }, "description": "Helper ids (agent://<owner>/<helper>) for mode only" },
+                    "for": { "type": "string", "description": "An invited AI's id, to give it a rule of its own" },
+                    "follow_network": { "type": "boolean", "description": "With for: drop that AI's own rule" }
+                }
+            }
+        }),
     ]
 }
 
@@ -1057,6 +1075,37 @@ pub async fn handle_tool_call(
             let view = client.get_network().await?;
             json_block(&view)
         }
+        "get_agent_mail_policy" => json_block(&client.get_agent_mail().await?),
+        "set_agent_mail_policy" => {
+            let for_ai = args.get("for").and_then(|f| f.as_str());
+            let follow = args
+                .get("follow_network")
+                .and_then(|f| f.as_bool())
+                .unwrap_or(false);
+            let boxes: Vec<String> = args
+                .get("boxes")
+                .and_then(|b| b.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let rule = if follow {
+                anyhow::ensure!(for_ai.is_some(), "follow_network needs for");
+                None
+            } else {
+                let mode = args
+                    .get("mode")
+                    .and_then(|m| m.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing mode (any, only or none)"))?;
+                Some(mode)
+            };
+            let view = client
+                .set_agent_mail(for_ai, rule.map(|m| (m, boxes.as_slice())))
+                .await?;
+            json_block(&view)
+        }
         "claim_task" => {
             let task_id = args
                 .get("task_id")
@@ -1382,7 +1431,7 @@ mod tests {
     #[test]
     fn respond_decision_is_not_an_agent_tool() {
         let tools = list_tools_schema();
-        assert_eq!(tools.len(), 31);
+        assert_eq!(tools.len(), 33);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 

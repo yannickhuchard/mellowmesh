@@ -4,6 +4,7 @@ pub mod cache;
 pub mod connect;
 pub mod guard;
 pub mod handlers;
+pub mod mail_policy;
 pub mod mellows;
 pub mod metrics;
 pub mod notify;

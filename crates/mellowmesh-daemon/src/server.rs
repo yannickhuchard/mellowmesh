@@ -131,6 +131,10 @@ pub fn create_router(state: AppState) -> Router {
             delete(handlers::network::remove_team_member),
         )
         .route("/access/check", get(handlers::network::access_check))
+        .route(
+            "/agent-mail",
+            get(crate::mail_policy::get_policy).put(crate::mail_policy::put_policy),
+        )
         .route("/platforms", get(platforms_handler))
         .route("/platforms/:id/mellows", post(create_mellow_handler))
         .route("/platforms/:id/connect", post(connect_platform_handler))
@@ -1430,8 +1434,17 @@ mod tests {
             publish("_agent.test.cursor.notes").await.unwrap().status(),
             200
         );
+        // Another helper's mailbox: open by default (the owner's mail
+        // policy decides, see mail_policy), its outbox never.
         assert_eq!(
             publish("_agent.test.reviewer.inbox")
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            publish("_agent.test.reviewer.outbox")
                 .await
                 .unwrap()
                 .status(),
@@ -1768,7 +1781,7 @@ mod tests {
         // and the code can never silently drift apart again.
         assert_eq!(
             tools.len(),
-            31,
+            33,
             "MCP tool count changed — update README.md and docs/mcp.md to match"
         );
 

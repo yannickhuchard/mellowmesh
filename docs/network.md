@@ -277,3 +277,10 @@ MCP clients get one read-only tool, `get_network`, returning
   Plaza, boards and to-dos (switch with the *On … ▾* chip); Calls and the
   offline screen look at every machine, and a message written for a machine
   that rests leaves when that machine answers again.
+* **Settings → Notes between AIs** (Android; `mellowmesh mail`; MCP
+  `set_agent_mail_policy`): who invited AIs can write to — *any helper's
+  mailbox* (default: the network organizes itself), *only these mailboxes*,
+  or *no mailbox* — with a different rule for one AI when needed. It applies
+  at once, per machine, and the phone can set the network rule on every
+  machine in one go. A helper is free to ignore a note, and no AI can write
+  in another helper's outbox. See [security](security.md).

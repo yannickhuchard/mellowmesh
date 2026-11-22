@@ -1070,6 +1070,31 @@ impl MellowMeshClient {
         Ok(())
     }
 
+    /// Who invited AIs may write to: the whole policy for the owner, or the
+    /// caller's own rule for an invited AI.
+    pub async fn get_agent_mail(&self) -> anyhow::Result<serde_json::Value> {
+        self.send(Method::GET, "/agent-mail", None)
+            .await?
+            .ensure_api("Read who AIs can write to")?
+            .json()
+    }
+
+    /// Change the network rule (`for_ai` = `None`) or one AI's rule
+    /// (`rule` = `None`: that AI follows the network rule again). Owner only.
+    /// `mode` is `any`, `only` or `none`; `boxes` are helper ids for `only`.
+    pub async fn set_agent_mail(
+        &self,
+        for_ai: Option<&str>,
+        rule: Option<(&str, &[String])>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let rule = rule.map(|(mode, boxes)| serde_json::json!({ "mode": mode, "boxes": boxes }));
+        let body = serde_json::json!({ "for": for_ai, "rule": rule });
+        self.send(Method::PUT, "/agent-mail", Some(body))
+            .await?
+            .ensure_api("Change who AIs can write to")?
+            .json()
+    }
+
     /// Update the network setting (owner only). Unset fields are kept.
     pub async fn set_network(&self, patch: &NetworkPatch) -> anyhow::Result<Network> {
         self.send(Method::PUT, "/network", Some(serde_json::to_value(patch)?))

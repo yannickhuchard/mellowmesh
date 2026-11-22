@@ -21,10 +21,13 @@ mellowmesh token create --for agent://you/grok `
 ```
 
 These are the same limits the *Invite* button gives. Grok writes in shared
-rooms, tasks and its own corner (`_agent.you.grok.**`) — not in another
-helper's inbox or outbox: to ask a helper something, it creates a task and
-assigns it (the skill says how). The hub keeps a Mellow's voice for the
-session that hosts it.
+rooms, tasks and its own corner (`_agent.you.grok.**`). Other helpers'
+mailboxes are not in the key: the owner's rule decides, at write time —
+any helper's mailbox (the default), only some, or none, for all invited AIs
+or for Grok alone (phone: Settings → Notes between AIs; terminal:
+`mellowmesh mail set only --box coder --for grok`). Grok asks with
+`get_agent_mail_policy`. Nobody ever writes in another helper's outbox: the
+hub keeps a Mellow's voice for the session that hosts it.
 
 Copy the `mm_…` token (shown once). Revoke any time:
 `mellowmesh token list`, then `mellowmesh token revoke <id>`.

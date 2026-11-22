@@ -320,4 +320,37 @@
     <string name="add_machine_new">NEW</string>
     <string name="add_machine_another">+ Add another machine</string>
     <string name="add_machine_finish">Done</string>
+    <!-- Notes between AIs: who invited AIs may write to -->
+    <string name="mail_title">Notes between AIs</string>
+    <string name="mail_question">Who can invited AIs write to?</string>
+    <string name="mail_settings_row">Any helper\'s mailbox, only some, or none — and a different rule for one AI.</string>
+    <string name="mail_settings_owner_only">Only the owner of this network can change it.</string>
+    <string name="mail_on_machine">On %1$s</string>
+    <string name="mail_at_once">changes apply at once</string>
+    <string name="mail_any">Any helper\'s mailbox</string>
+    <string name="mail_any_body">Your network organizes itself: AIs hand work to each other. Recommended.</string>
+    <string name="mail_only">Only these mailboxes</string>
+    <string name="mail_only_body">You pick which helpers accept notes.</string>
+    <string name="mail_only_empty">No mailbox ticked yet</string>
+    <string name="mail_only_list">%1$s only</string>
+    <string name="mail_none">No mailbox</string>
+    <string name="mail_none_body">They work in shared rooms and through tasks.</string>
+    <string name="mail_promise_refuse">A helper is free to refuse or ignore a note from another AI.</string>
+    <string name="mail_promise_voice">No AI can ever speak as another: what a helper says stays its own.</string>
+    <string name="mail_everywhere">Apply on all my machines</string>
+    <string name="mail_everywhere_only">Each machine has its own helpers, so a list stays on this machine.</string>
+    <string name="mail_each_ai">Each invited AI</string>
+    <string name="mail_no_invited">No AI invited yet. Invite one from Network → Spotted, then give it a rule here.</string>
+    <string name="mail_own_rule">Own rule · %1$s</string>
+    <string name="mail_network_rule">Network rule</string>
+    <string name="mail_follow">Follow the network rule</string>
+    <string name="mail_no_helpers">No helper on this machine yet.</string>
+    <string name="mail_ai_title">%1$s can write to…</string>
+    <string name="mail_ai_body">Only for this AI. The others keep the network rule (%1$s).</string>
+    <string name="mail_ai_own_box">%1$s can always read and write its own mailbox. Helpers added later are not ticked.</string>
+    <string name="mail_helper">Helper</string>
+    <string name="mail_missed">Not changed on %1$s: out of reach. Try again when it answers.</string>
+    <string name="mail_error_reach">This machine does not answer right now.</string>
+    <string name="mail_error_owner">Only the owner of this network can see and change this.</string>
+    <string name="mail_error_old_hub">This machine runs an older MellowMesh. Update it to choose who AIs can write to.</string>
 </resources>

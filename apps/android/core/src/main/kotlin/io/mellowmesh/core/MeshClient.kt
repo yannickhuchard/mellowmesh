@@ -290,6 +290,13 @@ class MeshClient(
 
     fun agents(): List<AgentRegistration> = get("agents", ListSerializer(AgentRegistration.serializer()))
 
+    /** Who invited AIs may write to (owner: the whole policy). */
+    fun agentMail(): MailPolicyView = get("agent-mail", MailPolicyView.serializer())
+
+    /** Change the network rule or one AI's rule (owner only); returns the new policy. */
+    fun setAgentMail(change: MailChange): MailPolicyView =
+        decode(MailPolicyView.serializer(), send("PUT", "agent-mail", encode(MailChange.serializer(), change)))
+
     /** AI platforms the hub spotted on its own machine (owner only). */
     fun platforms(): PlatformsSnapshot = get("platforms", PlatformsSnapshot.serializer())
 

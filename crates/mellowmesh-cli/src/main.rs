@@ -112,6 +112,9 @@ enum Commands {
     /// Your network: name and default access for topics in no space
     Network(NetworkCmd),
 
+    /// Notes between AIs: which helpers' mailboxes invited AIs may write to
+    Mail(MailCmd),
+
     /// Spaces: topic patterns with private / closed / open access
     Space(SpaceCmd),
 
@@ -229,6 +232,31 @@ enum NetworkAction {
         /// Whether visitors may post on uncovered topics (open network)
         #[arg(long)]
         visitor_write: Option<bool>,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+struct MailCmd {
+    #[command(subcommand)]
+    action: MailAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum MailAction {
+    /// Show the network rule and each invited AI's rule
+    Show,
+    /// Set the rule: `any` (default), `only --box coder --box reviewer`, or
+    /// `none`. With --for, the rule is that AI's own; `--for grok network`
+    /// gives it the network rule again.
+    Set {
+        /// any, only, none (or `network` with --for)
+        rule: Option<String>,
+        /// A helper whose mailbox accepts notes (repeatable, with `only`)
+        #[arg(long = "box")]
+        boxes: Vec<String>,
+        /// An invited AI (e.g. grok) to give a rule of its own
+        #[arg(long = "for")]
+        for_ai: Option<String>,
     },
 }
 
@@ -927,6 +955,14 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?
             }
+        },
+        Commands::Mail(MailCmd { action }) => match action {
+            MailAction::Show => network_cmds::run_mail_show(&client).await?,
+            MailAction::Set {
+                rule,
+                boxes,
+                for_ai,
+            } => network_cmds::run_mail_set(&client, rule, boxes, for_ai).await?,
         },
         Commands::Space(SpaceCmd { action }) => match action {
             SpaceAction::Add {
