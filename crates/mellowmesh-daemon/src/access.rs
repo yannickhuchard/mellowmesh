@@ -62,6 +62,8 @@ pub struct AccessState {
     pub pairing: crate::pairing::PairingState,
     /// Who invited AIs may write to (cached; see [`crate::mail_policy`]).
     pub(crate) mail_policy: RwLock<Option<Arc<crate::mail_policy::MailPolicy>>>,
+    /// The hub's mailbox (see [`crate::email`]).
+    pub(crate) email: crate::email::Runtime,
 }
 
 impl Default for AccessState {
@@ -91,6 +93,7 @@ impl AccessState {
             remote_marker: mellowmesh_core::auth::generate_token(),
             pairing: Default::default(),
             mail_policy: RwLock::new(None),
+            email: Default::default(),
         }
     }
 

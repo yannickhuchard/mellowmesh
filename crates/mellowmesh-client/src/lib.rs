@@ -1095,6 +1095,65 @@ impl MellowMeshClient {
             .json()
     }
 
+    /// The hub's email. The owner gets the settings (never the password),
+    /// the list of people and the mailbox's status; anyone else signed in
+    /// gets whether email is on and whom they may email.
+    pub async fn get_email(&self) -> anyhow::Result<serde_json::Value> {
+        self.send(Method::GET, "/email", None)
+            .await?
+            .ensure_api("Read the hub's email")?
+            .json()
+    }
+
+    /// Change the hub's email (owner only). `patch` holds only the fields
+    /// to change: enabled, address, username, imap, smtp, folder,
+    /// poll_seconds, notify_decisions, notify_mentions, trust_provider,
+    /// password, forget_password, owner_address.
+    pub async fn set_email(&self, patch: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        self.send(Method::PUT, "/email", Some(patch))
+            .await?
+            .ensure_api("Change the hub's email")?
+            .json()
+    }
+
+    /// Open the hub's inbox and send a test email to the owner (owner only).
+    pub async fn check_email(&self) -> anyhow::Result<serde_json::Value> {
+        self.send(Method::POST, "/email/check", Some(serde_json::json!({})))
+            .await?
+            .ensure_api("Check the hub's email")?
+            .json()
+    }
+
+    /// Add a person who may write to the hub (`person` defaults to the
+    /// owner), or remove an address (owner only).
+    pub async fn set_email_person(
+        &self,
+        address: &str,
+        person: Option<&str>,
+        remove: bool,
+    ) -> anyhow::Result<serde_json::Value> {
+        let body = serde_json::json!({ "address": address, "person": person, "remove": remove });
+        self.send(Method::PUT, "/email/people", Some(body))
+            .await?
+            .ensure_api("Change who may email the hub")?
+            .json()
+    }
+
+    /// Email a person on the hub's list (`human://…` or a listed address).
+    /// An agent's email is answered in its own mailbox.
+    pub async fn send_email(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let req = serde_json::json!({ "to": to, "subject": subject, "body": body });
+        self.send(Method::POST, "/email/send", Some(req))
+            .await?
+            .ensure_api("Send an email")?
+            .json()
+    }
+
     /// Update the network setting (owner only). Unset fields are kept.
     pub async fn set_network(&self, patch: &NetworkPatch) -> anyhow::Result<Network> {
         self.send(Method::PUT, "/network", Some(serde_json::to_value(patch)?))

@@ -157,11 +157,29 @@ mellowmesh token revoke tok_…  # immediate revocation
   `.outbox` (its voice), and a note never sets a Mellow's session turn in
   motion — only the owner does. Receiving agents treat a note as a request
   they may refuse.
+* **Email**: the hub reads its own mailbox, and only addresses on its list
+  (`email://<address>` identity mappings, owner-only) are heard; anyone
+  else is ignored without an answer. Because a `From:` can be forged, an
+  email that acts (a note to an agent, a task) runs only if it replies to
+  an email the hub sent to that address (random Message-ID), if the
+  topmost `Authentication-Results` comes from the hub's provider by name
+  (its authserv-id, e.g. `mx.google.com`, filled in for Gmail; comments
+  stripped) and shows DMARC or aligned DKIM passing for the sender's
+  domain, or after the listed address confirmed it by replying. With no
+  provider named, every command not sent as a reply is confirmed first. `status` and `help` answer only
+  that listed address. A decision answered by email is relayed as
+  `human://… (via interface://local/email)` under the usual decider rules.
+  Agents may email only listed people (never a raw address; 20 an hour,
+  60 for the hub) and never see the addresses. The app password is never
+  returned by an API or logged; `MELLOWMESH_EMAIL_PASSWORD` keeps it off the
+  disk. Plain (unencrypted) mail connections are refused except to a
+  server on the same machine.
 * **Owner/admin only**: token administration, identity mappings
   (`POST /identity-mappings`), schema registration and status changes
   (`/schemas`), trace enable/disable (`/traces`), and the network, spaces
-  and teams (`/network`, `/spaces`, `/teams`, `/access/check`), and the
-  mail policy (`PUT /agent-mail`; an invited AI may only read its own rule).
+  and teams (`/network`, `/spaces`, `/teams`, `/access/check`), the
+  mail policy (`PUT /agent-mail`; an invited AI may only read its own rule),
+  and email (`PUT /email`, `POST /email/check`, `PUT /email/people`).
 
 Scopes use the same wildcard grammar as subscriptions: `*` (one token),
 `>` (one or more suffix tokens), `**` (zero or more tokens anywhere).

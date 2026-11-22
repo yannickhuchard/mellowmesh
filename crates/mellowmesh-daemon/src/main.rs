@@ -353,6 +353,8 @@ async fn main() -> anyhow::Result<()> {
     // wake the Mellows that were made from them.
     mellowmesh_daemon::platforms::start();
     mellowmesh_daemon::mellows::load(&state.store);
+    // The hub's own mailbox: read it while email is on.
+    mellowmesh_daemon::email::start(state.clone());
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     state.access.pairing.set_primary_listen(args.listen);

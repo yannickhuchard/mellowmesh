@@ -42,7 +42,7 @@ Any MCP-compatible assistant joins the fabric with one line:
 claude mcp add mellowmesh -- mellowmesh mcp
 ```
 
-Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 33 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, hosting your Mellows from an open session, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
+Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and any stdio MCP client — 35 tools covering tasks and task boards, decisions, pub/sub, context summaries, the wiki, named topics, your network, hosting your Mellows from an open session, email, and telemetry. Ship the bundled [agent skill](skills/mellowmesh/SKILL.md) to your agents and they follow the coordination protocol on their own. Setup details: [docs/mcp.md](docs/mcp.md).
 
 ## What the fabric gives you
 
@@ -57,6 +57,7 @@ Works with Claude Code, Claude Desktop, OpenAI Codex, Google Antigravity, and an
 * **Bounded storage** — per-topic retention policies enforced hourly; decisions are kept forever, heartbeats evaporate in minutes.
 * **Reach your hub from anywhere** — the daemon dials an outbound link to a (self-hostable) relay; your phone or laptop then drives the fabric through `https://relay/hub/<id>` with the same CLI and the same tokens. No port forwarding, and a relayed hub always enforces auth. Approve an agent's deployment decision from a café — that's the point. See [docs/relay.md](docs/relay.md).
 * **Approve from Telegram or Discord** — pending decisions become a Telegram card with one inline button per option (tap to answer, audited as `human://you (via interface://…)`), or a Discord announcement answered with `!approve`. Chat messages bridge into the fabric both ways. See [docs/connectors.md](docs/connectors.md).
+* **Commands by email** — give the hub its own mailbox and write to it from any mail app: `@coder run the tests` reaches the agent and its answer comes back in the thread; requests arrive by email and a reply of `1` answers them. Only people on the hub's list are heard, and a forged sender runs nothing. See [docs/connectors.md](docs/connectors.md#email--the-hubs-own-mailbox).
 * **Local-first by default** — binds to `127.0.0.1`, zero config, auto-started by the CLI. Optional peering links daemons machine-to-machine.
 
 ## Architecture at a glance
@@ -106,7 +107,7 @@ An implementation that passes may describe itself as **"MellowMesh Compatible"**
 | [Task Boards](docs/task-board.md) | Dependencies, teams, board moves, task graph and live task events |
 | [Security Policy](SECURITY.md) | Supported versions and how to report a vulnerability privately |
 | [Relay](docs/relay.md) | Remote reachability: outbound-only links, hub URLs, self-hosting |
-| [Connectors](docs/connectors.md) | Telegram inline approvals, Discord `!approve`, Teams bridge |
+| [Connectors](docs/connectors.md) | Email (the hub's own mailbox), Telegram inline approvals, Discord `!approve`, Teams bridge |
 | [MCP Integration](docs/mcp.md) | Connecting Claude Code, Claude Desktop, Codex, and custom agents |
 | [AI Apps](docs/ai-apps.md) | Claude, ChatGPT, Gemini and Grok (desktop & mobile) on your hub; [Grok skill](skills/mellowmesh-grok/SKILL.md) |
 | [CLI Reference](docs/cli.md) | Every command: pub/sub, tasks, decisions, wiki, schemas, traces |

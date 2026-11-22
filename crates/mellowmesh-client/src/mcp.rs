@@ -743,6 +743,24 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
                 }
             }
         }),
+        serde_json::json!({
+            "name": "get_email_status",
+            "description": "The hub's own mailbox. For an agent: whether email is on and which people (human://…) it may email. For the owner: the settings (never the password), the people who may write to the hub, and the mailbox's status (last check, last error, counts).",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        serde_json::json!({
+            "name": "send_email",
+            "description": "Email a person on the hub's list, from the hub's own address (signed \"<your name> via MellowMesh\"). Only listed people (see get_email_status), never any address; about 20 emails an hour. Their reply arrives in your mailbox as a note; answer it with publish_message and parent_id set to that note's id to email them back.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "to": { "type": "string", "description": "A person, e.g. human://lea" },
+                    "subject": { "type": "string" },
+                    "body": { "type": "string", "description": "Plain text" }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }),
     ]
 }
 
@@ -1076,6 +1094,18 @@ pub async fn handle_tool_call(
             json_block(&view)
         }
         "get_agent_mail_policy" => json_block(&client.get_agent_mail().await?),
+        "get_email_status" => json_block(&client.get_email().await?),
+        "send_email" => {
+            let field = |name: &str| {
+                args.get(name)
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing {name}"))
+            };
+            let sent = client
+                .send_email(field("to")?, field("subject")?, field("body")?)
+                .await?;
+            json_block(&sent)
+        }
         "set_agent_mail_policy" => {
             let for_ai = args.get("for").and_then(|f| f.as_str());
             let follow = args
@@ -1431,7 +1461,7 @@ mod tests {
     #[test]
     fn respond_decision_is_not_an_agent_tool() {
         let tools = list_tools_schema();
-        assert_eq!(tools.len(), 33);
+        assert_eq!(tools.len(), 35);
         assert!(tools.iter().all(|t| t["name"] != "respond_decision"));
     }
 

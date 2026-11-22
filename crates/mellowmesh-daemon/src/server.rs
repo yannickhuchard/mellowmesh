@@ -132,6 +132,13 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/access/check", get(handlers::network::access_check))
         .route(
+            "/email",
+            get(crate::email::get_email).put(crate::email::put_email),
+        )
+        .route("/email/check", post(crate::email::check))
+        .route("/email/people", put(crate::email::put_person))
+        .route("/email/send", post(crate::email::post_send))
+        .route(
             "/agent-mail",
             get(crate::mail_policy::get_policy).put(crate::mail_policy::put_policy),
         )
@@ -1781,7 +1788,7 @@ mod tests {
         // and the code can never silently drift apart again.
         assert_eq!(
             tools.len(),
-            33,
+            35,
             "MCP tool count changed — update README.md and docs/mcp.md to match"
         );
 

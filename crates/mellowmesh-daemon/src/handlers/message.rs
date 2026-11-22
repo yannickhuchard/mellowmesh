@@ -384,6 +384,8 @@ pub fn handle_publish(
 
         // Broadcast in-memory (Hot path)
         state.registry.broadcast(&msg);
+        // Answers, decisions and mentions that go out by email.
+        crate::email::observe(&state, &msg);
         state
             .metrics
             .messages_routed_total

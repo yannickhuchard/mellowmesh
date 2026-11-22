@@ -2,6 +2,7 @@ pub mod access;
 pub mod auth;
 pub mod cache;
 pub mod connect;
+pub mod email;
 pub mod guard;
 pub mod handlers;
 pub mod mail_policy;

@@ -284,3 +284,8 @@ MCP clients get one read-only tool, `get_network`, returning
   at once, per machine, and the phone can set the network rule on every
   machine in one go. A helper is free to ignore a note, and no AI can write
   in another helper's outbox. See [security](security.md).
+* **Settings → Email** (Android; `mellowmesh email`): the machine's hub gets
+  a mailbox of its own — address, app password, *Check* — and a list of the
+  people who may give it commands by email. Each machine has its own
+  mailbox (two hubs never read the same inbox). See
+  [connectors](connectors.md#email--the-hubs-own-mailbox).

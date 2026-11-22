@@ -36,6 +36,12 @@ tokio-tungstenite = "0.21"
 url = "2.5"
 notify-rust = "4"
 reqwest = { version = "0.12", features = ["json"] }
+# Email: the hub sends (SMTP) and reads (IMAP) its own mailbox. TLS goes
+# through native-tls, like reqwest (SChannel on Windows, OpenSSL on unix).
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-native-tls", "hostname"] }
+async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
+tokio-native-tls = "0.3"
+mail-parser = "0.9"
 
 # Vendored OpenSSL keeps Unix packages (.deb/.dmg) self-contained; Windows
 # uses SChannel via native-tls and needs no OpenSSL (and no Perl to build it).

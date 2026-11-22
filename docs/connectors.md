@@ -1,6 +1,82 @@
-# Chat Connectors: Telegram, Discord, Teams
+# Connectors: Email, Telegram, Discord, Teams
 
-Connectors bridge chat platforms into the fabric: messages flow both ways,
+## Email — the hub's own mailbox
+
+Email needs no bot and no new account: the hub gets **an address of its
+own** and reads (IMAP) and writes (SMTP) it itself — no outside service in
+between. Write to it from any mail app; answer its requests by replying.
+
+Setup (a dedicated address is best: the hub reads its inbox):
+
+```bash
+echo "your-app-password" | mellowmesh email set --address hub.of.lea@gmail.com \
+    --me lea@studio.fr --password-stdin
+mellowmesh email check   # opens the inbox, sends you a test email
+mellowmesh email on
+```
+
+Servers are filled in from the address for the common providers (Gmail,
+iCloud, Yahoo, Fastmail, GMX, Zoho, Orange, Free, La Poste); otherwise
+`imap.<domain>:993` and `smtp.<domain>:465`, or give them with
+`--imap host:port[:tls|starttls|none]` and `--smtp …`. Use an **app
+password** from your provider's security page (Gmail needs 2-step
+verification for one). Outlook.com no longer accepts passwords for IMAP,
+only OAuth, which is not supported yet. The password is saved in the hub's
+database and never returned by any API; set `MELLOWMESH_EMAIL_PASSWORD` in
+the hub's environment instead to keep it off the disk. On Android:
+Settings → Email.
+
+**Who may write.** Only addresses on the hub's list (`mellowmesh email allow
+<address> [--as human://…]`, `mellowmesh email forget <address>`; your own
+address with `--me`). Email from anyone else is ignored, with no answer.
+Automatic replies and mailing lists are never answered.
+
+**A forged sender runs nothing.** A sender's address is easy to fake, so an
+email that acts (a note to an agent, a task) runs only when:
+
+1. it replies to an email the hub sent to that very address — its
+   Message-ID is random and unguessable; or
+2. the hub's own mail provider vouched for it: the topmost
+   `Authentication-Results` header names that provider's server
+   (`--provider-id`, filled in as `mx.google.com` for Gmail and empty
+   otherwise) and reports DMARC, or an aligned DKIM signature, passing for
+   the sender's domain. Comments in the header are ignored, and a header
+   from any other server is not believed. With no provider named (or
+   `--trust-provider off`), only 1 and 3 count; or
+3. the hub asked the listed address "Reply to this email to confirm" and
+   that reply came back within 30 minutes. Only the real person receives
+   that question.
+
+**Commands** (in the subject or the first line):
+
+| Write | What happens |
+| :--- | :--- |
+| `@coder run the tests` | A note in Coder's mailbox, from you. Its answer (any message published with the note as `parent_id`, which a Mellow's reply does) comes back in the same thread. Reply again to keep talking to it. A Mellow takes a turn only when the owner writes. |
+| `task: renew the domain` | A task on the board; the rest of the email is its description. |
+| `status` | What waits for you: requests, tasks, agents. |
+| `help` | The list. Anything else gets the list too. |
+
+**Requests by email.** A decision addressed to a person on the list (or to
+the owner) is emailed with numbered options. Reply `1`, `2`, the option's
+name, `yes` or `no`; the answer is recorded as `human://you (via
+interface://local/email)`, with the same rules as any relayed answer (only
+the required decider or the owner). `--decisions off` stops these emails;
+`--mentions on` also emails you when an agent @mentions you (reply to
+answer in that conversation).
+
+**Agents email people.** Over MCP (`send_email`) or `POST /email/send`, an
+agent may email a person on the list — never an arbitrary address, at most
+20 emails an hour (the hub sends at most 60) — and the reply arrives in its
+mailbox. `GET /email` tells an agent which people it may email, never their
+addresses.
+
+HTTP: `GET /email` · `PUT /email` (owner) · `POST /email/check` (owner) ·
+`PUT /email/people` (owner) · `POST /email/send`.
+
+
+## Chat connectors
+
+Chat connectors bridge chat platforms into the fabric: messages flow both ways,
 and — the flagship — **pending decisions reach you where you are, and you can
 answer them from there**. Connectors run inside the daemon and start
 automatically when their credentials are configured; without credentials

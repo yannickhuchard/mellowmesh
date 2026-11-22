@@ -15,11 +15,11 @@ use ulid::Ulid;
 
 #[derive(Deserialize)]
 pub struct ResponsePayload {
-    option_id: String,
+    pub option_id: String,
     /// Optional attribution hint from interface connectors relaying a
     /// human's answer (e.g. `telegram://12345` or a mapped `human://` id).
     #[serde(default)]
-    responded_by: Option<String>,
+    pub responded_by: Option<String>,
 }
 
 /// Client-supplied decision ids become topic segments

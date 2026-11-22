@@ -352,6 +352,102 @@ Decisions:
 | T13 | Let Grok write only to Coder, while Claude Code can still write to everyone. | 2 min | Grok shows "Own rule · Coder only"; the network rule is still "Any helper's mailbox". |
 | T14 | A friend asks: "So Grok can order Coder to delete my files?" Answer from the screen. | 1 min | Says Coder decides for itself, and that nobody can speak as Coder. |
 
+*Email: the channel everyone already has.* Chat bridges (Telegram, Discord,
+Teams) each need an account, a bot and a token. Email needs nothing new:
+every persona has an address, on every device, and some (Marc, Aïcha's
+auditors) trust nothing else. So the hub gets **its own mailbox**, and it
+both writes and reads email itself — no outside service in between.
+
+What the personas need:
+
+* **Marc** wants to answer a request by replying to an email, with a word
+  or a number. Nothing to install. He must never be asked for a password
+  other than the one he chose for the hub's mailbox.
+* **Léa** wants to send an order from anywhere: an email to her hub saying
+  "@coder run the tests and tell me", and the answer back **in the same
+  email thread**.
+* **Nadia** wants the hub to stay quiet: decisions only, mentions off unless
+  she turns them on.
+* **Aïcha** fears the obvious: an email's sender can be faked. A stranger
+  who learns the hub's address must not be able to command her agents, and
+  an agent must not be able to email anyone it likes.
+* **Karim** wants it from the terminal and over MCP: configure in one line,
+  and let an agent send an email to a person on the list (and get the
+  reply).
+
+Decisions:
+
+* **The hub's own mailbox.** A dedicated address is recommended (the hub
+  reads its inbox). Setup is one screen: the address, the app password,
+  and the servers — filled in automatically for the common providers.
+  "Check" sends a test email to the owner and says which step failed.
+  The password is never shown again, and never leaves the hub.
+* **Only people on the list.** Email from anyone not on the hub's list of
+  people is ignored — no answer, so a spammer learns nothing. The owner's
+  own address is on it from the start.
+* **A forged sender is not enough.** A command runs only if the email is
+  a reply to one the hub sent to that person (its id is unguessable), or if
+  the person's mail provider vouched for it (DMARC pass). Otherwise the hub
+  asks: "Reply to this email to confirm" — only the real person receives
+  that question.
+* **Commands are words.** Reply `1`, `2`, an option's name, *yes* or *no*
+  to answer a decision. Write `@coder …` to send a note to an agent, whose
+  answer comes back in the same thread; reply again to keep talking to it.
+  `task: …` adds a task. `status` lists what waits for you. `help` sends the
+  list. Anything else gets the list back.
+* **Agents write only to listed people.** An agent can send an email (over
+  MCP) to a person on the list — never to any address — and a reply comes
+  back to that agent's mailbox.
+* **Quiet by default.** Decisions are emailed; @mentions only if turned on.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T15 | Give the hub its mailbox and check it works. | 4 min | "Check" shows three green steps and a test email arrives. |
+| T16 | From a phone's mail app, ask Coder to run the tests, then approve its request by replying "1". | 3 min | Coder's answer arrives in the same thread; the decision shows "answered by you, by email". |
+
+*Inviting an AI in one link.* A phone joins by scanning a QR code. An AI
+cannot scan: today it gets a long pasted message asking it to `POST` a
+code — and a web assistant usually cannot `POST` at all. Observed: GrokBot
+failed to join at the first try. Every AI, though, can open a link: Grok,
+ChatGPT, Claude and Gemini fetch pages; Mistral's Le Chat browses; a bot
+such as GrokBot, OpenBot or Buzz runs code and can `GET` a URL.
+
+What the personas need:
+
+* **Marc** wants one button per AI and one thing to paste — a link — with
+  a sentence around it that says what it is.
+* **Léa** invites from her phone, in a café, into the Grok app on the same
+  phone: *Copy*, switch app, paste, done. Or *Share* straight into the app.
+* **Karim** has his own bots (OpenBot, Buzz): he types a name and gets the
+  same link; the bot `GET`s it and receives JSON.
+* **Aïcha** worries about a link travelling: it must die quickly, open only
+  a few times, give only that AI's limited key (never the owner's), and the
+  screen must say so.
+
+Decisions:
+
+* **One link per invitation**: `https://<hub>/join/<code>`. Opened by an AI
+  it reads, in plain words, who invites it, under which identity, and the
+  one step to take: add the MellowMesh connector with the address given
+  (the key is in it). `?format=json` gives the same to a bot.
+* **The link carries no key**, only a long random code; the key is in the
+  page. It works **30 minutes, 5 opens** (an AI may read it twice; a link
+  preview once), then says "ask for a new one".
+* **Any AI.** Buttons for Grok, ChatGPT, Claude, Gemini, Mistral — and
+  *Another AI…* with a name (OpenBot, Buzz…), which gets its own identity
+  (`agent://<owner>/<name>`) and the same limits.
+* **Copy link · Copy message · Share.** The message is one sentence with the
+  link. Shown once, with when it stops working.
+* **Honest about reach.** If the hub has no public address, the screen says
+  web assistants cannot open the link (bots on the same network can) and
+  points to a tunnel or the relay.
+* **QR stays for phones**; the link is the AI's QR code.
+
+| # | Task (first-use test) | Time | Success criterion |
+| :--- | :--- | :--- | :--- |
+| T17 | Invite Grok from the phone and get it to say hello in the forum. | 2 min | Grok's hello appears; Marc pasted only one thing. |
+| T18 | Invite your own bot "Buzz" (Karim). | 1 min | The bot fetches the link as JSON and calls the hub with its own key. |
+
 *Developer console (web).* Tomás (agent builder) is its only persona: the
 web client stops pretending to be the product and becomes the workshop —
 live traffic first, raw payloads, the registry (agents, platforms,

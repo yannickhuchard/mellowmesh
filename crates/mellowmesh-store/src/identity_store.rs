@@ -26,6 +26,15 @@ impl Store {
         }
     }
 
+    pub fn delete_identity_mapping(&self, ext_id: &str) -> anyhow::Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "DELETE FROM identity_mappings WHERE external_id = ?1",
+            params![ext_id],
+        )?;
+        Ok(())
+    }
+
     pub fn list_identity_mappings(&self) -> anyhow::Result<Vec<(String, String)>> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare("SELECT external_id, mellowmesh_id FROM identity_mappings")?;

@@ -64,6 +64,7 @@ mellowmesh --port 45000 status
 | `MELLOWMESH_URL` | Client-side: full base URL of a remote hub (`https://relay.example.com/hub/<id>`), used by the CLI/SDK instead of `127.0.0.1`. | unset (local) |
 | `MELLOWMESH_E2E` | Client-side: end-to-end sealing of **every** CLI command and SDK call (including live subscriptions) — the relay sees only ciphertext, and the token never leaves the ciphertext. On by default for a remote (non-loopback) `MELLOWMESH_URL` when a token is set; `1` forces it on, `0` opts out. See [relay](relay.md). | auto (on for remote URLs) |
 | `MELLOWMESH_RELAY_STATE` | Relay server: file that persists hub-id bindings (same as `mellowmesh-relay --state-file`). Set it in production. See [relay](relay.md). | unset (in memory) |
+| `MELLOWMESH_EMAIL_PASSWORD` | The app password of the hub's mailbox, kept out of the database. Email itself is set up with `mellowmesh email set` or the app. See [connectors](connectors.md#email--the-hubs-own-mailbox). | unset |
 | `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram connector: decision cards with inline approve/reject buttons + message bridging. See [connectors](connectors.md). | unset (idle) |
 | `DISCORD_TOKEN`, `DISCORD_CHANNEL_ID` | Discord connector: decision announcements with `!approve` + message bridging. | unset (idle) |
 | `TEAMS_WEBHOOK_URL`, `TEAMS_OUTGOING_WEBHOOK_KEY` | Teams webhook bridge. The inbound receiver starts only when `TEAMS_OUTGOING_WEBHOOK_KEY` is set. See [connectors](connectors.md). | unset (idle) |

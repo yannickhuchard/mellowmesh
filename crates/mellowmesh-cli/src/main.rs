@@ -2,6 +2,7 @@ use clap::{Args, Parser, Subcommand};
 use mellowmesh_client::MellowMeshClient;
 
 mod commands;
+mod email_cmds;
 mod mcp;
 mod network_cmds;
 
@@ -114,6 +115,9 @@ enum Commands {
 
     /// Notes between AIs: which helpers' mailboxes invited AIs may write to
     Mail(MailCmd),
+
+    /// The hub's own mailbox: commands and requests by email
+    Email(EmailCmd),
 
     /// Spaces: topic patterns with private / closed / open access
     Space(SpaceCmd),
@@ -257,6 +261,89 @@ enum MailAction {
         /// An invited AI (e.g. grok) to give a rule of its own
         #[arg(long = "for")]
         for_ai: Option<String>,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+struct EmailCmd {
+    #[command(subcommand)]
+    action: EmailAction,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum EmailAction {
+    /// Show the mailbox, its status and who may write to it
+    Show,
+    /// Give the hub its mailbox, or change it. Servers are filled in from
+    /// the address for common providers (Gmail, iCloud, Fastmail, ...).
+    Set {
+        /// The hub's own address (a dedicated one is best)
+        #[arg(long)]
+        address: Option<String>,
+        /// Your own address: you may then give commands by email
+        #[arg(long)]
+        me: Option<String>,
+        /// Login, when it differs from the address
+        #[arg(long)]
+        login: Option<String>,
+        /// Reading server, host:port[:tls|starttls|none]
+        #[arg(long)]
+        imap: Option<String>,
+        /// Sending server, host:port[:tls|starttls|none]
+        #[arg(long)]
+        smtp: Option<String>,
+        /// Folder to read (default INBOX)
+        #[arg(long)]
+        folder: Option<String>,
+        /// Read the mailbox every N seconds (10 to 3600)
+        #[arg(long)]
+        every: Option<u64>,
+        /// Email requests to decide: on or off
+        #[arg(long)]
+        decisions: Option<String>,
+        /// Email me when an agent mentions me: on or off
+        #[arg(long)]
+        mentions: Option<String>,
+        /// Accept the sender's provider's proof (DMARC/DKIM): on or off
+        #[arg(long = "trust-provider")]
+        trust_provider: Option<String>,
+        /// The server name the hub's provider writes in
+        /// Authentication-Results (mx.google.com for Gmail, filled in);
+        /// "" to believe no provider
+        #[arg(long = "provider-id")]
+        provider_id: Option<String>,
+        /// Read the app password from standard input (one line)
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
+        /// Remove the saved app password
+        #[arg(long = "forget-password")]
+        forget_password: bool,
+    },
+    /// Turn email on: the hub reads its inbox and sends
+    On,
+    /// Turn email off
+    Off,
+    /// Open the inbox and send yourself a test email
+    Check,
+    /// Let an address give commands by email
+    Allow {
+        address: String,
+        /// The person it belongs to (default: you)
+        #[arg(long = "as")]
+        person: Option<String>,
+    },
+    /// Stop an address from giving commands by email
+    Forget { address: String },
+    /// Email a person on the hub's list
+    Send {
+        /// A person (human://...) or one of their listed addresses
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        subject: String,
+        /// The text
+        #[arg(required = true)]
+        body: Vec<String>,
     },
 }
 
@@ -963,6 +1050,54 @@ async fn main() -> anyhow::Result<()> {
                 boxes,
                 for_ai,
             } => network_cmds::run_mail_set(&client, rule, boxes, for_ai).await?,
+        },
+        Commands::Email(EmailCmd { action }) => match action {
+            EmailAction::Show => email_cmds::run_show(&client).await?,
+            EmailAction::Set {
+                address,
+                me,
+                login,
+                imap,
+                smtp,
+                folder,
+                every,
+                decisions,
+                mentions,
+                trust_provider,
+                provider_id,
+                password_stdin,
+                forget_password,
+            } => {
+                email_cmds::run_set(
+                    &client,
+                    email_cmds::SetArgs {
+                        address,
+                        me,
+                        login,
+                        imap,
+                        smtp,
+                        folder,
+                        every,
+                        decisions,
+                        mentions,
+                        trust_provider,
+                        provider_id,
+                        password_stdin,
+                        forget_password,
+                    },
+                )
+                .await?
+            }
+            EmailAction::On => email_cmds::run_switch(&client, true).await?,
+            EmailAction::Off => email_cmds::run_switch(&client, false).await?,
+            EmailAction::Check => email_cmds::run_check(&client).await?,
+            EmailAction::Allow { address, person } => {
+                email_cmds::run_allow(&client, &address, person).await?
+            }
+            EmailAction::Forget { address } => email_cmds::run_forget(&client, &address).await?,
+            EmailAction::Send { to, subject, body } => {
+                email_cmds::run_send(&client, &to, &subject, &body).await?
+            }
         },
         Commands::Space(SpaceCmd { action }) => match action {
             SpaceAction::Add {
