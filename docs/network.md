@@ -288,6 +288,20 @@ MCP clients get one read-only tool, `get_network`, returning
   sent, received and joined (Settings → Sounds; silent when the phone is).
   The last place of *Everyone* is **New**: finding or making a Mellow (the
   shops) lives here now. The strip ends with **+**: *Your networks*.
+* **Group conversations** (Android): tapping a group opens one conversation
+  with all its Mellows, wherever each one runs. There is no shared room:
+  the phone says each line once per member, in that Mellow's own
+  conversation on its own machine, tagged `payload.mm_group` (the group,
+  the turn, who it is for, the other members and what was said lately).
+  The hub hands that context to the Mellow (`group` in `mellow_wait`, a
+  group paragraph in a headless prompt); each answers in its conversation
+  and the phone reads them back as one thread — the person's line once,
+  every answer with its Mellow's name. Tap Mellows above the composer (or
+  write `@Name`) to write to them alone. A Mellow that writes `@Name` of
+  another member hands over: the phone passes its answer to that Mellow
+  (drawn as a line from one to the other), at most three times per turn and
+  never twice for the same answer. Group lines stay out of the one-to-one
+  conversations.
 * **Journeys** (Android, third tab; the bottom bar is Plaza · Chats ·
   Journeys · To do): the paths Mellows help along. Every task on a
   `journey.<slug>` topic, on any machine, is a station: done (filled),

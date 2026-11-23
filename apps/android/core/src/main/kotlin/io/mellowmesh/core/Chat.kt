@@ -91,8 +91,9 @@ object Chat {
     fun thread(conversationId: String, history: List<Message>, me: String, dir: Directory): List<ChatMessage> {
         val conv = Conversations.parseId(conversationId) ?: return emptyList()
         val seen = HashSet<String>()
+        val group = GroupChat.isGroupTraffic(history)
         return history
-            .filter { Conversations.isChatTopic(conv, it.topic) }
+            .filter { Conversations.isChatTopic(conv, it.topic) && !group(it) }
             .filter { it.id.isEmpty() || seen.add(it.id) }
             .map { toChat(it, me, dir) }
             .sortedWith(compareBy<ChatMessage> { it.tsMs }.thenBy { it.id })
@@ -113,7 +114,9 @@ object Chat {
     ): List<ConversationSummary> {
         val groups = LinkedHashMap<String, Pair<ConversationRef, MutableList<ChatMessage>>>()
         val seen = HashSet<String>()
+        val group = GroupChat.isGroupTraffic(history)
         for (m in history) {
+            if (group(m)) continue
             val conv = Conversations.classify(m.topic) ?: continue
             if (m.id.isNotEmpty() && !seen.add(m.id)) continue
             groups.getOrPut(conv.id) { conv to mutableListOf() }.second.add(toChat(m, me, dir))

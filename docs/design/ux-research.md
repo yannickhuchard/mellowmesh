@@ -771,6 +771,26 @@ chime could come half a minute late. Live task and decision events on the
 machine in use now refresh the journeys within about 1.2 s (other
 machines stay on the 30-second rhythm).
 
+### Persona run — group conversations (2026-11-23)
+
+Karim runs two networks: his home (*Reviewer*) and his small moving
+business (*Movers*). Both are session Mellows on real hubs, answered by a
+hosting loop through `/mellows/next` and `/mellows/reply`, as a Claude Code
+session would; the phone is the Android client code. Data in
+[`simulations/2026-11-23-group-run.json`](simulations/2026-11-23-group-run.json)
+(what the phone showed, what each Mellow received, every check). Taps are
+counted from the navigation code, not timed on a device.
+
+| # | Persona · goal | Before | After | Run on real hubs |
+| :--- | :--- | :--- | :--- | :--- |
+| T32 | Karim · ask *Move team* (two networks) who books the van | ≈6 taps and the question typed twice, in two threads; the group was only a filter | 3 taps: Chats → *Move team* → send, one line | his line shown once; both answered in one thread in 0.45–0.66 s |
+| T32b | Reviewer: "not mine, @Movers" | Karim copies the answer to Movers himself | nothing to do: the phone hands it over, drawn as a line from Reviewer to Movers | Movers was told who handed over and what was said; answered "Booked: Saturday 9:00" in 0.45 s; never handed over twice |
+| T33 | Karim · the contract, to Reviewer only, inside the group | leave the group, open Reviewer (2 taps), context lost | 4 taps: group → tap *Reviewer* above the composer → send (or write `@Reviewer`) | only Reviewer received it and answered; the line reads "to Reviewer"; Movers undisturbed |
+
+The one-to-one conversation with Movers kept only its own lines (its
+welcome and "are you free in March?"), none of the group's. All checks
+passed (16/16).
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

@@ -1,0 +1,179 @@
+{
+  "run": "group-conversations",
+  "date": "2026-11-23",
+  "hubs": 2,
+  "seconds": 26.0,
+  "phone": {
+    "members": "Reviewer@home | Movers@biz",
+    "t32_addressees": "Reviewer,Movers",
+    "t32_sent_ms": "88",
+    "t32_thinking_right_after": "Reviewer,Movers",
+    "t32_both_answered_ms": "656",
+    "t32_thread": "Karim: Hello team, who books the van for Saturday? / Reviewer: Not mine: @Movers handles vans. / Movers: Movers here: the van is our thing, give me the address.",
+    "t32_karim_lines": "1",
+    "handover_jobs": "Reviewer->Movers",
+    "handover_answered_ms": "446",
+    "handover_again": "0",
+    "after_handover_thread": "Karim: Hello team, who books the van for Saturday? / Reviewer: Not mine: @Movers handles vans. / Movers: Movers here: the van is our thing, give me the address. / Reviewer → Movers / Movers: Booked: Saturday 9:00, two movers and the van.",
+    "t32_handover_total_ms": "469",
+    "t33_addressees": "Reviewer",
+    "t33_answered_ms": "446",
+    "t33_movers_quiet": "true",
+    "t33_to_label": "Reviewer",
+    "one_to_one_movers": "Movers: Hi! I'm **Movers**, made from Claude Code. My job: Organise vans and movers for customers. I answer through a Claude Code session on your computer. None is hosting your Mellows yet: open one there and give it the host message once (MellowMesh shows it next to Claude Code). Your messages wait for me meanwhile. / Karim: Hi Movers, just us: are you free in March? / Movers: Yes, March is open.",
+    "final_thread": "Karim: Hello team, who books the van for Saturday? / Reviewer: Not mine: @Movers handles vans. / Movers: Movers here: the van is our thing, give me the address. / Reviewer → Movers / Movers: Booked: Saturday 9:00, two movers and the van. / Karim (to Reviewer): @Reviewer can you check the contract before Friday? / Reviewer: I will read the contract tonight and flag anything odd."
+  },
+  "mellows_saw": [
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Hi Movers, just us: are you free in March?",
+      "group": null
+    },
+    {
+      "hub": "home",
+      "name": "Reviewer",
+      "body": "Hello team, who books the van for Saturday?",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Movers"
+        ],
+        "said": []
+      }
+    },
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Hello team, who books the van for Saturday?",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Reviewer"
+        ],
+        "said": []
+      }
+    },
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Reviewer handed this over to you:\n\nNot mine: @Movers handles vans.",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Reviewer"
+        ],
+        "said": [
+          {
+            "who": "Owner",
+            "text": "Hello team, who books the van for Saturday?"
+          },
+          {
+            "who": "Reviewer",
+            "text": "Not mine: @Movers handles vans."
+          },
+          {
+            "who": "Movers",
+            "text": "Movers here: the van is our thing, give me the address."
+          }
+        ],
+        "handed_over_by": "Reviewer"
+      }
+    },
+    {
+      "hub": "home",
+      "name": "Reviewer",
+      "body": "@Reviewer can you check the contract before Friday?",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Movers"
+        ],
+        "said": [
+          {
+            "who": "Owner",
+            "text": "Hello team, who books the van for Saturday?"
+          },
+          {
+            "who": "Reviewer",
+            "text": "Not mine: @Movers handles vans."
+          },
+          {
+            "who": "Movers",
+            "text": "Movers here: the van is our thing, give me the address."
+          },
+          {
+            "who": "Movers",
+            "text": "Booked: Saturday 9:00, two movers and the van."
+          }
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "two session Mellows, one on each network",
+      "pass": true
+    },
+    {
+      "check": "the Android client runs the group conversation",
+      "pass": true
+    },
+    {
+      "check": "the line goes to both Mellows, on their own networks",
+      "pass": true
+    },
+    {
+      "check": "right after sending, both show as thinking",
+      "pass": true
+    },
+    {
+      "check": "both answer in the one thread",
+      "pass": true
+    },
+    {
+      "check": "Karim's line shows once, not once per Mellow",
+      "pass": true
+    },
+    {
+      "check": "each Mellow learns the group and the others (itself left out)",
+      "pass": true
+    },
+    {
+      "check": "Reviewer naming @Movers makes one hand-over",
+      "pass": true
+    },
+    {
+      "check": "Movers is told who handed over, with what was said",
+      "pass": true
+    },
+    {
+      "check": "Movers answers the hand-over",
+      "pass": true
+    },
+    {
+      "check": "a hand-over is never repeated",
+      "pass": true
+    },
+    {
+      "check": "@Reviewer goes to Reviewer alone",
+      "pass": true
+    },
+    {
+      "check": "Reviewer answers; Movers is not disturbed",
+      "pass": true
+    },
+    {
+      "check": "the line says who it was for",
+      "pass": true
+    },
+    {
+      "check": "the Movers conversation shows only its own lines (its welcome, then the two of them; no group line)",
+      "pass": true
+    },
+    {
+      "check": "a one-to-one line reaches the Mellow without a group",
+      "pass": true
+    }
+  ]
+}

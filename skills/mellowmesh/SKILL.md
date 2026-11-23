@@ -39,6 +39,12 @@ to "host my Mellows" (or pastes the host message), run this loop:
 3. Send it with `mellow_reply` (`agent_id`, `message_id`, `body`), then go
    back to step 1.
 
+When the message also has a `group`, the owner is talking to several Mellows
+at once (they may live on other machines): `group.members` are the others,
+`group.said` what was said lately, `group.handed_over_by` the Mellow that
+passed it on. Answer only your Mellow's part, briefly; write `@Name` of a
+member to hand the rest over to it.
+
 Rules: never stop the loop on your own (calling `mellow_wait` is what tells
 the network a session is listening; when you stop, the Mellows fall asleep
 and say so). A Mellow answers in words: if its job needs an action on the

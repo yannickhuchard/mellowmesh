@@ -107,6 +107,7 @@ object Routes {
     fun call(machineId: String, id: String) = "call/" + Uri.encode(machineId) + "/" + Uri.encode(id)
     const val ADD_MACHINE = "add-machine"
     fun conversation(id: String) = "conversation/" + Uri.encode(id)
+    fun group(id: String) = "group/" + Uri.encode(id)
     fun helper(id: String) = "helper/" + Uri.encode(id)
     fun board(scope: String) = "board/" + Uri.encode(scope)
     fun roadmap(scope: String) = "roadmap/" + Uri.encode(scope)
@@ -320,6 +321,17 @@ private fun MainScaffold(
                         onOpen = { nav.navigate(Routes.conversation(it)) },
                         onFindHelpers = { nav.navigate(Routes.SHOPS) },
                         onNetworks = { nav.navigate(Routes.NETWORKS) },
+                        onOpenGroup = { nav.navigate(Routes.group(it)) },
+                    )
+                }
+                composable("group/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                    io.mellowmesh.app.ui.chats.GroupConversationScreen(
+                        groupId = entry.arguments?.getString("id").orEmpty(),
+                        onBack = { nav.popBackStack() },
+                        onTalk = { machine, id ->
+                            app.repo.switchMachine(machine)
+                            nav.navigate(Routes.conversation(id))
+                        },
                     )
                 }
                 composable(Routes.JOURNEYS) {

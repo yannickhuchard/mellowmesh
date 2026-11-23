@@ -133,6 +133,123 @@ pub struct Pending {
     pub body: String,
     /// Earlier lines of this conversation, oldest first.
     pub history: Vec<HistoryLine>,
+    /// Set when the message was said in a group of Mellows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<GroupContext>,
+}
+
+/// Payload key of a message said in a group of Mellows (set by the apps).
+pub const GROUP_KEY: &str = "mm_group";
+const GROUP_MAX_MEMBERS: usize = 12;
+const GROUP_MAX_SAID: usize = 8;
+const GROUP_NAME_CHARS: usize = 40;
+const GROUP_LINE_CHARS: usize = 400;
+
+/// A group conversation as one Mellow sees it: the person talks to several
+/// Mellows at once (on any machine), each one answers its own part.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GroupContext {
+    pub name: String,
+    /// The other members, by name.
+    pub members: Vec<String>,
+    /// What was said lately in the group, oldest first.
+    pub said: Vec<GroupLine>,
+    /// Set when another Mellow handed this over: its name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handed_over_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GroupLine {
+    pub who: String,
+    pub text: String,
+}
+
+fn clean_text(raw: &str, max: usize) -> String {
+    raw.chars()
+        .map(|c| if c.is_control() && c != '\n' { ' ' } else { c })
+        .take(max)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// The group a message was said in, read defensively from its payload
+/// (bounded, control characters removed). `me` is the Mellow's own name,
+/// left out of the members.
+pub fn group_context(msg: &Message, me: &str) -> Option<GroupContext> {
+    let g = msg.payload.as_ref()?.get(GROUP_KEY)?.as_object()?;
+    let name = clean_text(g.get("name")?.as_str()?, GROUP_NAME_CHARS);
+    if name.is_empty() {
+        return None;
+    }
+    let members = g
+        .get("members")
+        .and_then(|m| m.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|m| {
+                    m.get("name")
+                        .and_then(|n| n.as_str())
+                        .or_else(|| m.as_str())
+                })
+                .map(|n| clean_text(n, GROUP_NAME_CHARS))
+                .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case(me))
+                .take(GROUP_MAX_MEMBERS)
+                .collect()
+        })
+        .unwrap_or_default();
+    let said: Vec<GroupLine> = g
+        .get("said")
+        .and_then(|s| s.as_array())
+        .map(|list| {
+            let lines: Vec<GroupLine> = list
+                .iter()
+                .filter_map(|l| {
+                    let who = clean_text(l.get("who")?.as_str()?, GROUP_NAME_CHARS);
+                    let text = clean_text(l.get("text")?.as_str()?, GROUP_LINE_CHARS);
+                    (!who.is_empty() && !text.is_empty()).then_some(GroupLine { who, text })
+                })
+                .collect();
+            let skip = lines.len().saturating_sub(GROUP_MAX_SAID);
+            lines.into_iter().skip(skip).collect()
+        })
+        .unwrap_or_default();
+    let handed_over_by = g
+        .get("handover_from_name")
+        .and_then(|n| n.as_str())
+        .map(|n| clean_text(n, GROUP_NAME_CHARS))
+        .filter(|n| !n.is_empty());
+    Some(GroupContext {
+        name,
+        members,
+        said,
+        handed_over_by,
+    })
+}
+
+fn group_block(g: &GroupContext) -> String {
+    let mut p = format!(
+        "\nThis message was said in the group \"{}\", where your owner talks to several Mellows at once.",
+        g.name
+    );
+    if !g.members.is_empty() {
+        p.push_str(&format!(" The others: {}.", g.members.join(", ")));
+    }
+    p.push_str(
+        " Answer only your own part, briefly. If another member should take it from here, \
+         write @Name (their name) in your answer and the app hands it over to them.\n",
+    );
+    if let Some(by) = &g.handed_over_by {
+        p.push_str(&format!("{by} handed this over to you.\n"));
+    }
+    if !g.said.is_empty() {
+        p.push_str("Said lately in the group:\n");
+        for l in &g.said {
+            p.push_str(&format!("{}: {}\n", l.who, l.text));
+        }
+    }
+    p
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,7 +294,8 @@ pub fn host_prompt(spec: &PlatformSpec) -> String {
          Loop until I say stop:\n\
          1. Call `mellow_wait` with platform \"{id}\". It waits a little while and returns either idle (call it again) or one message for one of my Mellows, with that Mellow's name, purpose and earlier conversation.\n\
          2. Answer that message AS that Mellow, following its purpose, in plain words or Markdown, concise and concrete.\n\
-         3. Send the answer with `mellow_reply` (agent_id and message_id from step 1), then go back to step 1.\n\n\
+         3. Send the answer with `mellow_reply` (agent_id and message_id from step 1), then go back to step 1.\n\
+         When the message comes with a `group`, I am talking to several Mellows at once: answer only that Mellow's part, briefly, and write @Name to hand it over to another member.\n\n\
          Rules of the house: a Mellow answers in words. If its job needs an action on this computer (files, commands, sending anything), do not do it: say exactly what you would do and ask me with `create_decision`. Never stop the loop on your own; if a call fails, wait a few seconds and try again.",
         connect = if spec.command.is_empty() { "add the MellowMesh MCP server" } else { spec.command },
         id = spec.id,
@@ -225,6 +343,7 @@ pub async fn wait_next(platform: &str, wait: Duration) -> Option<Pending> {
                 from: w.msg.from.clone(),
                 body: w.msg.body.clone(),
                 history,
+                group: group_context(&w.msg, &b.name),
             });
         }
         let left = deadline.saturating_duration_since(Instant::now());
@@ -615,7 +734,14 @@ async fn run_turn(state: Arc<AppState>, live: Arc<Live>, msg: Message) {
     let reply = match platforms::spec(&b.platform) {
         None => Err("its platform is no longer known to this hub".to_string()),
         Some(spec) => {
-            let prompt = build_prompt(b, memory.make_contiguous(), &msg.from, &msg.body);
+            let group = group_context(&msg, &b.name);
+            let prompt = build_prompt(
+                b,
+                memory.make_contiguous(),
+                &msg.from,
+                &msg.body,
+                group.as_ref(),
+            );
             run_platform(spec, &prompt, b).await
         }
     };
@@ -647,7 +773,13 @@ async fn run_turn(state: Arc<AppState>, live: Arc<Live>, msg: Message) {
 
 /// The whole prompt for one turn: who the Mellow is, what was said, the
 /// new message. Pure, so it can be tested.
-pub fn build_prompt(b: &Binding, memory: &[Line], from: &str, body: &str) -> String {
+pub fn build_prompt(
+    b: &Binding,
+    memory: &[Line],
+    from: &str,
+    body: &str,
+    group: Option<&GroupContext>,
+) -> String {
     let mut p = format!(
         "You are \"{}\", a helper on a personal MellowMesh network. Your job: {}\n\
          You are answering a chat message from your owner's phone or desktop.\n\
@@ -664,6 +796,9 @@ pub fn build_prompt(b: &Binding, memory: &[Line], from: &str, body: &str) -> Str
             let who = if line.from_owner { "Owner" } else { "You" };
             p.push_str(&format!("{who}: {}\n", line.text.trim()));
         }
+    }
+    if let Some(g) = group {
+        p.push_str(&group_block(g));
     }
     p.push_str(&format!("\nNew message from {from}:\n{}\n", body.trim()));
     p
@@ -916,7 +1051,7 @@ mod tests {
                 text: "Hi Karim".into(),
             },
         ];
-        let p = build_prompt(&binding(), &memory, "human://karim", "Look at PR 12");
+        let p = build_prompt(&binding(), &memory, "human://karim", "Look at PR 12", None);
         assert!(p.contains("\"Reviewer\""));
         assert!(p.contains("Your job: Review my pull requests."));
         assert!(p.contains("Owner: Hello\nYou: Hi Karim"));
@@ -929,8 +1064,68 @@ mod tests {
 
     #[test]
     fn a_first_message_has_no_history_block() {
-        let p = build_prompt(&binding(), &[], "human://karim", "Hi");
+        let p = build_prompt(&binding(), &[], "human://karim", "Hi", None);
         assert!(!p.contains("Conversation so far"));
+        assert!(!p.contains("group"));
+    }
+
+    /// Persona simulation — Karim talks to "Move team" (Reviewer at home,
+    /// Movers on another network): each Mellow learns the group, the
+    /// others, what was said, and how to hand over. Bounded and cleaned.
+    #[test]
+    fn a_group_message_tells_the_mellow_who_else_is_there() {
+        let mut msg = message(
+            "_agent.karim.reviewer.inbox",
+            "human://karim",
+            "text/plain",
+            "Who books the van?".into(),
+            None,
+        );
+        let long = "x".repeat(2_000);
+        let said: Vec<serde_json::Value> = (0..20)
+            .map(|i| serde_json::json!({ "who": "Movers", "text": format!("line {i}") }))
+            .collect();
+        msg.payload = Some(serde_json::json!({
+            GROUP_KEY: {
+                "name": "Move\u{7} team",
+                "members": [{ "id": "agent://karim/reviewer", "name": "Reviewer" }, { "name": "Movers" }],
+                "said": said,
+                "handover_from_name": "Movers",
+                "extra": long,
+            }
+        }));
+        let g = group_context(&msg, "Reviewer").expect("a group");
+        assert_eq!(g.name, "Move  team", "control characters become spaces");
+        assert_eq!(
+            g.members,
+            vec!["Movers".to_string()],
+            "the Mellow itself is left out"
+        );
+        assert_eq!(g.said.len(), GROUP_MAX_SAID);
+        assert_eq!(
+            g.said.last().unwrap().text,
+            "line 19",
+            "the latest lines are kept"
+        );
+        let p = build_prompt(
+            &binding(),
+            &[],
+            "human://karim",
+            "Who books the van?",
+            Some(&g),
+        );
+        assert!(p.contains("The others: Movers."));
+        assert!(p.contains("Movers handed this over to you."));
+        assert!(p.contains("@Name"));
+        assert!(p.trim_end().ends_with("Who books the van?"));
+
+        msg.payload = Some(serde_json::json!({ GROUP_KEY: { "name": "   " } }));
+        assert!(
+            group_context(&msg, "Reviewer").is_none(),
+            "no name, no group"
+        );
+        msg.payload = None;
+        assert!(group_context(&msg, "Reviewer").is_none());
     }
 
     #[test]

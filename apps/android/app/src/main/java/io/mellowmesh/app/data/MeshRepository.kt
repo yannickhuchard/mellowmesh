@@ -789,6 +789,66 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
 
     fun markRead(conversationId: String, upToMs: Long) = store.markRead(conversationId, upToMs)
 
+    // ---- group conversations -----------------------------------------------------
+
+    /** The members of [group] the phone can reach a conversation of, where each one lives. */
+    fun groupMembers(group: MellowGroup): List<io.mellowmesh.core.GroupMember> {
+        val helpers = _everywhere.value?.helpers.orEmpty()
+        return group.members.mapNotNull { id ->
+            val h = helpers.firstOrNull { it.card.id.equals(id, ignoreCase = true) } ?: return@mapNotNull null
+            val conv = h.card.conversationId ?: return@mapNotNull null
+            val meThere = _machines.value.firstOrNull { it.machine.id == h.machineId }?.machine?.principal ?: me
+            io.mellowmesh.core.GroupMember(h.card.id, h.card.name, h.machineId, conv, meThere)
+        }
+    }
+
+    /** Every member's conversation, read on its own machine (in parallel); a machine that fails is left out. */
+    suspend fun groupRead(members: List<io.mellowmesh.core.GroupMember>, limit: Int = 200): List<io.mellowmesh.core.MemberMessage> =
+        coroutineScope {
+            members.map { m ->
+                async(Dispatchers.IO) {
+                    val c = clients[m.machineId] ?: return@async emptyList()
+                    val conv = Conversations.parseId(m.conversationId) ?: return@async emptyList()
+                    runCatching { c.history(Conversations.historyPattern(conv), limit) }
+                        .getOrElse { emptyList() }
+                        .map { io.mellowmesh.core.MemberMessage(m, it) }
+                }
+            }.awaitAll().flatten()
+        }
+
+    /**
+     * Say [text] to [to] (members of [group]), each in its own conversation
+     * on its own machine. Returns the members it could not reach.
+     */
+    suspend fun sayInGroup(
+        group: MellowGroup,
+        members: List<io.mellowmesh.core.GroupMember>,
+        to: List<io.mellowmesh.core.GroupMember>,
+        text: String,
+        said: List<Pair<String, String>>,
+        handoverOf: String? = null,
+        handoverFrom: io.mellowmesh.core.GroupMember? = null,
+    ): List<io.mellowmesh.core.GroupMember> = coroutineScope {
+        val turn = "t_" + java.util.UUID.randomUUID().toString().replace("-", "").take(20)
+        val payload = io.mellowmesh.core.GroupChat.payload(group, members, turn, to, said, handoverOf, handoverFrom)
+        to.map { m ->
+            async(Dispatchers.IO) {
+                val c = clients[m.machineId] ?: return@async m
+                val ok = runCatching { c.sendWithPayload(m.conversationId, text, payload) }.isSuccess
+                withContext(Dispatchers.Main) { markReachable(m.machineId, ok) }
+                if (ok) null else m
+            }
+        }.awaitAll().filterNotNull()
+    }
+
+    /** Live lines of every member's conversation, merged (while collected). */
+    fun groupLive(members: List<io.mellowmesh.core.GroupMember>): Flow<Message> =
+        kotlinx.coroutines.flow.merge(
+            *members.mapNotNull { m ->
+                Conversations.parseId(m.conversationId)?.let { liveFrom(m.machineId, Conversations.historyPattern(it)) }
+            }.toTypedArray(),
+        )
+
     /**
      * Live messages of one machine matching [pattern], for as long as the
      * flow is collected (a call to a Mellow on any machine).

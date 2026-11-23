@@ -707,7 +707,7 @@ fn base_tools_schema() -> Vec<serde_json::Value> {
         }),
         serde_json::json!({
             "name": "mellow_wait",
-            "description": "Host the owner's Mellows from this session: wait (about 25 seconds) for the next chat message addressed to one of the Mellows of your platform. Returns either {\"idle\": true} — call it again — or the Mellow to answer as (agent_id, name, purpose), the earlier conversation (history) and the message (message_id, from, body). Answer with mellow_reply, then call mellow_wait again. Calling it is what tells the network a session is listening.",
+            "description": "Host the owner's Mellows from this session: wait (about 25 seconds) for the next chat message addressed to one of the Mellows of your platform. Returns either {\"idle\": true} — call it again — or the Mellow to answer as (agent_id, name, purpose), the earlier conversation (history) and the message (message_id, from, body). When it also has a group (name, the other members, what was said lately), the owner is talking to several Mellows at once: answer only this Mellow's part, and write @Name to hand over to another member. Answer with mellow_reply, then call mellow_wait again. Calling it is what tells the network a session is listening.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

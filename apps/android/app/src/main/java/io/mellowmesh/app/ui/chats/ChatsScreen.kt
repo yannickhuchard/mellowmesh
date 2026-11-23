@@ -99,13 +99,18 @@ fun segmentColor(slot: Int): Color = Mesh.accent(Accent.entries[slot % Accent.en
  * talk — never an empty Chats), then the conversations of every machine.
  */
 @Composable
-fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () -> Unit = {}, onNetworks: () -> Unit = {}) {
+fun ChatsScreen(
+    onHelp: () -> Unit,
+    onOpen: (String) -> Unit,
+    onFindHelpers: () -> Unit = {},
+    onNetworks: () -> Unit = {},
+    onOpenGroup: (String) -> Unit = {},
+) {
     val app = LocalContext.current.meshApp
     val everywhere by app.repo.everywhere.collectAsStateWithLifecycle()
     val conversations by app.repo.allConversations.collectAsStateWithLifecycle()
     val groups by app.repo.groups.collectAsStateWithLifecycle()
     var segment by rememberSaveable { mutableStateOf<String?>(null) }
-    var openGroup by rememberSaveable { mutableStateOf<String?>(null) }
     var newGroup by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf<PlacedHelper?>(null) }
 
@@ -152,14 +157,10 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
             return@Column
         }
         val model = ChatSpace.build(ew, conversations, groups, segment)
-        val group = model.groups.firstOrNull { it.group.id == openGroup }
         val slotOf = model.segments.associate { it.key to it.slot }
         val keyOfMachine = ew.machines.associate { it.machineId to ChatSpace.segmentKey(it.networkName, it.label) }
-        val everyone = group?.members ?: model.everyone
-        val convs = if (group == null) model.conversations else {
-            val ids = group.members.map { it.card.id.lowercase() }.toSet()
-            model.conversations.filter { it.summary.agentId?.lowercase() in ids }
-        }
+        val everyone = model.everyone
+        val convs = model.conversations
 
         if (model.total == 0 && model.conversations.isEmpty()) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -178,23 +179,16 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (group == null) {
-                item(key = "segments") {
-                    SegmentStrip(model.segments, model.total, segment, onMore = onNetworks) { segment = it }
-                }
+            item(key = "segments") {
+                SegmentStrip(model.segments, model.total, segment, onMore = onNetworks) { segment = it }
             }
 
-            if (group != null) {
-                item(key = "group-head") { GroupHead(group, onClose = { openGroup = null }, onDelete = {
-                    app.repo.deleteGroup(group.group.id)
-                    openGroup = null
-                }) }
-            } else {
+            run {
                 item(key = "groups-title") { SectionLabel(stringResource(R.string.chats_your_groups)) }
                 item(key = "groups") {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         model.groups.forEachIndexed { i, g ->
-                            HopIn(order = i) { GroupCard(g) { openGroup = g.group.id } }
+                            HopIn(order = i) { GroupCard(g) { onOpenGroup(g.group.id) } }
                         }
                         Box(
                             Modifier
@@ -210,11 +204,11 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
 
             item(key = "everyone-title") {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    SectionLabel(stringResource(if (group == null) R.string.chats_everyone else R.string.chats_in_group), Modifier.weight(1f))
-                    if (group == null) Text(stringResource(R.string.chats_hold_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3)
+                    SectionLabel(stringResource(R.string.chats_everyone), Modifier.weight(1f))
+                    Text(stringResource(R.string.chats_hold_hint), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3)
                 }
             }
-            item(key = "everyone-" + (group?.group?.id ?: segment ?: "all")) {
+            item(key = "everyone-" + (segment ?: "all")) {
                 if (everyone.isEmpty()) {
                     Text(stringResource(R.string.everywhere_no_mellows), color = Mesh.Ink2, style = MaterialTheme.typography.bodyMedium)
                 } else {
@@ -229,7 +223,7 @@ fun ChatsScreen(onHelp: () -> Unit, onOpen: (String) -> Unit, onFindHelpers: () 
                                 )
                             }
                         }
-                        if (group == null) NewMellowBlob(onFindHelpers)
+                        NewMellowBlob(onFindHelpers)
                     }
                 }
             }
@@ -360,29 +354,6 @@ private fun GroupCard(g: GroupView, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun GroupHead(g: GroupView, onClose: () -> Unit, onDelete: () -> Unit) {
-    var confirm by remember { mutableStateOf(false) }
-    MeshCard(Modifier.fillMaxWidth(), color = Mesh.IndigoTint) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(g.group.name, style = MaterialTheme.typography.titleLarge, color = Mesh.Ink)
-                Text(stringResource(R.string.chats_group_count, g.members.size), style = MaterialTheme.typography.bodyMedium, color = Mesh.Ink2)
-            }
-            TextButton(onClick = onClose) { Text(stringResource(R.string.chats_all_chats), color = Mesh.Indigo) }
-        }
-        TextButton(onClick = { confirm = true }) { Text(stringResource(R.string.chats_delete_group), color = Mesh.Rose) }
-    }
-    if (confirm) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text(stringResource(R.string.chats_delete_group_title, g.group.name)) },
-            text = { Text(stringResource(R.string.chats_delete_group_body)) },
-            confirmButton = { TextButton(onClick = { confirm = false; onDelete() }) { Text(stringResource(R.string.chats_delete_group), color = Mesh.Rose) } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel)) } },
-        )
-    }
-}
 
 /** A Mellow in the roster: its blob shows its mood; tap to talk, hold to group. */
 @OptIn(ExperimentalFoundationApi::class)

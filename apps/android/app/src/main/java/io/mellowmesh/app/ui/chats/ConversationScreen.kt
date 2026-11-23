@@ -112,6 +112,14 @@ class ConversationViewModel(private val app: MellowMeshApp, val conversationId: 
             viewModelScope.launch {
                 app.repo.live.collect { msg ->
                     if (Conversations.isChatTopic(conv, msg.topic)) {
+                        // A line said in a group, or an answer to a line this
+                        // thread does not show: it belongs to a group thread.
+                        if (io.mellowmesh.core.GroupChat.tagOf(msg) != null) return@collect
+                        val parent = msg.parentId
+                        if (parent != null && _state.value.messages.none { it.id == parent }) {
+                            load()
+                            return@collect
+                        }
                         val m = Chat.toChat(msg, app.repo.me, app.repo.directory)
                         val fresh = _state.value.messages.none { it.id == m.id }
                         add(m)
@@ -378,7 +386,7 @@ fun ConversationScreen(
 }
 
 @Composable
-private fun MessageBubble(
+internal fun MessageBubble(
     m: ChatMessage,
     showSender: Boolean,
     onAction: (UiAction) -> Unit,

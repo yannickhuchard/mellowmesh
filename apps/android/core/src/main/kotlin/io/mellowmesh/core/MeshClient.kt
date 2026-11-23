@@ -262,6 +262,14 @@ class MeshClient(
         return publish(outgoing(Conversations.sendTopic(conv), text))
     }
 
+    /** [sendText] with a payload (a line said in a group of Mellows). */
+    fun sendWithPayload(conversationId: String, text: String, payload: JsonObject): Message {
+        val conv = Conversations.parseId(conversationId) ?: throw MeshException(MeshException.Kind.INVALID, 0, "not a conversation")
+        require(text.isNotBlank()) { "message is empty" }
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_SEND_BYTES) { "message too long" }
+        return publish(outgoing(Conversations.sendTopic(conv), text).copy(payload = payload))
+    }
+
     /**
      * Reply to a MeshUI action tap (same shape as app-core `send_ui_action`):
      * `payload.ui_action = {card_message_id, action_id}`, `parent_id` = card
