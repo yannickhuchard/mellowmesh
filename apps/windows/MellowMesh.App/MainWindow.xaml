@@ -42,6 +42,11 @@
                         <FontIcon Glyph="&#xE8BD;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="GroupsItem" Content="Groups" Tag="groups">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE902;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem x:Name="TodoItem" Content="To do" Tag="todo">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE73A;" />

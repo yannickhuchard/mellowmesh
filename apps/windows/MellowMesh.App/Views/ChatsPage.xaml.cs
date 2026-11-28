@@ -298,6 +298,14 @@ public sealed partial class ChatsPage : Page
     {
         if (ev is MessageEvent m && _conv is not null && m.Conversation.Id == _conv.Id)
         {
+            // Group lines, and a Mellow's answer to a line this view never
+            // showed (a group line), live in the group's thread.
+            if (GroupTraffic.IsTagged(m.Message)
+                || (m.Message.ParentId is { Length: > 0 } parent && !_shown.Contains(parent)
+                    && m.Message.From.StartsWith("agent://", StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
             var atEnd = _scroll.VerticalOffset >= _scroll.ScrollableHeight - 40;
             AddMessage(m.Message);
             _state.MarkRead(_conv.Id, m.Message.Timestamp);

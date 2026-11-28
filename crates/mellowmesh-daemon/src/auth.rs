@@ -422,7 +422,19 @@ pub(crate) async fn token_still_valid(state: &AppState, token_hash: &str) -> boo
 /// running on the machine can reach 127.0.0.1, so "local" alone must not
 /// mint tokens, pair devices, connect apps or answer decisions. The owner's
 /// own tools (CLI, apps) read `owner.token` for that.
+///
+/// A token of the owner narrowed to some topics (a group's pass to one
+/// Mellow) is not the owner here: it may write where its scopes say, and
+/// nothing more.
 pub(crate) fn is_admin(state: &AppState, ctx: &AuthContext) -> bool {
+    ctx.principal
+        .as_ref()
+        .is_some_and(|p| p.id == state.owner && p.write_scopes.iter().any(|s| s == "**"))
+}
+
+/// Whether the caller speaks as the owner (any owner token, even narrowed):
+/// what lets a line set the owner's Mellow in motion.
+pub(crate) fn speaks_as_owner(state: &AppState, ctx: &AuthContext) -> bool {
     ctx.principal.as_ref().is_some_and(|p| p.id == state.owner)
 }
 
@@ -602,7 +614,16 @@ pub async fn revoke_token(
     Extension(ctx): Extension<AuthContext>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if !is_admin(&state, &ctx) {
+    // Any token may give itself up (`DELETE /auth/tokens/self`, or its own
+    // id): a group's pass does so when the group no longer needs it.
+    let own = ctx.principal.as_ref().map(|p| p.token_id.clone());
+    let id = if id == "self" {
+        own.clone()
+            .ok_or((StatusCode::UNAUTHORIZED, "No token to give up".to_string()))?
+    } else {
+        id
+    };
+    if own.as_deref() != Some(id.as_str()) && !is_admin(&state, &ctx) {
         return Err((
             admin_refusal(&ctx),
             "Only the owner may manage tokens (use the owner token)".to_string(),

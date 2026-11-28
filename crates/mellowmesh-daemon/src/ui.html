@@ -279,6 +279,31 @@
             transform: translateY(0);
         }
 
+        .groups-layout { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 1.5rem; }
+        @media (max-width: 760px) { .groups-layout { grid-template-columns: 1fr; } }
+        .groups-side h2 { margin-bottom: .5rem; }
+        .group-row { display: block; width: 100%; text-align: left; padding: .6rem .75rem; margin: .25rem 0; border-radius: 10px; border: 1px solid var(--card-border); background: transparent; color: var(--text-color); cursor: pointer; font: inherit; }
+        .group-row.active { border-color: var(--primary); background: var(--primary-glow); }
+        .group-row small { display: block; color: var(--text-muted); }
+        .group-new { margin-top: 1.25rem; display: grid; gap: .5rem; }
+        .group-new-title { font-weight: 600; }
+        .group-new-members label { display: flex; gap: .5rem; align-items: center; padding: .15rem 0; }
+        .group-error { color: var(--accent-pink); min-height: 1.2em; font-size: .9rem; }
+        .groups-main { display: flex; flex-direction: column; min-width: 0; }
+        .group-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .75rem; flex-wrap: wrap; }
+        .group-head .muted { color: var(--text-muted); font-size: .9rem; }
+        .group-thread { flex: 1; overflow-y: auto; max-height: 52vh; display: flex; flex-direction: column; gap: .5rem; padding: .25rem; }
+        .gline { max-width: 78%; padding: .55rem .8rem; border-radius: 14px; background: var(--bg-color); white-space: pre-wrap; overflow-wrap: anywhere; }
+        .gline.mine { align-self: flex-end; background: var(--primary); color: #fff; }
+        .gline .who { display: block; font-size: .8rem; font-weight: 600; margin-bottom: .15rem; }
+        .gline .to { display: block; font-size: .75rem; opacity: .8; margin-top: .2rem; }
+        .gnote { align-self: center; color: var(--text-muted); font-size: .85rem; text-align: center; }
+        .gnote.hand { color: var(--primary); }
+        .group-to { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0; }
+        .group-to button { border-radius: 999px; border: 1px solid var(--card-border); background: transparent; padding: .2rem .7rem; cursor: pointer; font: inherit; color: var(--text-color); }
+        .group-to button.on { background: var(--text-color); color: var(--card-bg); }
+        .group-compose { display: flex; gap: .5rem; align-items: flex-end; }
+        .group-compose textarea { flex: 1; resize: vertical; }
         .btn-secondary {
             background: rgba(17, 17, 20, 0.05);
             border: 1px solid var(--card-border);
@@ -1462,6 +1487,7 @@
             <button class="tab-btn active" data-tab="tab-forum" onclick="switchTab('tab-forum')">Live traffic</button>
             <button class="tab-btn" data-tab="tab-tasks" onclick="switchTab('tab-tasks')">Tasks</button>
             <button class="tab-btn" data-tab="tab-decisions" onclick="switchTab('tab-decisions')">Decisions</button>
+            <button class="tab-btn" data-tab="tab-groups" onclick="switchTab('tab-groups')">Groups of Mellows</button>
             <div class="console-nav-label">Registry</div>
             <button class="tab-btn" data-tab="tab-registry" onclick="switchTab('tab-registry')">Agents &amp; platforms</button>
             <button class="tab-btn" data-tab="tab-summaries" onclick="switchTab('tab-summaries')">Summaries</button>
@@ -1732,6 +1758,34 @@
             </div>
 
             <!-- Tools: publish a raw message -->
+            <!-- Groups of Mellows kept by this hub: one thread, several Mellows -->
+            <div id="tab-groups" class="tab-content">
+                <div class="glass-card groups-layout" style="min-height: 500px;">
+                    <aside class="groups-side">
+                        <h2>Groups of Mellows</h2>
+                        <p class="platforms-hint">Kept on this hub: a line reaches every member, waits for a sleeping machine, and a Mellow hands over with @Name &mdash; even while your phone sleeps.</p>
+                        <div id="groups-list"></div>
+                        <form id="group-new" class="group-new" onsubmit="createGroup(event)">
+                            <div class="group-new-title">New group</div>
+                            <input type="text" id="group-new-name" maxlength="40" placeholder="Name, e.g. Move team" required>
+                            <div id="group-new-members" class="group-new-members"></div>
+                            <div id="group-new-error" class="group-error"></div>
+                            <button class="btn" type="submit">Make the group</button>
+                        </form>
+                    </aside>
+                    <section class="groups-main">
+                        <div id="group-head" class="group-head"></div>
+                        <div id="group-thread" class="group-thread"><div class="empty-state">Pick a group, or make one.</div></div>
+                        <div id="group-to" class="group-to"></div>
+                        <form id="group-compose" class="group-compose" onsubmit="sayInGroup(event)" hidden>
+                            <textarea id="group-text" rows="2" maxlength="8000" placeholder="Write to everyone"></textarea>
+                            <button class="btn" type="submit">Send</button>
+                        </form>
+                        <div id="group-error" class="group-error"></div>
+                    </section>
+                </div>
+            </div>
+
             <div id="tab-publish" class="tab-content">
                 <div class="tool-narrow">
             <!-- Publisher Card -->
@@ -2589,6 +2643,9 @@ Your key is limited: shared rooms, tasks and your own corner. You never answer m
             if (tabId === 'tab-wiki') {
                 loadWikiPages();
             }
+            if (tabId === 'tab-groups') {
+                loadGroups();
+            }
         }
 
         function togglePublisherType() {
@@ -2598,6 +2655,155 @@ Your key is limited: shared rooms, tasks and your own corner. You never answer m
             document.getElementById('form-decision').style.display = type === 'decision' ? 'block' : 'none';
         }
 
+        // ------------------------------------------------------------------
+        // Groups of Mellows (kept by this hub)
+        // ------------------------------------------------------------------
+        let groupOpen = null;      // id of the open group
+        let groupPicked = [];      // member ids the next line is for (empty: everyone)
+
+        async function loadGroups() {
+            let groups;
+            try { groups = await apiJson('/groups'); } catch (e) { return; }
+            const list = document.getElementById('groups-list');
+            if (!groups.length) {
+                replaceChildrenOf(list, [emptyState('No group yet.')]);
+            } else {
+                replaceChildrenOf(list, groups.map(g => h('button', {
+                    type: 'button',
+                    className: 'group-row' + (g.id === groupOpen ? ' active' : ''),
+                    onclick: () => openGroup(g.id),
+                }, g.name, h('small', { text: g.members.map(m => m.name).join(', ') }))));
+            }
+            if (groupOpen && !groups.some(g => g.id === groupOpen)) closeGroup();
+            if (!groupOpen && groups.length) openGroup(groups[0].id);
+            else if (groupOpen) loadGroupThread();
+            loadGroupChoices();
+        }
+
+        async function loadGroupChoices() {
+            const box = document.getElementById('group-new-members');
+            if (box.dataset.ready) return;
+            let mellows;
+            try { mellows = await apiJson('/mellows'); } catch (e) { return; }
+            if (!mellows.length) {
+                replaceChildrenOf(box, [emptyState('Make a Mellow first (Agents & platforms).')]);
+                return;
+            }
+            box.dataset.ready = '1';
+            replaceChildrenOf(box, mellows.map(b => h('label', null,
+                h('input', { type: 'checkbox', value: b.agent_id, dataset: { name: b.name, conversation: b.inbox.replace(/\.inbox$/, '') } }),
+                b.name)));
+        }
+
+        async function createGroup(e) {
+            e.preventDefault();
+            const err = document.getElementById('group-new-error');
+            err.textContent = '';
+            const members = [...document.querySelectorAll('#group-new-members input:checked')].map(i => ({
+                id: i.value, name: i.dataset.name, conversation: i.dataset.conversation,
+            }));
+            const name = document.getElementById('group-new-name').value;
+            const res = await apiFetch('/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, members }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { err.textContent = data.error || 'Could not make the group.'; return; }
+            document.getElementById('group-new-name').value = '';
+            document.querySelectorAll('#group-new-members input').forEach(i => { i.checked = false; });
+            openGroup(data.id);
+        }
+
+        function openGroup(id) {
+            groupOpen = id;
+            groupPicked = [];
+            document.getElementById('group-thread').dataset.fp = '';
+            loadGroups();
+        }
+
+        function closeGroup() {
+            groupOpen = null;
+            document.getElementById('group-compose').hidden = true;
+            replaceChildrenOf(document.getElementById('group-head'), []);
+            replaceChildrenOf(document.getElementById('group-to'), []);
+            replaceChildrenOf(document.getElementById('group-thread'), [emptyState('Pick a group, or make one.')]);
+        }
+
+        async function loadGroupThread() {
+            if (!groupOpen) return;
+            const id = groupOpen;
+            let t;
+            try { t = await apiJson('/groups/' + encodeURIComponent(id) + '/thread'); } catch (e) { return; }
+            if (id !== groupOpen) return;
+            const g = t.group;
+            const machines = [...new Set(g.members.map(m => m.machine || 'this hub'))];
+            replaceChildrenOf(document.getElementById('group-head'), [
+                h('h2', { text: g.name }),
+                h('span', { className: 'muted', text: g.members.length + ' Mellows · ' + machines.join(', ') + ' · kept on this hub' }),
+                h('button', { type: 'button', className: 'btn btn-secondary', onclick: () => forgetGroup(g.id, g.name) }, 'Delete'),
+            ]);
+            const fp = JSON.stringify([t.items.map(i => i.id), t.pending]);
+            const thread = document.getElementById('group-thread');
+            if (thread.dataset.fp !== fp) {
+                thread.dataset.fp = fp;
+                const nodes = t.items.map(i => {
+                    if (i.kind === 'said') {
+                        return h('div', { className: 'gline mine' }, i.text,
+                            i.to.length ? h('span', { className: 'to', text: 'to ' + i.to.map(x => x.name).join(', ') }) : null);
+                    }
+                    if (i.kind === 'answer') {
+                        return h('div', { className: 'gline' }, h('span', { className: 'who', text: i.member ? i.member.name : '' }), i.text);
+                    }
+                    if (i.kind === 'handover') return h('div', { className: 'gnote hand', text: '⤳ ' + i.text });
+                    return h('div', { className: 'gnote', text: i.text });
+                });
+                for (const p of t.pending) {
+                    nodes.push(h('div', { className: 'gnote', text: p.state === 'waiting'
+                        ? p.member.name + ' gets it when ' + (p.machine || 'its machine') + ' wakes up'
+                        : p.member.name + ' is thinking…' }));
+                }
+                replaceChildrenOf(thread, nodes.length ? nodes : [emptyState('Say something to the whole group, or to one Mellow with @Name.')]);
+                thread.scrollTop = thread.scrollHeight;
+            }
+            groupPicked = groupPicked.filter(x => g.members.some(m => m.id === x));
+            const chip = (label, on, click) => h('button', { type: 'button', className: on ? 'on' : '', onclick: click }, label);
+            replaceChildrenOf(document.getElementById('group-to'), [
+                chip('Everyone', groupPicked.length === 0, () => { groupPicked = []; loadGroupThread(); }),
+                ...g.members.map(m => chip(m.name + (m.reachable === false ? ' · asleep' : ''), groupPicked.includes(m.id), () => {
+                    groupPicked = groupPicked.includes(m.id) ? groupPicked.filter(x => x !== m.id) : [...groupPicked, m.id];
+                    loadGroupThread();
+                })),
+            ]);
+            const names = g.members.filter(m => groupPicked.includes(m.id)).map(m => m.name);
+            document.getElementById('group-text').placeholder = names.length ? 'Write to ' + names.join(', ') : 'Write to everyone';
+            document.getElementById('group-compose').hidden = false;
+        }
+
+        async function sayInGroup(e) {
+            e.preventDefault();
+            const box = document.getElementById('group-text');
+            const err = document.getElementById('group-error');
+            const text = box.value.trim();
+            if (!text || !groupOpen) return;
+            err.textContent = '';
+            const res = await apiFetch('/groups/' + encodeURIComponent(groupOpen) + '/say', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, to: groupPicked }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { err.textContent = data.error || 'Not sent. Try again.'; return; }
+            box.value = '';
+            loadGroupThread();
+        }
+
+        async function forgetGroup(id, name) {
+            if (!confirm('Delete the group "' + name + '"? Its Mellows stay; only the group goes.')) return;
+            const res = await apiFetch('/groups/' + encodeURIComponent(id), { method: 'DELETE' });
+            if (res.ok) { closeGroup(); loadGroups(); }
+        }
+
         // Fetch functions
         async function loadAllData() {
             // While the token field is open, don't queue more requests behind it.
@@ -2605,6 +2811,9 @@ Your key is limited: shared rooms, tasks and your own corner. You never answer m
             const loaders = [loadForumHistory, loadTasks, loadDecisions, loadMappings, loadSummaries, loadPlatforms, loadMellows, watchAgents];
             if (document.getElementById('tab-wiki').classList.contains('active')) {
                 loaders.push(loadWikiPages);
+            }
+            if (document.getElementById('tab-groups').classList.contains('active')) {
+                loaders.push(loadGroups);
             }
             await Promise.allSettled(loaders.map(fn => fn()));
         }
@@ -3882,6 +4091,8 @@ Your key is limited: shared rooms, tasks and your own corner. You never answer m
                         // ignore/no-op
                     } else if (topic.startsWith('_wiki.')) {
                         loadWikiPages();
+                    } else if (groupOpen && topic === '_group.' + groupOpen) {
+                        loadGroupThread();
                     }
                 } catch (e) {}
             };

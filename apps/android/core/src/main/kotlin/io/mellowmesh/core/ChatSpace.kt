@@ -16,6 +16,11 @@ data class MellowGroup(
     val name: String,
     /** Mellow ids (`agent://…`), in the order they were added. */
     val members: List<String> = emptyList(),
+    /**
+     * The machine (saved machine id) that keeps the group going while the
+     * phone sleeps; null while only the phone runs it.
+     */
+    val keptOn: String? = null,
 )
 
 /** One network segment (a network, or a machine when its network has no name). */

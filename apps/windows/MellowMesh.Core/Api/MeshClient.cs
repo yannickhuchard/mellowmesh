@@ -329,8 +329,12 @@ public sealed partial class MeshClient : IDisposable
             ?? throw new ArgumentException($"'{conversationId}' is not a conversation id");
         var all = await GetHistoryAsync(limit, ConversationRules.HistoryPattern(conv), ct).ConfigureAwait(false);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        // Lines said in a group of Mellows (and their answers) belong to the
+        // group's thread, not to the one-to-one conversation.
+        var group = GroupTraffic.Of(all);
         return all
             .Where(m => ConversationRules.IsChatTopic(conv, m.Topic))
+            .Where(m => !group(m))
             .Where(m => m.Id.Length == 0 || seen.Add(m.Id))
             .OrderBy(m => m.Timestamp)
             .ThenBy(m => m.Id, StringComparer.Ordinal)

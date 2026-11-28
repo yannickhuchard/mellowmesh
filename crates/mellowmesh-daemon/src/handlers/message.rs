@@ -40,6 +40,8 @@ pub struct ForumParams {
 /// (`_task.<id>.progress` stays open: it is the claim-lease heartbeat).
 const RESERVED_PATTERNS: &[&str] = &[
     "_decision.**",
+    // A group's thread is written by the hub that keeps the group.
+    "_group.**",
     "_system.**",
     "_task.*.reclaimed",
     "_task.*.created",
@@ -548,7 +550,7 @@ pub async fn publish_message(
     // Only the authenticated owner may set a Mellow in motion: a turn spends
     // the owner's own AI session, so no other publisher (a visitor, another
     // agent, a spoofed `from`) can trigger one.
-    let owner_speaks = crate::auth::is_admin(&state, &ctx);
+    let owner_speaks = crate::auth::speaks_as_owner(&state, &ctx);
     let state = std::sync::Arc::new(state);
     match handle_publish(state.clone(), msg).await {
         Ok(m) => {

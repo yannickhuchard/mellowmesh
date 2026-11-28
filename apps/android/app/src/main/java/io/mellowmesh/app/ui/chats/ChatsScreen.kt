@@ -441,16 +441,22 @@ private fun NewGroupDialog(everyone: List<PlacedHelper>, onDismiss: () -> Unit, 
                 LazyColumn(Modifier.height(260.dp)) {
                     items(everyone, key = { it.card.id }) { h ->
                         val on = h.card.id in picked
+                        // Someone else's Mellow spends its owner's AI session: it answers only them.
+                        val theirs = notYours(h)
                         Row(
-                            Modifier.fillMaxWidth().clickable { picked = if (on) picked - h.card.id else picked + h.card.id },
+                            Modifier.fillMaxWidth().clickable(enabled = !theirs) { picked = if (on) picked - h.card.id else picked + h.card.id },
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Checkbox(checked = on, onCheckedChange = { picked = if (on) picked - h.card.id else picked + h.card.id })
+                            Checkbox(checked = on, enabled = !theirs, onCheckedChange = { picked = if (on) picked - h.card.id else picked + h.card.id })
                             HelperBlob(Mesh.accent(h.card.accent), h.card.mood, 28.dp, description = h.card.name)
                             Spacer(Modifier.width(8.dp))
                             Column {
-                                Text(h.card.name, style = MaterialTheme.typography.bodyLarge, color = Mesh.Ink)
-                                Text(h.tag(true), style = MaterialTheme.typography.bodySmall, color = Mesh.Ink3)
+                                Text(h.card.name, style = MaterialTheme.typography.bodyLarge, color = if (theirs) Mesh.Ink3 else Mesh.Ink)
+                                Text(
+                                    if (theirs) h.tag(true) + " · " + stringResource(R.string.group_not_yours) else h.tag(true),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Mesh.Ink3,
+                                )
                             }
                         }
                     }
@@ -458,13 +464,16 @@ private fun NewGroupDialog(everyone: List<PlacedHelper>, onDismiss: () -> Unit, 
             }
         },
         confirmButton = {
-            TextButton(enabled = ChatSpace.cleanName(name) != null, onClick = { onCreate(name, everyone.map { it.card.id }.filter { it in picked }) }) {
+            TextButton(enabled = ChatSpace.cleanName(name) != null, onClick = { onCreate(name, everyone.filterNot(::notYours).map { it.card.id }.filter { it in picked }) }) {
                 Text(stringResource(R.string.chats_create_group))
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
+
+/** A Mellow someone else owns: its turns spend their AI session, so it answers only them. */
+internal fun notYours(h: PlacedHelper): Boolean = h.card.owner.isNotBlank() && !h.card.isMine
 
 @Composable
 private fun AddToGroupDialog(
@@ -479,9 +488,17 @@ private fun AddToGroupDialog(
         title = { Text(stringResource(R.string.chats_add_to_group, h.card.name)) },
         text = {
             Column {
+                val theirs = notYours(h)
+                if (theirs) {
+                    Text(
+                        h.card.name + " " + stringResource(R.string.group_not_yours),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Mesh.Ink2,
+                    )
+                }
                 for ((g, inIt) in groups) {
-                    Row(Modifier.fillMaxWidth().clickable { onToggle(g, inIt) }, verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = inIt, onCheckedChange = { onToggle(g, inIt) })
+                    Row(Modifier.fillMaxWidth().clickable(enabled = inIt || !theirs) { onToggle(g, inIt) }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = inIt, enabled = inIt || !theirs, onCheckedChange = { onToggle(g, inIt) })
                         Text(g.name, style = MaterialTheme.typography.bodyLarge, color = Mesh.Ink)
                     }
                 }

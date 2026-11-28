@@ -77,7 +77,10 @@ import io.mellowmesh.app.ui.theme.Mesh
 import io.mellowmesh.app.ui.theme.rememberReduceMotion
 import io.mellowmesh.core.ChatSpace
 import io.mellowmesh.core.GroupChat
+import io.mellowmesh.core.GroupAway
 import io.mellowmesh.core.GroupHandOver
+import io.mellowmesh.core.GroupHub
+import io.mellowmesh.core.GroupNote
 import io.mellowmesh.core.GroupItem
 import io.mellowmesh.core.GroupMember
 import io.mellowmesh.core.GroupSaid
@@ -106,6 +109,12 @@ data class GroupState(
     val sending: Boolean = false,
     val unreachable: List<String> = emptyList(),
     val error: String? = null,
+    /** The machine that keeps the group going (null: the phone runs it). */
+    val keeper: String? = null,
+    /** The keeping machine did not answer: the phone runs the group meanwhile. */
+    val keeperAway: Boolean = false,
+    /** Members whose machine is asleep: the keeping hub delivers when it wakes. */
+    val away: List<GroupAway> = emptyList(),
 )
 
 /**
@@ -121,6 +130,8 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
     private val handing = Mutex()
     private val handed = HashSet<String>()
     private var reloadJob: Job? = null
+    private var keepTried = false
+    private var listening: Pair<String?, List<GroupMember>>? = null
 
     init {
         viewModelScope.launch {
@@ -128,14 +139,28 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
                 val g = groups.firstOrNull { it.id == groupId }
                 g to (g?.let { app.repo.groupMembers(it) }.orEmpty())
             }.distinctUntilChanged().collect { (g, members) ->
-                val changed = members != _state.value.members
-                _state.update { it.copy(group = g, members = members, loading = it.loading && g != null) }
+                _state.update {
+                    it.copy(
+                        group = g,
+                        members = members,
+                        loading = it.loading && g != null,
+                        keeper = g?.let { x -> app.repo.keeperName(x) },
+                    )
+                }
                 if (g == null) {
                     _state.update { it.copy(loading = false) }
                     return@collect
                 }
-                if (changed) {
-                    listen(members)
+                // A group only the phone runs is given to one of the person's
+                // hubs, once, so it goes on while the phone sleeps.
+                if (g.keptOn == null && !keepTried && members.isNotEmpty() && members.size == g.members.size) {
+                    keepTried = true
+                    viewModelScope.launch { runCatching { app.repo.keepGroup(g) } }
+                }
+                val key = g.keptOn to members
+                if (key != listening) {
+                    listening = key
+                    listen(g, members)
                     load()
                 }
             }
@@ -151,10 +176,11 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
         viewModelScope.launch { app.repo.refreshEverywhere() }
     }
 
-    private fun listen(members: List<GroupMember>) {
+    private fun listen(g: MellowGroup, members: List<GroupMember>) {
         liveJob?.cancel()
         liveJob = viewModelScope.launch {
-            app.repo.groupLive(members).collect { msg ->
+            val live = if (g.keptOn != null) app.repo.keptLive(g) else app.repo.groupLive(members)
+            live.collect { msg ->
                 val fromMember = members.any { it.id.equals(msg.from, ignoreCase = true) }
                 if (fromMember) SoundFx.play(app, SoundFx.Cue.RECEIVED)
                 soonLoad()
@@ -175,6 +201,30 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
         val members = _state.value.members
         viewModelScope.launch {
             try {
+                if (g.keptOn != null) {
+                    val kept = try {
+                        app.repo.keptThread(g)
+                    } catch (e: io.mellowmesh.core.MeshException) {
+                        if (e.kind != io.mellowmesh.core.MeshException.Kind.NETWORK) throw e
+                        null
+                    }
+                    if (kept != null) {
+                        val items = GroupHub.items(kept, members, app.repo.keeperMe(g), app.repo.directory)
+                        _state.update {
+                            it.copy(
+                                items = items,
+                                waiting = GroupHub.thinking(kept, members),
+                                away = GroupHub.away(kept, members),
+                                keeperAway = false,
+                                loading = false,
+                                error = null,
+                            )
+                        }
+                        items.lastOrNull()?.let { app.repo.markRead("group:$groupId", it.tsMs) }
+                        return@launch
+                    }
+                    _state.update { it.copy(keeperAway = true, away = emptyList()) }
+                }
                 val read = app.repo.groupRead(members)
                 val items = GroupChat.thread(g, members, read, app.repo.directory)
                 _state.update {
@@ -186,7 +236,8 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
                     )
                 }
                 items.lastOrNull()?.let { app.repo.markRead("group:$groupId", it.tsMs) }
-                handOver(g, members, items)
+                // The phone hands over only when no hub keeps the group.
+                if (g.keptOn == null) handOver(g, members, items)
             } catch (e: Exception) {
                 _state.update { it.copy(loading = false, error = e.friendly()) }
             }
@@ -219,6 +270,19 @@ class GroupConversationViewModel(private val app: MellowMeshApp, val groupId: St
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             try {
+                if (g.keptOn != null && !_state.value.keeperAway) {
+                    try {
+                        app.repo.sayInKept(g, body, chosen.map { it.id })
+                        _state.update { it.copy(unreachable = emptyList()) }
+                        SoundFx.play(app, SoundFx.Cue.SENT)
+                        onSent()
+                        load()
+                        return@launch
+                    } catch (e: io.mellowmesh.core.MeshException) {
+                        if (e.kind != io.mellowmesh.core.MeshException.Kind.NETWORK) throw e
+                        _state.update { it.copy(keeperAway = true) }
+                    }
+                }
                 val missed = app.repo.sayInGroup(g, members, to, body, GroupChat.said(_state.value.items))
                 _state.update { it.copy(unreachable = missed.map { m -> m.name }) }
                 if (missed.size < to.size) {
@@ -268,16 +332,18 @@ fun GroupConversationScreen(groupId: String, onBack: () -> Unit, onTalk: (machin
     val networks = state.members.map { segmentOf[it.machineId] }.distinct().size
     val waitingIds = state.waiting.map { it.id.lowercase() }.toSet()
 
-    LaunchedEffect(state.items.size, state.waiting.size) {
-        val total = state.items.size + state.waiting.size
+    LaunchedEffect(state.items.size, state.waiting.size, state.away.size) {
+        val total = state.items.size + state.away.size + state.waiting.size
         if (total > 0) listState.animateScrollToItem(total - 1)
     }
 
     Column(Modifier.fillMaxSize().background(Mesh.Paper).imePadding()) {
         BackHeader(
             title = g.name,
-            subtitle = if (networks > 1) stringResource(R.string.group_networks, state.members.size, networks)
-            else stringResource(R.string.group_one_network, state.members.size),
+            subtitle = (
+                if (networks > 1) stringResource(R.string.group_networks, state.members.size, networks)
+                else stringResource(R.string.group_one_network, state.members.size)
+            ) + (state.keeper?.let { " · " + stringResource(R.string.group_kept_on, it) } ?: ""),
             onBack = onBack,
             leading = {
                 Row {
@@ -366,7 +432,25 @@ fun GroupConversationScreen(groupId: String, onBack: () -> Unit, onTalk: (machin
                                 to = placed[item.toId.lowercase()],
                                 animate = item.tsMs > openedAt,
                             )
+                            is GroupNote -> Text(
+                                item.text,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (item.late) Mesh.Ink2 else Mesh.Ink3,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 2.dp),
+                            )
                         }
+                    }
+                }
+                items(state.away, key = { "a-" + it.member.id }) { a ->
+                    val h = placed[a.member.id.lowercase()]
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.animateItem()) {
+                        HelperBlob(h?.let { Mesh.accent(it.card.accent) } ?: Mesh.Ink3, Mood.ASLEEP, 28.dp, description = a.member.name)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.group_waits_for_machine, a.member.name, a.machine ?: a.member.name),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Mesh.Ink2,
+                        )
                     }
                 }
                 items(state.waiting, key = { "w-" + it.id }) { m ->
@@ -378,6 +462,9 @@ fun GroupConversationScreen(groupId: String, onBack: () -> Unit, onTalk: (machin
                     }
                 }
             }
+        }
+        if (state.keeperAway && state.keeper != null) {
+            ErrorNote(stringResource(R.string.group_keeper_away, state.keeper ?: ""), modifier = Modifier.padding(horizontal = 12.dp))
         }
         if (state.unreachable.isNotEmpty()) {
             ErrorNote(stringResource(R.string.group_away, state.unreachable.joinToString(", ")), modifier = Modifier.padding(horizontal = 12.dp))

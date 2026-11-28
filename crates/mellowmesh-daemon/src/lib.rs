@@ -3,6 +3,7 @@ pub mod auth;
 pub mod cache;
 pub mod connect;
 pub mod email;
+pub mod groups;
 pub mod guard;
 pub mod handlers;
 pub mod invite;

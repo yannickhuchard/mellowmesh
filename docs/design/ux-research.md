@@ -791,6 +791,73 @@ The one-to-one conversation with Movers kept only its own lines (its
 welcome and "are you free in March?"), none of the group's. All checks
 passed (16/16).
 
+### Groups that keep going — research (2026-11-23)
+
+The first group run left four limits. Each one is a real moment in
+Karim's day:
+
+| # | Moment | What happened | What he needs |
+| :--- | :--- | :--- | :--- |
+| L1 | 7:40, metro. Karim asks *Move team* who books Saturday's van, then pockets the phone. At 7:41 Reviewer answers "not mine, @Movers". | The hand-over waits until he opens the group again, at lunch. The van is booked four hours late. | The hand-over goes on while the phone sleeps. |
+| L2 | 7:40 too. The business PC is asleep until 8:30. | "Out of reach: not sent to it." Karim has to remember to send it again. | The line waits for the machine and goes when it wakes. The thread says "waiting for Karim Moves", then "delivered 8:31". |
+| L3 | 9:00, at his desk. Karim opens the Windows app, or the hub's web page. | The group exists only on his phone. | The same group and thread on every screen. |
+| L4 | He tries to add his sister's Mellow, which lives on her network. | It never answers, and nothing says why: its turns spend her AI session, so it answers only her. | Say so when he picks it, not after he has sent. |
+
+**What we decided: the group lives on one of the person's own hubs.**
+
+This follows the hub-native principle. The phone gives the group to a
+hub Karim owns, for example "kept on Home". That hub does five things:
+
+- it says each line to every member;
+- it keeps a line for a sleeping machine and delivers it when the machine
+  comes back;
+- it watches for the answers;
+- it hands over when a Mellow writes `@Name`;
+- it writes everything into one thread (`_group.<id>`) that the phone,
+  Windows and the web page all read.
+
+**How the hub reaches a Mellow on another machine.** The phone gives the
+keeping hub a *pass* for that machine. The pass can do two things only:
+write to that one Mellow's inbox, and read that one conversation. The pass
+names Karim himself, so his line reads as his and the Mellow takes its
+turn. It never makes the hub an administrator of the other machine: from
+now on, a narrowed owner token no longer counts as the owner for any
+administration.
+
+Removing a member revokes its pass. So does deleting the group.
+
+If the keeping hub is out of reach, the phone falls back to saying the line
+itself, as before.
+
+L4 is a rule, not a fault. When Karim picks a Mellow that is not his, the
+picker says it answers only its owner and does not add it.
+
+### Persona run — groups kept by a hub (2026-11-28)
+
+This run used two real hubs: Karim's home (*Reviewer*) and Karim Moves
+(*Movers*). Both Mellows are session Mellows.
+
+The phone is the Android client code, running the same calls in the same
+order as the app. It keeps the group, says one line, and then never runs
+again. Every later check reads the thread the way the web page and Windows
+do.
+
+The data, including what each Mellow received and every check, is in
+[`simulations/2026-11-28-kept-groups-run.json`](simulations/2026-11-28-kept-groups-run.json).
+
+| # | Moment | Before | Now (measured) |
+| :--- | :--- | :--- | :--- |
+| L1 | Karim asks, then pockets the phone | The hand-over waited until the group was opened again | Keeping the group and saying the line took 55 ms. Then, with the phone asleep, both Mellows answered and the hub handed over to Movers ("Booked: Saturday 9:00"). The whole exchange took 1.0 s. Exactly one hand-over, never repeated. |
+| L2 | The business machine is off while Karim writes to Movers from his desk | "Out of reach: not sent", and Karim had to send it again | The line was taken. Both the web page and the phone's code show "Movers gets it when Karim Moves wakes up". When the machine woke, the hub delivered the line 3.1 s later and wrote "Delivered to Movers when Karim Moves came back." Movers answered with the quote. |
+| L3 | At the desk | The group existed only on the phone | The web page, Windows and the phone's code read the same thread from the hub: Karim's two lines once each, one hand-over, and the late delivery. |
+| Pass | Safety | — | The pass could not list tokens, mint one, or write anywhere but Movers' inbox. Deleting the group gave it back: it was revoked on the business machine. Nobody but the hub could write to `_group.*`. |
+
+All 23 checks passed.
+
+One fault was found during the run and fixed: by default, the hub kept only
+the metadata of `_group.*`, so the thread came back empty. These threads
+are now kept queryable for 180 days.
+
 ## Persona × platform matrix
 
 | | Windows | macOS | iOS | Android |

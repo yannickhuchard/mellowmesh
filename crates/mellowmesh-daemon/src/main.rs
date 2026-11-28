@@ -153,6 +153,16 @@ async fn main() -> anyhow::Result<()> {
                 sync: false,
             },
         ),
+        // A group's one thread, kept like the conversations it gathers.
+        (
+            mellowmesh_daemon::groups::THREAD_PATTERN.to_string(),
+            PersistencePolicy {
+                mode: PersistenceMode::Queryable,
+                retention: "180d".to_string(),
+                max_message_size: None,
+                sync: false,
+            },
+        ),
         (
             "_agent.**.inbox".to_string(),
             PersistencePolicy {
@@ -353,6 +363,9 @@ async fn main() -> anyhow::Result<()> {
     // wake the Mellows that were made from them.
     mellowmesh_daemon::platforms::start();
     mellowmesh_daemon::mellows::load(&state.store);
+    // Groups of Mellows kept here: deliver, watch for answers, hand over.
+    mellowmesh_daemon::groups::load(&state.store);
+    mellowmesh_daemon::groups::start(state.clone());
     // The hub's own mailbox: read it while email is on.
     mellowmesh_daemon::email::start(state.clone());
 

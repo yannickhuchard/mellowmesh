@@ -357,6 +357,10 @@
     <string name="group_talk_alone">Talk alone</string>
     <string name="group_networks">%1$d Mellows · %2$d networks</string>
     <string name="group_one_network">%1$d Mellows</string>
+    <string name="group_kept_on">kept on %1$s</string>
+    <string name="group_waits_for_machine">%1$s gets it when %2$s wakes up</string>
+    <string name="group_keeper_away">%1$s, which keeps this group, is out of reach: your phone runs it meanwhile</string>
+    <string name="group_not_yours">answers only its owner</string>
     <string name="done">Done</string>
     <string name="sounds_title">Sounds</string>
     <string name="sounds_body">Soft sounds when you send, when a Mellow answers, when something needs you, when a step of a journey is done. Silent when your phone is.</string>

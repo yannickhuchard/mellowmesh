@@ -137,6 +137,7 @@ public sealed partial class MainWindow : Window
         {
             "plaza" => typeof(PlazaPage),
             "chats" => typeof(ChatsPage),
+            "groups" => typeof(GroupsPage),
             "todo" => typeof(TodoPage),
             "shops" => typeof(ShopsPage),
             "board" => typeof(MasterBoardPage),

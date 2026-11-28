@@ -381,6 +381,15 @@ impl MellowMeshClient {
         Ok(())
     }
 
+    /// Publish and get back the message as the hub stored it (its id is
+    /// the hub's). A refusal reads `Publish failed (<status>): …`.
+    pub async fn publish_returning(&self, msg: &Message) -> anyhow::Result<Message> {
+        self.send(Method::POST, "/publish", Some(serde_json::to_value(msg)?))
+            .await?
+            .ensure_api("Publish")?
+            .json()
+    }
+
     pub async fn subscribe(
         &self,
         pattern: &str,

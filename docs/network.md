@@ -302,6 +302,40 @@ MCP clients get one read-only tool, `get_network`, returning
   (drawn as a line from one to the other), at most three times per turn and
   never twice for the same answer. Group lines stay out of the one-to-one
   conversations.
+* **Groups kept by a hub** (`/groups`, owner only; Android, Windows, web
+  page). The phone gives a group to a hub the person owns, which keeps it
+  going while the phone sleeps:
+  * it says each line to every member;
+  * it keeps a line for a machine that is out of reach, for a day, and
+    delivers it when the machine comes back ("Delivered to Movers when
+    Karim Moves came back.");
+  * it watches for the answers, and hands over on `@Name` with the same
+    limits as the phone;
+  * it writes one thread, `_group.<id>`, that every app reads. Only the
+    hub writes there.
+
+  A member on another of the person's machines is reached with a *pass*. A
+  pass is a token of that machine, as the person, that may write only that
+  Mellow's inbox and read only its conversation. Passes are kept on the
+  hub, never shown again, and given back (`DELETE /auth/tokens/self`) when
+  the member leaves or the group is deleted.
+
+  A narrowed owner token like this sets the owner's Mellow in motion, but it
+  never counts as the owner for administration.
+
+  API:
+
+  | Call | What it does |
+  | :--- | :--- |
+  | `GET /groups` | List the groups this hub keeps |
+  | `POST /groups` | Keep a group: `{id?, name, members:[{id, name, conversation, machine?, pass?:{url, token}}]}` |
+  | `GET /groups/:id/thread` | The thread: `items`, plus `pending` members (`thinking`, or `waiting` for their machine) |
+  | `POST /groups/:id/say` | Say a line: `{text, to?}` |
+  | `DELETE /groups/:id` | Delete the group |
+
+  If the keeping hub is out of reach, the phone runs the group itself
+  meanwhile. A Mellow someone else owns answers only them, so the group
+  pickers say so and do not add it.
 * **Journeys** (Android, third tab; the bottom bar is Plaza · Chats ·
   Journeys · To do): the paths Mellows help along. Every task on a
   `journey.<slug>` topic, on any machine, is a station: done (filled),

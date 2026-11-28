@@ -14,6 +14,10 @@ import io.mellowmesh.core.HomeModelBuilder
 import io.mellowmesh.core.ChatSpace
 import io.mellowmesh.core.Everywhere
 import io.mellowmesh.core.MellowGroup
+import io.mellowmesh.core.HubGroup
+import io.mellowmesh.core.HubThread
+import io.mellowmesh.core.GroupHub
+import io.mellowmesh.core.KeptMember
 import io.mellowmesh.core.PlacedConversation
 import io.mellowmesh.core.PlacedTask
 import io.mellowmesh.core.Routine
@@ -149,13 +153,29 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         return g
     }
 
-    fun addToGroup(groupId: String, agentId: String) =
+    fun addToGroup(groupId: String, agentId: String) {
         saveGroups(_groups.value.map { if (it.id == groupId) ChatSpace.add(it, agentId) else it })
+        resyncKept(groupId)
+    }
 
-    fun removeFromGroup(groupId: String, agentId: String) =
+    fun removeFromGroup(groupId: String, agentId: String) {
         saveGroups(_groups.value.map { if (it.id == groupId) ChatSpace.remove(it, agentId) else it })
+        resyncKept(groupId)
+    }
 
-    fun deleteGroup(groupId: String) = saveGroups(_groups.value.filterNot { it.id == groupId })
+    fun deleteGroup(groupId: String) {
+        val g = _groups.value.firstOrNull { it.id == groupId }
+        saveGroups(_groups.value.filterNot { it.id == groupId })
+        val keeper = g?.keptOn ?: return
+        scope.launch(Dispatchers.IO) { runCatching { clients[keeper]?.forgetGroup(groupId.lowercase()) } }
+    }
+
+    /** A kept group whose members changed: tell its hub (in the background). */
+    private fun resyncKept(groupId: String) {
+        val g = _groups.value.firstOrNull { it.id == groupId } ?: return
+        if (g.keptOn == null) return
+        scope.launch { runCatching { keepGroup(g) } }
+    }
 
     private fun saveGroups(list: List<MellowGroup>) {
         _groups.value = list
@@ -535,7 +555,8 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                                 val w = who.await()
                                 val ts = tasks.await()
                                 val ds = decisions.await()
-                                gathered[id] = Gathered(ts, ds.filter { it.isPending }.map { it.id }.toSet(), w?.isOwner == true)
+                                val kept = if (w?.isOwner == true) runCatching { c.groups() }.getOrNull() else null
+                                gathered[id] = Gathered(ts, ds.filter { it.isPending }.map { it.id }.toSet(), w?.isOwner == true, kept)
                                 Triple(
                                     a,
                                     n,
@@ -598,6 +619,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
             homes.filter { !gathered.containsKey(it.machineId) }.flatMap { h -> _pendingDecisionsOn[h.machineId].orEmpty() }
         gathered.forEach { (id, g) -> _pendingDecisionsOn[id] = g.pending }
         _ownerOn.value = _ownerOn.value + gathered.mapValues { it.value.owner }
+        mergeKeptGroups(gathered.mapValues { it.value.kept })
         flushOutbox()
     }
 
@@ -613,7 +635,7 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
         }
     }
 
-    private class Gathered(val tasks: List<Task>, val pending: Set<String>, val owner: Boolean)
+    private class Gathered(val tasks: List<Task>, val pending: Set<String>, val owner: Boolean, val kept: List<HubGroup>? = null)
 
     private val _allTasks = MutableStateFlow<List<PlacedTask>>(emptyList())
     /** The tasks of every machine (Journeys are drawn from them). */
@@ -848,6 +870,112 @@ class MeshRepository(private val store: ConfigStore, private val scope: Coroutin
                 Conversations.parseId(m.conversationId)?.let { liveFrom(m.machineId, Conversations.historyPattern(it)) }
             }.toTypedArray(),
         )
+
+    // ---- groups kept by a hub ----------------------------------------------------
+
+    /**
+     * The groups the person's hubs keep are the truth for those groups: one
+     * made on Windows or the web joins the list, a rename or a member change
+     * made elsewhere shows here, one deleted elsewhere leaves.
+     */
+    private fun mergeKeptGroups(kept: Map<String, List<HubGroup>?>) {
+        val list = _groups.value.toMutableList()
+        var changed = false
+        for ((machineId, groups) in kept) {
+            groups ?: continue
+            for (hg in groups) {
+                val i = list.indexOfFirst { it.id.equals(hg.id, true) }
+                val next = MellowGroup(if (i >= 0) list[i].id else hg.id, hg.name, hg.members.map { it.id }, keptOn = machineId)
+                if (i < 0) {
+                    list += next
+                    changed = true
+                } else if (list[i] != next && (list[i].keptOn == null || list[i].keptOn == machineId)) {
+                    list[i] = next
+                    changed = true
+                }
+            }
+            val gone = list.filter { g -> g.keptOn == machineId && groups.none { it.id.equals(g.id, true) } }
+            if (gone.isNotEmpty()) {
+                list.removeAll(gone)
+                changed = true
+            }
+        }
+        if (changed) saveGroups(list)
+    }
+
+    /** Whether the phone is the owner on [machineId] (as far as it knows). */
+    fun ownsMachine(machineId: String): Boolean = _ownerOn.value[machineId] == true
+
+    /**
+     * Give [group] to a hub the person owns, so it goes on while the phone
+     * sleeps: that hub says the lines, keeps them for a sleeping machine,
+     * watches the answers and hands over. A member on another machine gets a
+     * pass (its inbox and its conversation only). Returns the group as kept,
+     * or null when it cannot be kept: no owned machine, or a member the phone
+     * cannot reach or whose machine is not the person's (its Mellow answers
+     * only its owner anyway).
+     */
+    suspend fun keepGroup(group: MellowGroup): MellowGroup? {
+        val members = groupMembers(group)
+        if (members.isEmpty() || members.size < group.members.size) return null
+        val owned = _ownerOn.value.filterValues { it }.keys.toList()
+        if (members.any { it.machineId !in owned }) return null
+        val keeper = group.keptOn?.takeIf { it in owned } ?: GroupHub.chooseKeeper(members, owned, activeId) ?: return null
+        val kc = clients[keeper] ?: return null
+        val statuses = _machines.value
+        val keeperName = statuses.firstOrNull { it.machine.id == keeper }?.name ?: "your machine"
+        return withContext(Dispatchers.IO) {
+            val held = runCatching { kc.groups().firstOrNull { it.id.equals(group.id, true) } }.getOrNull()
+            val kept = members.map { m ->
+                val st = statuses.firstOrNull { it.machine.id == m.machineId }
+                when {
+                    m.machineId == keeper -> KeptMember(m, null, null, null)
+                    GroupHub.holds(held, m.id) -> KeptMember(m, null, null, st?.name)
+                    else -> {
+                        val c = clients[m.machineId] ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+                        val token = c.createPass(m.me, m.conversationId, "Group ${group.name}: kept on $keeperName")
+                        KeptMember(m, st?.machine?.baseUrl, token, st?.name)
+                    }
+                }
+            }
+            kc.keepGroup(GroupHub.keepBody(group, kept))
+            val next = group.copy(keptOn = keeper)
+            withContext(Dispatchers.Main) { saveGroups(_groups.value.map { if (it.id == group.id) next else it }) }
+            next
+        }
+    }
+
+    /** The thread of a kept group, read on the hub that keeps it. */
+    suspend fun keptThread(group: MellowGroup, limit: Int = 200): HubThread {
+        val c = group.keptOn?.let { clients[it] } ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not kept")
+        return withContext(Dispatchers.IO) { c.groupThread(group.id.lowercase(), limit) }
+    }
+
+    /** The person on the machine that keeps [group]. */
+    fun keeperMe(group: MellowGroup): String =
+        _machines.value.firstOrNull { it.machine.id == group.keptOn }?.machine?.principal ?: me
+
+    /** The name of the machine that keeps [group]. */
+    fun keeperName(group: MellowGroup): String? = _machines.value.firstOrNull { it.machine.id == group.keptOn }?.name
+
+    /** Say a line in a kept group: its hub says it to each member. */
+    suspend fun sayInKept(group: MellowGroup, text: String, to: List<String>) {
+        val keeper = group.keptOn ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not kept")
+        val c = clients[keeper] ?: throw MeshException(MeshException.Kind.UNAUTHORIZED, 401, "not paired")
+        try {
+            withContext(Dispatchers.IO) { c.groupSay(group.id.lowercase(), text, to) }
+            markReachable(keeper, true)
+        } catch (e: MeshException) {
+            if (e.kind == MeshException.Kind.NETWORK) markReachable(keeper, false)
+            throw e
+        }
+    }
+
+    /** Live lines of a kept group's thread (while collected). */
+    fun keptLive(group: MellowGroup): Flow<Message> {
+        val keeper = group.keptOn ?: return kotlinx.coroutines.flow.emptyFlow()
+        return liveFrom(keeper, GroupHub.topic(group.id))
+    }
 
     /**
      * Live messages of one machine matching [pattern], for as long as the

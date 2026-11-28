@@ -151,6 +151,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/mellows", get(list_mellows_handler))
         .route("/mellows/next", get(mellow_next_handler))
         .route("/mellows/reply", post(mellow_reply_handler))
+        .route(
+            "/groups",
+            get(groups_list_handler).post(groups_keep_handler),
+        )
+        .route(
+            "/groups/:id",
+            get(group_get_handler).delete(group_forget_handler),
+        )
+        .route("/groups/:id/say", post(group_say_handler))
+        .route("/groups/:id/thread", get(group_thread_handler))
         .route("/pair", post(handlers::pairing::pair))
         .route("/pair/claim", post(handlers::pairing::claim_pairing_code))
         .route("/pair/:token_id", get(handlers::pairing::pair_status))
@@ -258,6 +268,114 @@ struct CreateMellow {
     /// `session` (default) or `headless` (opt-in on the hub).
     #[serde(default)]
     mode: Option<String>,
+}
+
+fn plain_error(status: StatusCode, why: impl Into<String>) -> axum::response::Response {
+    (
+        status,
+        axum::response::Json(serde_json::json!({ "error": why.into() })),
+    )
+        .into_response()
+}
+
+/// `GET /groups`: the groups of Mellows this hub keeps (owner only).
+async fn groups_list_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    axum::response::Json(crate::groups::list()).into_response()
+}
+
+/// `POST /groups`: keep a group here (new, or the same id again).
+async fn groups_keep_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::Json(input): axum::Json<crate::groups::GroupInput>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    match crate::groups::keep(&state, input) {
+        Ok(v) => axum::response::Json(v).into_response(),
+        Err(e) => plain_error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+async fn group_get_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    match crate::groups::get(&id) {
+        Some(v) => axum::response::Json(v).into_response(),
+        None => plain_error(StatusCode::NOT_FOUND, "No such group on this hub."),
+    }
+}
+
+async fn group_forget_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    if crate::groups::forget(&state, &id) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        plain_error(StatusCode::NOT_FOUND, "No such group on this hub.")
+    }
+}
+
+#[derive(Deserialize)]
+struct GroupSay {
+    text: String,
+    #[serde(default)]
+    to: Vec<String>,
+}
+
+/// `POST /groups/:id/say`: the owner says a line in the group.
+async fn group_say_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::Json(body): axum::Json<GroupSay>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    match crate::groups::say(&state, &id, &body.text, &body.to).await {
+        Ok(v) => axum::response::Json(v).into_response(),
+        Err(e) => plain_error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+#[derive(Deserialize)]
+struct GroupThreadParams {
+    limit: Option<usize>,
+}
+
+/// `GET /groups/:id/thread`: the group's one thread, and who it waits on.
+async fn group_thread_handler(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<crate::auth::AuthContext>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<GroupThreadParams>,
+) -> axum::response::Response {
+    if let Some(no) = owner_only(&state, &ctx) {
+        return no;
+    }
+    let limit = params.limit.unwrap_or(200).clamp(1, 500);
+    match crate::groups::thread(&state, &id, limit) {
+        Some(v) => axum::response::Json(v).into_response(),
+        None => plain_error(StatusCode::NOT_FOUND, "No such group on this hub."),
+    }
 }
 
 #[derive(Deserialize)]

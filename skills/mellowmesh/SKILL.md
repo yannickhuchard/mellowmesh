@@ -43,7 +43,9 @@ When the message also has a `group`, the owner is talking to several Mellows
 at once (they may live on other machines): `group.members` are the others,
 `group.said` what was said lately, `group.handed_over_by` the Mellow that
 passed it on. Answer only your Mellow's part, briefly; write `@Name` of a
-member to hand the rest over to it.
+member to hand the rest over to it. Answer with `mellow_reply` as usual: the
+app or the hub that keeps the group reads your answer from your
+conversation and hands over, even while the owner's phone sleeps.
 
 Rules: never stop the loop on your own (calling `mellow_wait` is what tells
 the network a session is listening; when you stop, the Mellows fall asleep

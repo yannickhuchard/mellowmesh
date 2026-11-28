@@ -74,6 +74,7 @@ class GroupSimulation {
         fun line(i: GroupItem) = when (i) {
             is GroupSaid -> (i.member?.name ?: "Karim") + (if (i.toNames.isNotEmpty()) " (to ${i.toNames.joinToString()})" else "") + ": " + i.message.body
             is GroupHandOver -> "${i.fromName} → ${i.toName}"
+            is GroupNote -> "(${i.text})"
         }
 
         val movers = members.first { it.name == "Movers" }

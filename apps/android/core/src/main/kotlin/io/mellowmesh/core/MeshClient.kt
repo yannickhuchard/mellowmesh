@@ -6,7 +6,9 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -297,6 +299,56 @@ class MeshClient(
     // ---- agents, decisions, tasks --------------------------------------------
 
     fun agents(): List<AgentRegistration> = get("agents", ListSerializer(AgentRegistration.serializer()))
+
+    // ---- groups kept by this hub -------------------------------------------------
+
+    /** The groups of Mellows this hub keeps (owner only). */
+    fun groups(): List<HubGroup> = get("groups", ListSerializer(HubGroup.serializer()))
+
+    /** Keep a group here (new, or the same id again). */
+    fun keepGroup(body: JsonObject): HubGroup =
+        decode(HubGroup.serializer(), send("POST", "groups", body.toString()))
+
+    fun groupThread(id: String, limit: Int = 200): HubThread =
+        get("groups/$id/thread", HubThread.serializer(), mapOf("limit" to limit.toString()))
+
+    /** Say a line in the group (to member ids; empty = `@Name`s, else everyone). */
+    fun groupSay(id: String, text: String, to: List<String>) {
+        require(text.isNotBlank()) { "message is empty" }
+        send(
+            "POST",
+            "groups/$id/say",
+            buildJsonObject {
+                put("text", text)
+                putJsonArray("to") { to.forEach { add(it) } }
+            }.toString(),
+        )
+    }
+
+    fun forgetGroup(id: String) {
+        send("DELETE", "groups/$id", null)
+    }
+
+    /**
+     * A pass for the hub that keeps a group: a token of this machine, as
+     * [principal], that may write only [conversationId]'s inbox and read only
+     * that conversation (owner only). Returns the token.
+     */
+    fun createPass(principal: String, conversationId: String, label: String): String {
+        val text = send(
+            "POST",
+            "auth/tokens",
+            buildJsonObject {
+                put("principal", principal)
+                putJsonArray("read_scopes") { add("$conversationId.*") }
+                putJsonArray("write_scopes") { add("$conversationId.inbox") }
+                put("label", label.take(100))
+            }.toString(),
+        )
+        val obj = MeshJson.parseToJsonElement(text) as? JsonObject
+        return (obj?.get("token") as? JsonPrimitive)?.content
+            ?: throw MeshException(MeshException.Kind.PROTOCOL, 200, "no token")
+    }
 
     /** Who invited AIs may write to (owner: the whole policy). */
     fun agentMail(): MailPolicyView = get("agent-mail", MailPolicyView.serializer())

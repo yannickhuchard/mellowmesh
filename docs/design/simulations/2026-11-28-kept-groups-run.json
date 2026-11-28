@@ -1,0 +1,225 @@
+{
+  "run": "groups-kept-by-a-hub",
+  "date": "2026-11-28",
+  "hubs": 2,
+  "phone": {
+    "keep": {
+      "keeper": "home",
+      "passes": "1",
+      "kept_members": "Reviewer,Movers@Karim Moves",
+      "keep_and_say_ms": "55"
+    },
+    "while_asleep": {
+      "thread": "Karim: Hello team: who books the van for Saturday? / Reviewer -> Movers / Reviewer: Not mine: @Movers handles vans. / Movers: Movers here. / Movers: Booked: Saturday 9:00, two movers and the van. / Karim: Movers: please send the quote to the customer. [to Movers]",
+      "karim_lines": "2",
+      "handovers": "1",
+      "thinking": "",
+      "away": "Movers@Karim Moves"
+    },
+    "read": {
+      "thread": "Karim: Hello team: who books the van for Saturday? / Reviewer -> Movers / Reviewer: Not mine: @Movers handles vans. / Movers: Movers here. / Movers: Booked: Saturday 9:00, two movers and the van. / Karim: Movers: please send the quote to the customer. [to Movers] / (Delivered to Movers when Karim Moves came back.) / Movers: Quote sent: 480 EUR for Saturday.",
+      "karim_lines": "2",
+      "handovers": "1",
+      "thinking": "",
+      "away": ""
+    }
+  },
+  "thread": {
+    "after_handover": [
+      {
+        "kind": "said",
+        "who": null,
+        "text": "Hello team: who books the van for Saturday?"
+      },
+      {
+        "kind": "answer",
+        "who": "Reviewer",
+        "text": "Not mine: @Movers handles vans."
+      },
+      {
+        "kind": "handover",
+        "who": "Reviewer",
+        "text": "Reviewer handed this over to Movers."
+      },
+      {
+        "kind": "answer",
+        "who": "Movers",
+        "text": "Movers here."
+      },
+      {
+        "kind": "answer",
+        "who": "Movers",
+        "text": "Booked: Saturday 9:00, two movers and the van."
+      }
+    ]
+  },
+  "l1_seconds_after_phone_slept": 1.04,
+  "l2_seconds_after_wake": 3.14,
+  "mellows_saw": [
+    {
+      "hub": "home",
+      "name": "Reviewer",
+      "body": "Hello team: who books the van for Saturday?",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Movers"
+        ],
+        "said": []
+      }
+    },
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Hello team: who books the van for Saturday?",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Reviewer"
+        ],
+        "said": []
+      }
+    },
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Reviewer handed this over to you:\n\nNot mine: @Movers handles vans.",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Reviewer"
+        ],
+        "said": [
+          {
+            "who": "Owner",
+            "text": "Hello team: who books the van for Saturday?"
+          }
+        ],
+        "handed_over_by": "Reviewer"
+      }
+    },
+    {
+      "hub": "biz",
+      "name": "Movers",
+      "body": "Movers: please send the quote to the customer.",
+      "group": {
+        "name": "Move team",
+        "members": [
+          "Reviewer"
+        ],
+        "said": [
+          {
+            "who": "Owner",
+            "text": "Hello team: who books the van for Saturday?"
+          },
+          {
+            "who": "Reviewer",
+            "text": "Not mine: @Movers handles vans."
+          },
+          {
+            "who": "Movers",
+            "text": "Movers here."
+          },
+          {
+            "who": "Movers",
+            "text": "Booked: Saturday 9:00, two movers and the van."
+          }
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "two session Mellows, one on each network",
+      "pass": true
+    },
+    {
+      "check": "the phone keeps the group on a hub it owns, with one pass",
+      "pass": true
+    },
+    {
+      "check": "the home hub holds both members; Movers is reached on Karim Moves",
+      "pass": true
+    },
+    {
+      "check": "with the phone asleep, both answer and the hand-over is done by the hub",
+      "pass": true
+    },
+    {
+      "check": "exactly one hand-over, Reviewer -> Movers",
+      "pass": true
+    },
+    {
+      "check": "Movers booked the van (it was told Reviewer handed over)",
+      "pass": true
+    },
+    {
+      "check": "Karim's line shows once",
+      "pass": true
+    },
+    {
+      "check": "the hand-over is never repeated",
+      "pass": true
+    },
+    {
+      "check": "the line is taken while Karim Moves is off",
+      "pass": true
+    },
+    {
+      "check": "the thread says Movers gets it when Karim Moves wakes up",
+      "pass": true
+    },
+    {
+      "check": "the phone's code shows the same: Movers away",
+      "pass": true
+    },
+    {
+      "check": "when it wakes, the line is delivered and Movers answers",
+      "pass": true
+    },
+    {
+      "check": "the thread says so: \"Delivered to Movers when Karim Moves came back.\"",
+      "pass": true
+    },
+    {
+      "check": "the phone's code reads the hub's thread: one line each, one hand-over",
+      "pass": true
+    },
+    {
+      "check": "the web page and Windows list the group from the hub",
+      "pass": true
+    },
+    {
+      "check": "no pass is ever shown",
+      "pass": true
+    },
+    {
+      "check": "the web page has the Groups of Mellows view",
+      "pass": true
+    },
+    {
+      "check": "the pass cannot manage the business machine",
+      "pass": true
+    },
+    {
+      "check": "the pass cannot write anywhere but Movers' inbox",
+      "pass": true
+    },
+    {
+      "check": "the pass cannot mint a token",
+      "pass": true
+    },
+    {
+      "check": "deleting the group works",
+      "pass": true
+    },
+    {
+      "check": "deleting the group gives the pass back (revoked on the business machine)",
+      "pass": true
+    },
+    {
+      "check": "nobody but the hub writes a group thread",
+      "pass": true
+    }
+  ]
+}

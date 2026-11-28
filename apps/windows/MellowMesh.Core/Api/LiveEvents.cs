@@ -18,6 +18,9 @@ public sealed record TaskEvent(string TaskId, string Kind, MeshTask? Task, strin
 
 public sealed record AgentStatusEvent(string AgentPath, string Leaf, string? Status) : MeshEvent;
 
+/// <summary>Something new in the thread of a group kept by the hub (<c>_group.&lt;id&gt;</c>).</summary>
+public sealed record GroupThreadEvent(string GroupId, Message Message) : MeshEvent;
+
 /// <summary>Maps raw messages to <see cref="MeshEvent"/>s (see app-core <c>events.rs</c>).</summary>
 public static class LiveEvents
 {
@@ -79,6 +82,10 @@ public static class LiveEvents
                 var pl = m.Payload is { ValueKind: JsonValueKind.Object } r ? r : default;
                 return new AgentStatusEvent(string.Join('.', segs[1..^1]).ToLowerInvariant(), leaf, Str(pl, "status"));
             }
+        }
+        if (head == "_group" && segs.Length == 2 && segs[1].Length > 0)
+        {
+            return new GroupThreadEvent(segs[1], m);
         }
         var conv = ConversationRules.Classify(m.Topic);
         return conv is null ? null : new MessageEvent(conv, m);
